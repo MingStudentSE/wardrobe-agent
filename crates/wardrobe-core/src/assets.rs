@@ -331,6 +331,33 @@ fn dimensions(width: u32, height: u32) -> Result<(), ApiError> {
 fn decode(bytes: &[u8]) -> Result<image::DynamicImage, ApiError> {
     if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
         use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
+        let lib = LibHeif::new();
+        let version = lib.version();
+        if version[0] != 1 || version[1] != 23 {
+            return Err(ApiError::new(
+                "unsupported_heic_runtime",
+                "HEIC 解码库版本不匹配，请重新安装应用",
+            ));
+        }
+        // The safe wrapper does not expose the struct's version. Read only its
+        // documented first byte before allowing the wrapper to copy it by value.
+        // Never interpret an unknown runtime struct using the bound 104-byte type.
+        let limits_version = unsafe {
+            let limits = libheif_sys::heif_get_global_security_limits();
+            if limits.is_null() {
+                None
+            } else {
+                Some(*limits.cast::<u8>())
+            }
+        };
+        if limits_version != Some(4) {
+            return Err(ApiError::new(
+                "unsupported_heic_runtime",
+                "HEIC 解码库安全接口版本不匹配，请重新安装应用",
+            ));
+        }
+        // SecurityLimits is copied by value by the wrapper. Its FFI layout must
+        // match the bundled 1.23 runtime, including the version 4 fields.
         let mut ctx = HeifContext::new().map_err(|_| failure())?;
         let mut limits = ctx.security_limits();
         limits.set_max_image_size_pixels(MAX_PIXELS);
@@ -343,7 +370,7 @@ fn decode(bytes: &[u8]) -> Result<image::DynamicImage, ApiError> {
             return Err(failure());
         }
         dimensions(handle.ispe_width() as u32, handle.ispe_height() as u32)?;
-        let decoded = LibHeif::new()
+        let decoded = lib
             .decode(&handle, ColorSpace::Rgb(RgbChroma::Rgba), None)
             .map_err(|_| failure())?;
         dimensions(decoded.width(), decoded.height())?;
