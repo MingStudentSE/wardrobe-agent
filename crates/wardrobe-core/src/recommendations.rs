@@ -12,14 +12,49 @@ fn parse(s: String) -> Result<Value, ApiError> {
     serde_json::from_str(&s).map_err(|_| ApiError::new("storage_error", "推荐意图损坏"))
 }
 impl Application {
-    pub(super) fn recommendation_execute(
+    pub(super) fn recommendation_execute(&self, op: &str, input: Value) -> Result<Value, ApiError> {
+        if op == "recommendation.worker.run" {
+            return self.ai_worker(input);
+        }
+        if op == "recommendation.generate" {
+            generate_fields(&input)?;
+        }
+        if op == "recommendation.generate" && input["strategy"] == "ai" {
+            return self.ai_enqueue(input);
+        }
+        let context = if op == "recommendation.generate" {
+            Some(self.recommendation_weather_for(&self.member(&input)?, input.get("weather"))?)
+        } else {
+            None
+        };
+        self.recommendation_with_generation(op, input, None, None, context.as_ref())
+    }
+    pub(super) fn recommendation_with_generation(
+        &self,
+        op: &str,
+        input: Value,
+        draft: Option<&Value>,
+        generation: Option<&Value>,
+        weather: Option<&(bool, Value)>,
+    ) -> Result<Value, ApiError> {
+        self.recommendation_build(op, input, draft, generation, weather, true)
+    }
+    pub(super) fn recommendation_build(
         &self,
         op: &str,
         mut input: Value,
+        draft: Option<&Value>,
+        generation: Option<&Value>,
+        resolved_weather: Option<&(bool, Value)>,
+        persist: bool,
     ) -> Result<Value, ApiError> {
         let allowed = match op {
             "recommendation.generate" => vec![
                 "member_id",
+                "strategy",
+                "provider_id",
+                "json_output",
+                "output_format",
                 "operation_key",
                 "timezone",
                 "limit",
@@ -189,6 +224,12 @@ impl Application {
         if op != "recommendation.generate" {
             return Err(ApiError::new("unsupported_operation", "推荐操作不可用"));
         }
+        if input
+            .get("strategy")
+            .is_some_and(|v| v != "rules" && v != "ai")
+        {
+            return Err(invalid("推荐策略须为rules或ai"));
+        }
         let key = string(&input, "operation_key")?;
         if key.is_empty() || key.len() > 200 {
             return Err(invalid("操作标识须为1–200字节"));
@@ -220,7 +261,10 @@ impl Application {
         let zone: chrono_tz::Tz = string(&input, "timezone")?
             .parse()
             .map_err(|_| invalid("须使用有效IANA时区"))?;
-        let (cold, weather_context) = weather(input.get("weather"))?;
+        let (cold, weather_context) = match resolved_weather {
+            Some(v) => v.clone(),
+            None => weather(input.get("weather"))?,
+        };
         let occasion = input
             .get("occasion")
             .map(|v| v.as_str().ok_or_else(|| invalid("场合须为文字")))
@@ -404,7 +448,11 @@ impl Application {
             priority: &priority,
             replacement,
         };
-        let (mut proposals, capacity_blocked) = plan(&clothes, &rules);
+        let (mut proposals, capacity_blocked) = if let Some(draft) = draft {
+            (validate_model(draft, &clothes, &rules, retained)?, false)
+        } else {
+            plan(&clothes, &rules)
+        };
 
         for proposal in &mut proposals {
             if let Some(retained) = retained {
@@ -479,7 +527,11 @@ impl Application {
                 }
             }
             if cold {
-                reasons.push(json!("手动温度不高于15°C，要求外层；不承诺衣物保暖性能"));
+                reasons.push(json!(if weather_context["source"] == "manual" {
+                    "手动温度不高于15°C，要求外层；不承诺衣物保暖性能"
+                } else {
+                    "天气估计温度不高于15°C，要求外层；不承诺衣物保暖性能"
+                }));
             }
         }
         let mut shortage_reasons: Vec<String> = if proposals.len() < limit as usize {
@@ -508,7 +560,25 @@ impl Application {
             shortage_reasons.push("没有满足成员、生命周期、洗护及排除条件的真实衣物".to_owned());
         }
         let now = chrono::Utc::now().to_rfc3339();
-        let doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"created_at":now,"updated_at":now,"controls":input,"proposals":proposals,"requested_count":limit,"actual_count":proposals.len(),"offline":true,"creates_wear":false,"shortage_reasons":shortage_reasons,"weather_context":weather_context,"recent_window":{"from":from.to_string(),"through":today.to_string(),"timezone":zone.name(),"source":"actual_effective_wear"}});
+        let mut public_generation = generation
+            .cloned()
+            .unwrap_or(json!({"source":"rules","attempts":0}));
+        if let Some(object) = public_generation.as_object_mut() {
+            object.remove("_lease_token");
+        }
+        let doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"created_at":now,"updated_at":now,"controls":input,"generation":public_generation,"proposals":proposals,"requested_count":limit,"actual_count":proposals.len(),"offline":public_generation["source"]!="text_model","creates_wear":false,"shortage_reasons":shortage_reasons,"weather_context":weather_context,"recent_window":{"from":from.to_string(),"through":today.to_string(),"timezone":zone.name(),"source":"actual_effective_wear"}});
+        if !persist {
+            return Ok(doc);
+        }
+        if let Some(guard) = generation {
+            if let (Some(job), Some(lease)) =
+                (guard["job_id"].as_str(), guard["_lease_token"].as_str())
+            {
+                let task = self.job_get(json!({"member_id":member,"id":job}))?;
+                crate::ai_recommendations::text_lease(&task, lease)?;
+            }
+        }
+
         tx.execute(
             "INSERT INTO recommendation_intents VALUES(?1,?2,?3,?4,?5)",
             params![doc["id"].as_str(), member, key, request, doc.to_string()],
@@ -745,7 +815,7 @@ fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> (Vec<Value>, bool) {
     let blocked = capacity_blocked && result.is_empty();
     (result, blocked)
 }
-fn role(category: &str) -> (&str, i32) {
+pub(super) fn role(category: &str) -> (&str, i32) {
     match category {
         "top" => ("top", 0),
         "bottom" => ("bottom", 0),
@@ -770,7 +840,7 @@ fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
     }
     Ok(())
 }
-fn weather(value: Option<&Value>) -> Result<(bool, Value), ApiError> {
+pub(super) fn weather(value: Option<&Value>) -> Result<(bool, Value), ApiError> {
     let Some(value) = value else {
         return Ok((
             false,
@@ -820,7 +890,7 @@ fn weather(value: Option<&Value>) -> Result<(bool, Value), ApiError> {
         json!({"mode":"manual","source":"manual","temperature_c":temperature,"location":value.get("location"),"obtained_at":observed.to_rfc3339(),"stale":now-observed>chrono::Duration::hours(3),"network_requested":false}),
     ))
 }
-fn ids(input: &Value, key: &str) -> Result<Vec<String>, ApiError> {
+pub(super) fn ids(input: &Value, key: &str) -> Result<Vec<String>, ApiError> {
     let Some(value) = input.get(key) else {
         return Ok(vec![]);
     };
@@ -846,10 +916,226 @@ fn entry(c: &Value, role: &str, layer: i32) -> Value {
     json!({"clothing_id":c["id"],"name":c["name"],"category":c["category"],"role":role,"layer":layer})
 }
 pub(super) fn descriptors() -> Vec<Value> {
-    ["generate","get","list","replace","change","save"].into_iter().map(|op|{
+    ["generate","get","list","replace","change","save","worker.run"].into_iter().map(|op|{
  let mut properties=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
- if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids","retained_ids","action_excluded_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true});}properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["replacement_category"]=json!({"enum":crate::CATEGORIES});properties["retained_items"]=json!({"type":"array","maxItems":100,"items":{"type":"object","required":["clothing_id","role","layer"],"properties":{"clothing_id":{"type":"string"},"role":{"type":"string"},"layer":{"type":"integer"}},"additionalProperties":false}});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}
+ if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["strategy"]=json!({"enum":["rules","ai"]});properties["provider_id"]=json!({"type":"string"});properties["json_output"]=json!({"type":"boolean"});properties["output_format"]=json!({"enum":["plain","json_object","llama_cpp_schema"]});properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids","retained_ids","action_excluded_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true});}properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["replacement_category"]=json!({"enum":crate::CATEGORIES});properties["retained_items"]=json!({"type":"array","maxItems":100,"items":{"type":"object","required":["clothing_id","role","layer"],"properties":{"clothing_id":{"type":"string"},"role":{"type":"string"},"layer":{"type":"integer"}},"additionalProperties":false}});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual","automatic"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"&&op!="worker.run"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}
 if op=="save"{properties["name"]=json!({"type":"string","minLength":1,"maxLength":120});required.push("name");}}}}
- json!({"name":format!("recommendation.{op}"),"description":format!("本地离线搭配 {op}；仅使用同成员真实可用衣物，生成与保存均不记录穿着"),"inputSchema":{"type":"object","required":required,"properties":properties,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"id":{"type":"string"},"proposals":{"type":"array"},"items":{"type":"array"}}}})
+ json!({"name":format!("recommendation.{op}"),"description":format!("本地离线搭配 {op}；仅使用同成员真实可用衣物，生成与保存均不记录穿着"),"inputSchema":{"type":"object","required":required,"properties":properties,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"id":{"type":"string"},"job_id":{"type":"string"},"state":{"type":"string"},"intent_id":{"type":["string","null"]},"next_due":{"type":"integer"},"proposals":{"type":"array"},"items":{"type":"array"}}}})
  }).collect()
+}
+
+// Model results use the same category/coverage planner and current availability snapshot.
+fn validate_model(
+    draft: &Value,
+    clothes: &[Value],
+    rules: &PlanningRules<'_>,
+    retained: Option<&Vec<Value>>,
+) -> Result<Vec<Value>, ApiError> {
+    let fail = || {
+        ApiError::new(
+            "model_invalid_output",
+            "模型组合未通过真实ID、成员、角色、固定/排除及可用性检查",
+        )
+    };
+    fields(draft, &["proposals"]).map_err(|_| fail())?;
+    let proposed = draft["proposals"]
+        .as_array()
+        .filter(|p| !p.is_empty() && p.len() <= rules.limit)
+        .ok_or_else(fail)?;
+    let offline = plan(clothes, rules).0;
+    if proposed.len() != offline.len() {
+        return Err(fail());
+    }
+    let candidate_rules = PlanningRules {
+        fixed: rules.fixed,
+        limit: 5,
+        recent: rules.recent,
+        forbidden: rules.forbidden,
+        cold: rules.cold,
+        occasion: rules.occasion,
+        priority: rules.priority,
+        replacement: rules.replacement,
+    };
+    let allowed_sets: std::collections::BTreeSet<Vec<String>> = plan(clothes, &candidate_rules)
+        .0
+        .iter()
+        .map(|p| {
+            let mut ids: Vec<String> = p["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["clothing_id"].as_str().unwrap().to_owned())
+                .collect();
+            ids.sort();
+            ids
+        })
+        .collect();
+    let non_repeated = offline
+        .iter()
+        .filter(|p| p["repeat_relaxed"] == false)
+        .count();
+    let mut repeated = 0;
+    let mut out = vec![];
+    let mut physical = std::collections::BTreeSet::new();
+    for proposal in proposed {
+        fields(proposal, &["items", "explanation"]).map_err(|_| fail())?;
+        let items = proposal["items"]
+            .as_array()
+            .filter(|v| !v.is_empty() && v.len() <= 100)
+            .ok_or_else(fail)?;
+        let mut ids = vec![];
+        for item in items {
+            fields(item, &["clothing_id", "role", "layer"]).map_err(|_| fail())?;
+            let id = item["clothing_id"].as_str().ok_or_else(fail)?;
+            let garment = clothes.iter().find(|g| g["id"] == id).ok_or_else(fail)?;
+            if ids.iter().any(|x| x == id)
+                || item["role"] != role(garment["category"].as_str().unwrap()).0
+                || item["layer"].as_i64().is_none()
+            {
+                return Err(fail());
+            }
+            ids.push(id.to_owned());
+        }
+        if rules.fixed.iter().any(|id| !ids.contains(id)) {
+            return Err(fail());
+        }
+        ids.sort();
+        if !allowed_sets.contains(&ids) {
+            return Err(fail());
+        }
+        if rules.recent.contains(&ids) {
+            repeated += 1;
+            if repeated > offline.len() - non_repeated {
+                return Err(fail());
+            }
+        }
+        if !physical.insert(ids.clone()) || rules.forbidden.contains(&ids) {
+            return Err(fail());
+        }
+        let selected: Vec<Value> = clothes
+            .iter()
+            .filter(|c| ids.iter().any(|id| c["id"] == *id))
+            .cloned()
+            .collect();
+        let validation = PlanningRules {
+            fixed: &ids,
+            limit: 1,
+            recent: rules.recent,
+            forbidden: rules.forbidden,
+            cold: rules.cold,
+            occasion: rules.occasion,
+            priority: rules.priority,
+            replacement: rules.replacement,
+        };
+        let (mut generated, _) = plan(&selected, &validation);
+        let mut accepted = generated.pop().ok_or_else(fail)?;
+        // Do not accept a complete-looking model result with unmet basic coverage.
+        if accepted["complete"] != true {
+            return Err(fail());
+        }
+        if let Some(retained) = retained {
+            for item in accepted["items"].as_array_mut().unwrap() {
+                if let Some(old) = retained
+                    .iter()
+                    .find(|v| v["clothing_id"] == item["clothing_id"])
+                {
+                    item["role"] = old["role"].clone();
+                    item["layer"] = old["layer"].clone();
+                }
+            }
+        }
+        if let Some(explanation) = proposal.get("explanation") {
+            let text = explanation
+                .as_str()
+                .filter(|s| s.chars().count() <= 1000)
+                .ok_or_else(fail)?;
+            accepted["model_explanation"] = json!(text);
+        }
+        for item in items {
+            let canonical = accepted["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["clothing_id"] == item["clothing_id"])
+                .ok_or_else(fail)?;
+            if canonical["role"] != item["role"] || canonical["layer"] != item["layer"] {
+                return Err(fail());
+            }
+        }
+        accepted["reasons"].as_array_mut().unwrap().push(json!(
+            "文本模型选择已通过与离线规则相同的真实库存及角色检查"
+        ));
+        out.push(accepted);
+    }
+    Ok(out)
+}
+
+pub(super) fn generate_fields(input: &Value) -> Result<(), ApiError> {
+    fields(
+        input,
+        &[
+            "member_id",
+            "operation_key",
+            "timezone",
+            "limit",
+            "fixed_ids",
+            "excluded_ids",
+            "inventory_priority_ids",
+            "avoid_recent",
+            "target",
+            "occasion",
+            "weather",
+            "excluded_sets",
+            "source_intent",
+            "retained_ids",
+            "action_excluded_ids",
+            "replacement_category",
+            "retained_items",
+            "strategy",
+            "provider_id",
+            "json_output",
+            "output_format",
+        ],
+    )?;
+    for field in [
+        "fixed_ids",
+        "excluded_ids",
+        "inventory_priority_ids",
+        "retained_ids",
+        "action_excluded_ids",
+    ] {
+        ids(input, field)?;
+    }
+    for field in ["avoid_recent", "json_output"] {
+        if input.get(field).is_some_and(|v| !v.is_boolean()) {
+            return Err(invalid("布尔选项格式错误"));
+        }
+    }
+    for (field, values) in [
+        ("strategy", vec!["rules", "ai"]),
+        ("target", vec!["balanced", "least_worn", "favorites"]),
+        ("occasion", vec!["daily", "work", "formal", "sport"]),
+        (
+            "output_format",
+            vec!["plain", "json_object", "llama_cpp_schema"],
+        ),
+    ] {
+        if input
+            .get(field)
+            .is_some_and(|v| v.as_str().is_none_or(|s| !values.contains(&s)))
+        {
+            return Err(invalid("推荐选项不可用"));
+        }
+    }
+    let key = string(input, "operation_key")?;
+    if key.is_empty()
+        || key.len() > 200
+        || string(input, "timezone")?.parse::<chrono_tz::Tz>().is_err()
+        || input
+            .get("limit")
+            .is_some_and(|v| v.as_u64().is_none_or(|n| !(1..=5).contains(&n)))
+    {
+        return Err(invalid("推荐标识、时区或数量不可用"));
+    }
+    Ok(())
 }

@@ -56,3 +56,9 @@
 ## RecommendationIntent（推荐意图）
 
 同成员本地离线控制与当时真实库存组合的不可变记录；包括请求数量、可行数量、固定/排除、角色、缺货与最近七日软避重复放宽说明。替换/换套产生子意图。显式保存会重新验证当前可用性并创建搭配模板，不产生 WearEvent。
+
+## Weather estimate and AI recommendation
+
+- **Weather estimate**: An explicitly configured member location's provider estimate, with provider valid time, retrieval time, source and attribution. It becomes stale strictly after three hours; off/manual input remains usable when retrieval fails.
+- **Validated AI recommendation**: A text model organizes existing rule planner candidates; the application validates current IDs, member, availability, body coverage, roles/layers, fixed/excluded controls and recent wear before publishing an immutable intent. Its explanation is unverified text, not clothing facts.
+- **Unknown text submission**: A persisted recommendation job was submitted but its outcome is unconfirmed. Same-key requests do not blindly POST again; explicit offline rules remain available. A confirmed invalid output permits only the bounded second attempt.

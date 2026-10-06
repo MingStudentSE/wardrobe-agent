@@ -160,8 +160,13 @@ impl Application {
             }
             doc["state"] = json!("cancelled");
         } else {
-            if (["product_display", "outfit_flatlay", "virtual_tryon"]
-                .contains(&doc["kind"].as_str().unwrap_or(""))
+            if ([
+                "product_display",
+                "outfit_flatlay",
+                "virtual_tryon",
+                "text_recommendation",
+            ]
+            .contains(&doc["kind"].as_str().unwrap_or(""))
                 && doc["submitted_at"].is_string())
                 || (doc["kind"] == "recognition" && doc["payload"]["submission"] != "not_submitted")
             {

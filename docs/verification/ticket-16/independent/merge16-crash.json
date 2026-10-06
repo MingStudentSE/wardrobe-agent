@@ -1,0 +1,13 @@
+{
+  "provider_posts_after_kill_and_same_key_restart": 1,
+  "restart": {
+    "error": {
+      "code": "generation_waiting_input",
+      "message": "任务01a11303-5306-74dc-90db-3ef3bab9c342已提交或正在处理，结果未确认；同一操作不会盲重发。可检查供应商记录，或显式选择离线规则"
+    }
+  },
+  "rule_count": 1,
+  "wear_count": 0,
+  "temporary_data_removed": true,
+  "no_credential": true
+}

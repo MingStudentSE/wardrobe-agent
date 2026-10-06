@@ -1,0 +1,32 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/weather-ai.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5187 --strictPort
+[WebServer] (node:12184) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:12186) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/weather-ai.spec.ts:2:1 › 配置真实HTTP天气缓存，文本网络失败仍可规则与手工推荐且不记穿着 (345ms)
+
+
+  1) tests/weather-ai.spec.ts:2:1 › 配置真实HTTP天气缓存，文本网络失败仍可规则与手工推荐且不记穿着 ──────────────────────────────
+
+    Error: 模型操作包含不支持的字段
+
+      2 | test('配置真实HTTP天气缓存，文本网络失败仍可规则与手工推荐且不记穿着',async({page})=>{
+      3 |  const server=createServer((_req,res)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify({current_units:{time:'unixtime',temperature_2m:'°C'},current:{time:1791324000,temperature_2m:21.5}}));});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));
+    > 4 |  try{await page.goto('/');const call=async(operation:string,input:object={})=>{const b=await(await page.request.post('/__wardrobe_dev_api',{data:{operation,input:{member_id:'default',...input}}})).json();if(b.error)throw new Error(b.error.message);return b.result;};for(const c of['bottom','shoes','outerwear'])await call('clothing.create',{name:`天气验收${c}`,category:c});
+        |                                                                                                                                                                                                                              ^
+      5 |  await call('provider.save',{name:'天气验收文本离线',endpoint:'http://127.0.0.1:1/v1',model:'offline-text',capabilities:['text'],authentication:'none'});await page.reload();const p=page.locator('#recommendations');await expect(p.getByLabel('推荐来源')).toBeEnabled();
+      6 |  await p.getByText('天气地点与缓存',{exact:true}).click();await p.getByLabel('天气地点名称').fill('Shanghai public example');await p.getByLabel('天气纬度').fill('31.23');await p.getByLabel('天气经度').fill('121.47');await p.getByLabel('天气服务端点').fill(`http://127.0.0.1:${(server.address() as {port:number}).port}/v1/forecast`);await p.getByLabel('仅在非商业用途使用免费天气服务').check();await p.getByRole('button',{name:'保存自动天气配置',exact:true}).click();await p.getByRole('button',{name:'获取配置地点天气',exact:true}).click();await expect(p).toContainText('21.5°C');await expect(p).toContainText('获取于');const before=await call('wear.list');
+      7 |  await p.getByLabel('天气参考').selectOption('automatic');await p.getByLabel('推荐来源').selectOption('ai');await p.getByLabel('推荐文本模型').selectOption({label:'天气验收文本离线'});await p.getByRole('button',{name:'生成搭配建议',exact:true}).click();await expect(p).toContainText('模型未通过或连接失败，已回退离线规则');await expect(p.locator('.recommendation-proposal').first()).toBeVisible();expect((await call('wear.list')).items).toEqual(before.items);
+        at call (/private/tmp/wardrobe-ticket-16/apps/desktop/tests/weather-ai.spec.ts:4:222)
+        at /private/tmp/wardrobe-ticket-16/apps/desktop/tests/weather-ai.spec.ts:5:2
+
+    Error Context: test-results/weather-ai-配置真实HTTP天气缓存，文本网络失败仍可规则与手工推荐且不记穿着/error-context.md
+
+  1 failed
+    tests/weather-ai.spec.ts:2:1 › 配置真实HTTP天气缓存，文本网络失败仍可规则与手工推荐且不记穿着 ───────────────────────────────

@@ -1,0 +1,330 @@
+{
+  "actual_public_weather": {
+    "cache": {
+      "attribution": "Weather data by Open-Meteo · CC BY 4.0",
+      "location": "Shanghai public city example",
+      "obtained_at": "2026-10-06T20:58:47.462999+00:00",
+      "source": "open_meteo_model",
+      "source_url": "https://open-meteo.com/",
+      "stale": false,
+      "temperature_c": 13.6,
+      "valid_time": "2026-10-06T20:45:00+00:00"
+    },
+    "config": {
+      "attribution": "Weather data by Open-Meteo · CC BY 4.0",
+      "endpoint": "https://api.open-meteo.com/v1/forecast",
+      "latitude": 31.23,
+      "location": "Shanghai public city example",
+      "longitude": 121.47,
+      "mode": "automatic",
+      "source_url": "https://open-meteo.com/",
+      "usage": "noncommercial"
+    },
+    "last_error": null,
+    "member_id": "01a11303-016b-7444-9032-443def6172fd",
+    "schema_version": 1
+  },
+  "actual_recommendation": {
+    "actual_count": 1,
+    "controls": {
+      "fixed_ids": [
+        "01a11303-055d-7093-a11e-8b0a21e3c902"
+      ],
+      "json_output": true,
+      "limit": 1,
+      "member_id": "01a11303-016b-7444-9032-443def6172fd",
+      "operation_key": "real-model",
+      "output_format": "llama_cpp_schema",
+      "provider_id": "01a11303-0590-76c5-9332-1d90027c1747",
+      "strategy": "ai",
+      "timezone": "Asia/Shanghai",
+      "weather": {
+        "mode": "automatic"
+      }
+    },
+    "created_at": "2026-10-06T20:59:03.665541+00:00",
+    "creates_wear": false,
+    "generation": {
+      "attempts": 1,
+      "failure_codes": [],
+      "job_id": "01a11303-05a0-7369-9136-2b0cf6d4d699",
+      "provider_id": "01a11303-0590-76c5-9332-1d90027c1747",
+      "source": "text_model"
+    },
+    "id": "01a11303-4471-73b4-b125-75fa1124f715",
+    "member_id": "01a11303-016b-7444-9032-443def6172fd",
+    "offline": false,
+    "proposals": [
+      {
+        "complete": true,
+        "items": [
+          {
+            "category": "shoes",
+            "clothing_id": "01a11303-0552-7528-875d-8cde81508243",
+            "layer": 0,
+            "name": "white sneakers",
+            "role": "shoes"
+          },
+          {
+            "category": "outerwear",
+            "clothing_id": "01a11303-055d-7093-a11e-8b0a21e3c902",
+            "layer": 1,
+            "name": "brown coat",
+            "role": "outerwear"
+          },
+          {
+            "category": "top",
+            "clothing_id": "01a11303-056a-72e6-9029-cdc902940a41",
+            "layer": 0,
+            "name": "black knit top",
+            "role": "top"
+          },
+          {
+            "category": "bottom",
+            "clothing_id": "01a11303-0576-76d4-ad7f-514733a226ee",
+            "layer": 0,
+            "name": "beige trousers",
+            "role": "bottom"
+          }
+        ],
+        "missing_roles": [],
+        "model_explanation": "The candidate outfits are all in the same category (top) and have the same role (outerwear). The weather is not above 15°C, so no outerwear is needed. The remaining items are in the same category (shoes) and have the same role (shoes). The ",
+        "occasion_verified": false,
+        "reasons": [
+          "离线角色规则：真实可用衣物，固定与排除约束已保留",
+          "文本模型选择已通过与离线规则相同的真实库存及角色检查",
+          "日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除",
+          "目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）",
+          "天气估计温度不高于15°C，要求外层；不承诺衣物保暖性能"
+        ],
+        "repeat_relaxed": false
+      }
+    ],
+    "recent_window": {
+      "from": "2026-10-01",
+      "source": "actual_effective_wear",
+      "through": "2026-10-07",
+      "timezone": "Asia/Shanghai"
+    },
+    "requested_count": 1,
+    "schema_version": 1,
+    "shortage_reasons": [],
+    "updated_at": "2026-10-06T20:59:03.665541+00:00",
+    "weather_context": {
+      "attribution": "Weather data by Open-Meteo · CC BY 4.0",
+      "last_error": null,
+      "location": "Shanghai public city example",
+      "mode": "automatic",
+      "network_requested": false,
+      "obtained_at": "2026-10-06T20:58:47.462999+00:00",
+      "source": "open_meteo_model",
+      "source_url": "https://open-meteo.com/",
+      "stale": false,
+      "temperature_c": 13.6,
+      "valid_time": "2026-10-06T20:45:00+00:00"
+    }
+  },
+  "raw_local_model_calls": [
+    {
+      "request": {
+        "max_tokens": 2048,
+        "messages": [
+          {
+            "content": "You are a wardrobe planner. Follow exact physical IDs and return only the requested JSON object.",
+            "role": "system"
+          },
+          {
+            "content": "{\"candidate_outfits\":[{\"items\":[{\"clothing_id\":\"01a11303-055d-7093-a11e-8b0a21e3c902\",\"layer\":1,\"role\":\"outerwear\"},{\"clothing_id\":\"01a11303-0536-7348-804e-941d1f9a6e8a\",\"layer\":0,\"role\":\"top\"},{\"clothing_id\":\"01a11303-0543-7241-8d18-ea6a85f3d3a2\",\"layer\":0,\"role\":\"bottom\"},{\"clothing_id\":\"01a11303-0552-7528-875d-8cde81508243\",\"layer\":0,\"role\":\"shoes\"}],\"reasons\":[\"离线角色规则：真实可用衣物，固定与排除约束已保留\",\"日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除\",\"目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）\",\"天气估计温度不高于15°C，要求外层；不承诺衣物保暖性能\"]},{\"items\":[{\"clothing_id\":\"01a11303-055d-7093-a11e-8b0a21e3c902\",\"layer\":1,\"role\":\"outerwear\"},{\"clothing_id\":\"01a11303-056a-72e6-9029-cdc902940a41\",\"layer\":0,\"role\":\"top\"},{\"clothing_id\":\"01a11303-0543-7241-8d18-ea6a85f3d3a2\",\"layer\":0,\"role\":\"bottom\"},{\"clothing_id\":\"01a11303-0552-7528-875d-8cde81508243\",\"layer\":0,\"role\":\"shoes\"}],\"reasons\":[\"离线角色规则：真实可用衣物，固定与排除约束已保留\",\"日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除\",\"目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）\",\"天气估计温度不高于15°C，要求外层；不承诺衣物保暖性能\"]},{\"items\":[{\"clothing_id\":\"01a11303-055d-7093-a11e-8b0a21e3c902\",\"layer\":1,\"role\":\"outerwear\"},{\"clothing_id\":\"01a11303-0536-7348-804e-941d1f9a6e8a\",\"layer\":0,\"role\":\"top\"},{\"clothing_id\":\"01a11303-0576-76d4-ad7f-514733a226ee\",\"layer\":0,\"role\":\"bottom\"},{\"clothing_id\":\"01a11303-0552-7528-875d-8cde81508243\",\"layer\":0,\"role\":\"shoes\"}],\"reasons\":[\"离线角色规则：真实可用衣物，固定与排除约束已保留\",\"日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除\",\"目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）\",\"天气估计温度不高于15°C，要求外层；不承诺衣物保暖性能\"]},{\"items\":[{\"clothing_id\":\"01a11303-055d-7093-a11e-8b0a21e3c902\",\"layer\":1,\"role\":\"outerwear\"},{\"clothing_id\":\"01a11303-0536-7348-804e-941d1f9a6e8a\",\"layer\":0,\"role\":\"top\"},{\"clothing_id\":\"01a11303-0543-7241-8d18-ea6a85f3d3a2\",\"layer\":0,\"role\":\"bottom\"},{\"clothing_id\":\"01a11303-0583-773e-8dbc-ddea2e23e686\",\"layer\":0,\"role\":\"shoes\"}],\"reasons\":[\"离线角色规则：真实可用衣物，固定与排除约束已保留\",\"日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除\",\"目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）\",\"天气估计温度不高于15°C，要求外层；不承诺衣物保暖性能\"]},{\"items\":[{\"clothing_id\":\"01a11303-055d-7093-a11e-8b0a21e3c902\",\"layer\":1,\"role\":\"outerwear\"},{\"clothing_id\":\"01a11303-056a-72e6-9029-cdc902940a41\",\"layer\":0,\"role\":\"top\"},{\"clothing_id\":\"01a11303-0576-76d4-ad7f-514733a226ee\",\"layer\":0,\"role\":\"bottom\"},{\"clothing_id\":\"01a11303-0552-7528-875d-8cde81508243\",\"layer\":0,\"role\":\"shoes\"}],\"reasons\":[\"离线角色规则：真实可用衣物，固定与排除约束已保留\",\"日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除\",\"目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）\",\"天气估计温度不高于15°C，要求外层；不承诺衣物保暖性能\"]}],\"controls\":{\"fixed_ids\":[\"01a11303-055d-7093-a11e-8b0a21e3c902\"],\"limit\":1},\"inventory\":[{\"category\":\"top\",\"clothing_id\":\"01a11303-0536-7348-804e-941d1f9a6e8a\",\"favorite\":false,\"name\":\"white cotton shirt\",\"occasion\":[]},{\"category\":\"bottom\",\"clothing_id\":\"01a11303-0543-7241-8d18-ea6a85f3d3a2\",\"favorite\":false,\"name\":\"blue straight jeans\",\"occasion\":[]},{\"category\":\"shoes\",\"clothing_id\":\"01a11303-0552-7528-875d-8cde81508243\",\"favorite\":false,\"name\":\"white sneakers\",\"occasion\":[]},{\"category\":\"outerwear\",\"clothing_id\":\"01a11303-055d-7093-a11e-8b0a21e3c902\",\"favorite\":false,\"name\":\"brown coat\",\"occasion\":[]},{\"category\":\"top\",\"clothing_id\":\"01a11303-056a-72e6-9029-cdc902940a41\",\"favorite\":false,\"name\":\"black knit top\",\"occasion\":[]},{\"category\":\"bottom\",\"clothing_id\":\"01a11303-0576-76d4-ad7f-514733a226ee\",\"favorite\":false,\"name\":\"beige trousers\",\"occasion\":[]},{\"category\":\"shoes\",\"clothing_id\":\"01a11303-0583-773e-8dbc-ddea2e23e686\",\"favorite\":false,\"name\":\"black loafers\",\"occasion\":[]}],\"json_output\":true,\"output_format\":\"llama_cpp_schema\",\"task\":\"Organize the validated candidate_outfits into distinct recommendations, preserving every item ID/role/layer exactly. You may add an explanation grounded only in known facts. Return JSON only: {\\\"proposals\\\":[{\\\"items\\\":[{\\\"clothing_id\\\":\\\"exact ID\\\",\\\"role\\\":\\\"top\\\",\\\"layer\\\":0}]}]}. Required body pattern top+bottom+shoes OR dress/one_piece role body+shoes. outerwear role outerwear layer1, underwear layer-2, others category role layer0. Fixed IDs must appear, excluded IDs never appear. When weather.temperature_c is 15 or below, you MUST add an outerwear item (role outerwear, layer1). Unknown sportswear does not cover body. Respect retained_items role/layer exactly. Do not invent facts. Produce requested limit, fewer only if insufficient distinct sets.\",\"weather\":{\"attribution\":\"Weather data by Open-Meteo · CC BY 4.0\",\"last_error\":null,\"location\":\"Shanghai public city example\",\"mode\":\"automatic\",\"network_requested\":false,\"obtained_at\":\"2026-10-06T20:58:47.462999+00:00\",\"source\":\"open_meteo_model\",\"source_url\":\"https://open-meteo.com/\",\"stale\":false,\"temperature_c\":13.6,\"valid_time\":\"2026-10-06T20:45:00+00:00\"}}",
+            "role": "user"
+          }
+        ],
+        "model": "wardrobe-qwen",
+        "response_format": {
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "proposals": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "explanation": {
+                      "maxLength": 240,
+                      "type": "string"
+                    },
+                    "items": {
+                      "enum": [
+                        [
+                          {
+                            "clothing_id": "01a11303-055d-7093-a11e-8b0a21e3c902",
+                            "layer": 1,
+                            "role": "outerwear"
+                          },
+                          {
+                            "clothing_id": "01a11303-0536-7348-804e-941d1f9a6e8a",
+                            "layer": 0,
+                            "role": "top"
+                          },
+                          {
+                            "clothing_id": "01a11303-0543-7241-8d18-ea6a85f3d3a2",
+                            "layer": 0,
+                            "role": "bottom"
+                          },
+                          {
+                            "clothing_id": "01a11303-0552-7528-875d-8cde81508243",
+                            "layer": 0,
+                            "role": "shoes"
+                          }
+                        ],
+                        [
+                          {
+                            "clothing_id": "01a11303-055d-7093-a11e-8b0a21e3c902",
+                            "layer": 1,
+                            "role": "outerwear"
+                          },
+                          {
+                            "clothing_id": "01a11303-056a-72e6-9029-cdc902940a41",
+                            "layer": 0,
+                            "role": "top"
+                          },
+                          {
+                            "clothing_id": "01a11303-0543-7241-8d18-ea6a85f3d3a2",
+                            "layer": 0,
+                            "role": "bottom"
+                          },
+                          {
+                            "clothing_id": "01a11303-0552-7528-875d-8cde81508243",
+                            "layer": 0,
+                            "role": "shoes"
+                          }
+                        ],
+                        [
+                          {
+                            "clothing_id": "01a11303-055d-7093-a11e-8b0a21e3c902",
+                            "layer": 1,
+                            "role": "outerwear"
+                          },
+                          {
+                            "clothing_id": "01a11303-0536-7348-804e-941d1f9a6e8a",
+                            "layer": 0,
+                            "role": "top"
+                          },
+                          {
+                            "clothing_id": "01a11303-0576-76d4-ad7f-514733a226ee",
+                            "layer": 0,
+                            "role": "bottom"
+                          },
+                          {
+                            "clothing_id": "01a11303-0552-7528-875d-8cde81508243",
+                            "layer": 0,
+                            "role": "shoes"
+                          }
+                        ],
+                        [
+                          {
+                            "clothing_id": "01a11303-055d-7093-a11e-8b0a21e3c902",
+                            "layer": 1,
+                            "role": "outerwear"
+                          },
+                          {
+                            "clothing_id": "01a11303-0536-7348-804e-941d1f9a6e8a",
+                            "layer": 0,
+                            "role": "top"
+                          },
+                          {
+                            "clothing_id": "01a11303-0543-7241-8d18-ea6a85f3d3a2",
+                            "layer": 0,
+                            "role": "bottom"
+                          },
+                          {
+                            "clothing_id": "01a11303-0583-773e-8dbc-ddea2e23e686",
+                            "layer": 0,
+                            "role": "shoes"
+                          }
+                        ],
+                        [
+                          {
+                            "clothing_id": "01a11303-055d-7093-a11e-8b0a21e3c902",
+                            "layer": 1,
+                            "role": "outerwear"
+                          },
+                          {
+                            "clothing_id": "01a11303-056a-72e6-9029-cdc902940a41",
+                            "layer": 0,
+                            "role": "top"
+                          },
+                          {
+                            "clothing_id": "01a11303-0576-76d4-ad7f-514733a226ee",
+                            "layer": 0,
+                            "role": "bottom"
+                          },
+                          {
+                            "clothing_id": "01a11303-0552-7528-875d-8cde81508243",
+                            "layer": 0,
+                            "role": "shoes"
+                          }
+                        ]
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "explanation"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 1,
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": [
+              "proposals"
+            ],
+            "type": "object"
+          },
+          "type": "json_object"
+        },
+        "temperature": 0
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"proposals\": [\n    {\n      \"explanation\": \"The candidate outfits are all in the same category (top) and have the same role (outerwear). The weather is not above 15°C, so no outerwear is needed. The remaining items are in the same category (shoes) and have the same role (shoes). The \", \"items\" :\n      [{\"clothing_id\":\"01a11303-055d-7093-a11e-8b0a21e3c902\",\"layer\":1,\"role\":\"outerwear\"},{\"clothing_id\":\"01a11303-056a-72e6-9029-cdc902940a41\",\"layer\":0,\"role\":\"top\"},{\"clothing_id\":\"01a11303-0576-76d4-ad7f-514733a226ee\",\"layer\":0,\"role\":\"bottom\"},{\"clothing_id\":\"01a11303-0552-7528-875d-8cde81508243\",\"layer\":0,\"role\":\"shoes\"}]\n    }\n  ]\n}"
+            }
+          }
+        ],
+        "created": 1791320343,
+        "model": "wardrobe-qwen",
+        "system_fingerprint": "b0-unknown",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 288,
+          "prompt_tokens": 2203,
+          "total_tokens": 2491,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "id": "chatcmpl-NZTdH9jqfbePGW8tp8Xdn4eWGAIp9AbI",
+        "timings": {
+          "cache_n": 0,
+          "prompt_n": 2203,
+          "prompt_ms": 12200.075,
+          "prompt_per_token_ms": 5.5379369042215165,
+          "prompt_per_second": 180.57266041397287,
+          "predicted_n": 288,
+          "predicted_ms": 3841.365,
+          "predicted_per_token_ms": 13.384547038327526,
+          "predicted_per_second": 74.71302518766116
+        }
+      }
+    }
+  ],
+  "wear_count": 0,
+  "temporary_data_removed": true,
+  "no_paid_provider": true
+}
