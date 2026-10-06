@@ -244,7 +244,35 @@ fn device_confirmation_is_single_use_and_revocation_rotates_future_keys_for_rema
         json!({"manifest":otherconfirmed["manifest"]}),
     )
     .unwrap();
+    let historical = a
+        .execute(
+            "encryption.encrypt",
+            json!({"kind":"changes","plaintext_base64":"aGlzdG9yaWNhbA=="}),
+        )
+        .unwrap();
     let rotated=a.execute("encryption.device.revoke",json!({"device_id":pending["state"]["device_id"],"password":"temporary new space password"})).unwrap();
+    c.execute(
+        "encryption.device.apply",
+        json!({"manifest":rotated["manifest"]}),
+    )
+    .unwrap();
+    assert_eq!(
+        c.execute(
+            "encryption.decrypt",
+            json!({"kind":"changes","envelope":historical["envelope"]})
+        )
+        .unwrap()["plaintext_base64"],
+        "aGlzdG9yaWNhbA=="
+    );
+    assert_eq!(
+        c.execute(
+            "encryption.device.apply",
+            json!({"manifest":otherconfirmed["manifest"]})
+        )
+        .unwrap_err()
+        .code,
+        "stale_device_state"
+    );
     c.execute(
         "encryption.device.apply",
         json!({"manifest":rotated["manifest"]}),
@@ -445,4 +473,33 @@ fn database_and_wal_do_not_persist_exported_recovery_or_unwrapped_private_keys()
             );
         }
     }
+}
+
+#[test]
+fn highest_database_version_repairs_missing_encryption_tables_without_downgrade() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("wardrobe.sqlite");
+    drop(Application::open(&path).unwrap());
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    connection
+        .execute_batch("DROP TABLE encryption_state; DROP TABLE encryption_pairings;")
+        .unwrap();
+    connection
+        .pragma_update(None, "user_version", wardrobe_core::DATABASE_SCHEMA_VERSION)
+        .unwrap();
+    drop(connection);
+    let app = Application::open(&path).unwrap();
+    assert_eq!(
+        app.execute("encryption.status", json!({})).unwrap()["enabled"],
+        false
+    );
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let tables: u64 = connection.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('encryption_state', 'encryption_pairings')", [], |r|r.get(0)).unwrap();
+    assert_eq!(tables, 2);
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        wardrobe_core::DATABASE_SCHEMA_VERSION
+    );
 }
