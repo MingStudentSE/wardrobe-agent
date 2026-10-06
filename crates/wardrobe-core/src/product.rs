@@ -81,6 +81,7 @@ impl Application {
         let result = match kind {
             "product_display" => self.product_request(&member, id, lease, &job),
             "outfit_flatlay" => self.flatlay_request(&member, id, lease, &job),
+            "virtual_tryon" => self.tryon_request(&member, id, lease, &job),
             _ => Err(ApiError::new("unsupported_operation", "不支持的图像任务")),
         };
         match result {
