@@ -75,6 +75,33 @@ pub(super) fn validate_stored_document(
         return Err(invalid("反馈格式不支持"));
     }
     let member = string(doc, "member_id")?;
+    let revision = doc["revision"]
+        .as_u64()
+        .filter(|r| *r > 0)
+        .ok_or_else(|| invalid("反馈修订损坏"))?;
+    if revision == 1 {
+        if !doc["supersedes_event_id"].is_null() {
+            return Err(invalid("初始反馈不能引用前驱"));
+        }
+    } else {
+        let predecessor = string(doc, "supersedes_event_id")?;
+        let exists: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM feedback_events WHERE id=?1 AND member_id=?2 AND root_id=?3 AND revision<?4)",
+            params![predecessor, member, string(doc, "root_id")?, revision],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Err(invalid("反馈前驱缺失或根与成员不符"));
+        }
+    }
+    let invalid_refs: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM feedback_asset_refs r LEFT JOIN assets a ON a.id=r.asset_id AND a.member_id=r.member_id WHERE r.event_id=?1 AND (r.member_id<>?2 OR a.id IS NULL))",
+        params![string(doc, "id")?, member],
+        |row| row.get(0),
+    )?;
+    if invalid_refs {
+        return Err(invalid("反馈展示资产不属记录成员"));
+    }
     for field in ["created_at", "inventory_observed_at"] {
         chrono::DateTime::parse_from_rfc3339(string(doc, field)?)
             .map_err(|_| invalid("反馈观察时间损坏"))?;

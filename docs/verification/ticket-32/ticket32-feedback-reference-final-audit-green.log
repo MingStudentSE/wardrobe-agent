@@ -1,0 +1,27 @@
+{
+  "initial_fake_predecessor": {
+    "rejected": true,
+    "code": "backup_invalid",
+    "accepted": false
+  },
+  "missing_predecessor": {
+    "rejected": true,
+    "code": "backup_invalid",
+    "accepted": false
+  },
+  "cross_member_predecessor": {
+    "rejected": true,
+    "code": "backup_invalid",
+    "accepted": false
+  },
+  "cross_member_asset_reference": {
+    "rejected": true,
+    "code": "backup_invalid",
+    "accepted": false
+  },
+  "valid_earlier_branch_parent": {
+    "rejected": false,
+    "code": null,
+    "accepted": true
+  }
+}
