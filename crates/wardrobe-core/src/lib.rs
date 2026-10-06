@@ -2,6 +2,7 @@ mod assets;
 mod authorization;
 mod clothing;
 mod cutout;
+mod flatlay;
 mod image_editing;
 mod imports;
 mod jobs;
@@ -198,6 +199,10 @@ impl Application {
             "provider.credential.set"
             | "provider.credential.remove"
             | "provider.credential.status" => self.provider_credential(operation, input),
+            "flatlay.generate" => self.flatlay_generate(input),
+            "flatlay.process" => self.flatlay_process(input),
+            "flatlay.save" => self.flatlay_save(input),
+            "flatlay.preview" => self.flatlay_preview(input),
             "product.generate" => self.product_generate(input),
             "product.process" => self.product_process(input),
             "product.adopt" => self.product_adopt(input),
@@ -253,6 +258,7 @@ pub fn operations() -> Value {
     descriptors.extend(providers::descriptors());
     descriptors.extend(recognition::descriptors());
     descriptors.extend(product::descriptors());
+    descriptors.extend(flatlay::descriptors());
     descriptors.extend(authorization::descriptors());
     descriptors.extend(assets::descriptors());
     descriptors.extend(outfits::descriptors());
