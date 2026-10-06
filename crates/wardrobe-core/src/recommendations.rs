@@ -32,6 +32,8 @@ impl Application {
                 "weather",
                 "excluded_sets",
                 "source_intent",
+                "retained_ids",
+                "action_excluded_ids",
             ],
             "recommendation.save" => {
                 vec!["member_id", "id", "proposal_index", "name", "operation_key"]
@@ -96,14 +98,17 @@ impl Application {
                         "固定单品不能替换；请先修改固定条件",
                     ));
                 }
-                controls["fixed_ids"] = json!(proposal_ids
+                controls["retained_ids"] = json!(proposal_ids
                     .iter()
                     .filter(|id| *id != old)
                     .collect::<Vec<_>>());
-                let mut excluded = ids(&controls, "excluded_ids")?;
-                excluded.push(old.to_owned());
-                controls["excluded_ids"] = json!(excluded);
+                controls["action_excluded_ids"] = json!([old]);
             } else {
+                controls.as_object_mut().unwrap().remove("retained_ids");
+                controls
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("action_excluded_ids");
                 let mut sets = controls
                     .get("excluded_sets")
                     .and_then(Value::as_array)
@@ -182,8 +187,18 @@ impl Application {
             })
             .transpose()?
             .unwrap_or(3);
-        let fixed = ids(&input, "fixed_ids")?;
-        let excluded = ids(&input, "excluded_ids")?;
+        let mut fixed = ids(&input, "fixed_ids")?;
+        for id in ids(&input, "retained_ids")? {
+            if !fixed.contains(&id) {
+                fixed.push(id);
+            }
+        }
+        let mut excluded = ids(&input, "excluded_ids")?;
+        for id in ids(&input, "action_excluded_ids")? {
+            if !excluded.contains(&id) {
+                excluded.push(id);
+            }
+        }
         if fixed.iter().any(|id| excluded.contains(id)) {
             return Err(ApiError::new("constraint_conflict", "固定衣物不能同时排除"));
         }
@@ -205,7 +220,8 @@ impl Application {
         for id in fixed.iter().chain(excluded.iter()) {
             self.clothing_get(json!({"member_id":member,"id":id}))?;
         }
-        let statuses = self.care_execute("care.availability", json!({"member_id":member}))?;
+        let wears = self.effective_wears(&member)?;
+        let statuses = json!({"items":self.care_batch_from_wears(&member,&wears)?});
         for id in &fixed {
             let status = statuses["items"]
                 .as_array()
@@ -264,7 +280,7 @@ impl Application {
         let from = today - chrono::Duration::days(6);
         let mut recent = std::collections::BTreeSet::new();
         let mut counts = std::collections::HashMap::<String, usize>::new();
-        for wear in self.effective_wears(&member)? {
+        for wear in wears {
             let mut ids = vec![];
             for item in wear["items"].as_array().unwrap() {
                 let id = item["clothing_id"].as_str().unwrap().to_owned();
@@ -281,10 +297,11 @@ impl Application {
                 recent.insert(ids);
             }
         }
+        let priority: std::collections::HashSet<String> = priority.into_iter().collect();
         clothes.sort_by_key(|c| {
             let id = c["id"].as_str().unwrap();
             (
-                !priority.iter().any(|p| p == id),
+                !priority.contains(id),
                 if target == "least_worn" {
                     counts.get(id).copied().unwrap_or(0)
                 } else {
@@ -312,9 +329,68 @@ impl Application {
                 forbidden.insert(ids);
             }
         }
-        let proposals = plan(&clothes, &fixed, limit as usize, &recent, &forbidden, cold);
+        let rules = PlanningRules {
+            fixed: &fixed,
+            limit: limit as usize,
+            recent: &recent,
+            forbidden: &forbidden,
+            cold,
+            occasion,
+            priority: &priority,
+        };
+        let mut proposals = plan(&clothes, &rules);
 
-        let shortage_reasons: Vec<String> = if proposals.len() < limit as usize {
+        for proposal in &mut proposals {
+            let items = proposal["items"].as_array().unwrap().clone();
+            let verified = items.iter().all(|item| {
+                clothes
+                    .iter()
+                    .find(|c| c["id"] == item["clothing_id"])
+                    .is_some_and(|c| {
+                        c["occasion"]
+                            .as_array()
+                            .is_some_and(|tags| tags.iter().any(|tag| tag == occasion))
+                    })
+            });
+            proposal["occasion_verified"] = json!(verified);
+
+            let reasons = proposal["reasons"].as_array_mut().unwrap();
+            if !verified {
+                reasons.push(json!(format!(
+                    "{}场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除",
+                    occasion
+                )));
+            }
+            reasons.push(json!(format!(
+                "目标：{}；场合：{}（只采用已记录标签，不推断未知事实）",
+                target, occasion
+            )));
+            for item in items {
+                let id = item["clothing_id"].as_str().unwrap();
+                if priority.contains(id) {
+                    reasons.push(json!(format!("库存优先：{}", item["name"])));
+                }
+                if target == "least_worn" {
+                    reasons.push(json!(format!(
+                        "{}：有效实际穿着{}次",
+                        item["name"],
+                        counts.get(id).copied().unwrap_or(0)
+                    )));
+                }
+                if ["sportswear", "other", "underwear"]
+                    .contains(&item["category"].as_str().unwrap())
+                {
+                    reasons.push(json!(format!(
+                        "{}保留用户固定角色，不将未知覆盖范围视为全身衣物",
+                        item["name"]
+                    )));
+                }
+            }
+            if cold {
+                reasons.push(json!("手动温度不高于15°C，要求外层；不承诺衣物保暖性能"));
+            }
+        }
+        let mut shortage_reasons: Vec<String> = if proposals.len() < limit as usize {
             vec![format!(
                 "请求{}套，当前硬约束下仅有{}套不同实物组合；不会重复或虚构库存",
                 limit,
@@ -323,6 +399,18 @@ impl Application {
         } else {
             vec![]
         };
+        let mut missing = std::collections::BTreeSet::new();
+        for proposal in &proposals {
+            for role in proposal["missing_roles"].as_array().unwrap() {
+                missing.insert(role.as_str().unwrap());
+            }
+        }
+        for role in missing {
+            shortage_reasons.push(format!("缺少可用{}角色：检查库存、排除和洗护状态", role));
+        }
+        if clothes.is_empty() {
+            shortage_reasons.push("没有满足成员、生命周期、洗护及排除条件的真实衣物".to_owned());
+        }
         let now = chrono::Utc::now().to_rfc3339();
         let doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"created_at":now,"updated_at":now,"controls":input,"proposals":proposals,"requested_count":limit,"actual_count":proposals.len(),"offline":true,"creates_wear":false,"shortage_reasons":shortage_reasons,"weather_context":weather_context,"recent_window":{"from":from.to_string(),"through":today.to_string(),"timezone":zone.name(),"source":"actual_effective_wear"}});
         tx.execute(
@@ -335,22 +423,37 @@ impl Application {
 }
 // Each frontier state advances one sorted role slot. We only materialize emitted
 // combinations and their immediate neighbors, never the full Cartesian product.
-fn plan(
-    clothes: &[Value],
-    fixed: &[String],
+struct PlanningRules<'a> {
+    fixed: &'a [String],
     limit: usize,
-    recent: &std::collections::BTreeSet<Vec<String>>,
-    forbidden: &std::collections::BTreeSet<Vec<String>>,
+    recent: &'a std::collections::BTreeSet<Vec<String>>,
+    forbidden: &'a std::collections::BTreeSet<Vec<String>>,
     cold: bool,
-) -> Vec<Value> {
-    use std::collections::{BTreeSet, BinaryHeap};
-    let mandatory: Vec<Value> = clothes
+    occasion: &'a str,
+    priority: &'a std::collections::HashSet<String>,
+}
+fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> Vec<Value> {
+    let PlanningRules {
+        fixed,
+        limit,
+        recent,
+        forbidden,
+        cold,
+        occasion,
+        priority,
+    } = *rules;
+    use std::collections::{BTreeSet, BinaryHeap, HashMap};
+    let mandatory: Vec<&Value> = clothes
         .iter()
-        .filter(|c| fixed.contains(&c["id"].as_str().unwrap().to_owned()))
-        .cloned()
+        .filter(|c| fixed.iter().any(|id| c["id"] == *id))
         .collect();
     let has = |categories: &[&str]| {
         mandatory
+            .iter()
+            .any(|c| categories.contains(&c["category"].as_str().unwrap()))
+    };
+    let exists = |categories: &[&str]| {
+        clothes
             .iter()
             .any(|c| categories.contains(&c["category"].as_str().unwrap()))
     };
@@ -362,104 +465,142 @@ fn plan(
             ("shoes", vec!["shoes"]),
         ]);
     }
-    if !has(&["top", "bottom"]) {
+    if !has(&["top", "bottom"]) || has(&["dress", "one_piece"]) {
         for category in ["dress", "one_piece"] {
             if has(&["dress", "one_piece"]) && !has(&[category]) {
                 continue;
             }
-            if has(&[category]) || clothes.iter().any(|c| c["category"] == category) {
+            if has(&[category]) || exists(&[category]) {
                 patterns.push(vec![("body", vec![category]), ("shoes", vec!["shoes"])]);
             }
         }
     }
-    if cold {
+    if occasion == "sport" && exists(&["sportswear"]) {
         for pattern in &mut patterns {
+            pattern.push(("sportswear", vec!["sportswear"]));
+        }
+        patterns.push(vec![
+            ("sportswear", vec!["sportswear"]),
+            ("shoes", vec!["shoes"]),
+            ("coverage_unknown", vec![]),
+        ]);
+    }
+    for pattern in &mut patterns {
+        if cold {
             pattern.push(("outerwear", vec!["outerwear"]));
+        }
+        for category in ["outerwear", "bag", "accessory"] {
+            if !(cold && category == "outerwear")
+                && clothes.iter().any(|c| {
+                    c["category"] == category && priority.contains(c["id"].as_str().unwrap())
+                })
+            {
+                pattern.push((category, vec![category]));
+            }
         }
     }
     let missing_count = |pattern: &Vec<(&str, Vec<&str>)>| {
         pattern
             .iter()
-            .filter(|(_, categories)| {
-                !has(categories)
-                    && !clothes
-                        .iter()
-                        .any(|c| categories.contains(&c["category"].as_str().unwrap()))
-            })
+            .filter(|(_, categories)| !has(categories) && !exists(categories))
             .count()
     };
     let best = patterns.iter().map(&missing_count).min().unwrap_or(0);
-    patterns.retain(|pattern| missing_count(pattern) == best);
-    let mut result = vec![];
-    let mut physical = BTreeSet::new();
-    let mut repeated = vec![];
+    patterns.retain(|p| missing_count(p) == best);
+    let ranks: HashMap<&str, usize> = clothes
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c["id"].as_str().unwrap(), i))
+        .collect();
+    let mut compiled = vec![];
     for pattern in patterns {
-        let mut slots: Vec<Vec<Option<&Value>>> = vec![];
+        let mut slots = vec![];
         let mut missing = vec![];
-        for (role, categories) in &pattern {
-            if has(categories) {
+        for (role, categories) in pattern {
+            if has(&categories) {
                 continue;
             }
-            let candidates: Vec<_> = clothes
+            let mut candidates: Vec<Option<&Value>> = clothes
                 .iter()
                 .filter(|c| categories.contains(&c["category"].as_str().unwrap()))
                 .map(Some)
                 .collect();
             if candidates.is_empty() {
-                missing.push(*role);
-                slots.push(vec![None]);
-            } else {
-                slots.push(candidates);
+                missing.push(role);
+                candidates.push(None);
+            }
+            slots.push(candidates);
+        }
+        compiled.push((slots, missing));
+    }
+    let score = |pattern: usize, indices: &Vec<usize>| {
+        -(compiled[pattern]
+            .0
+            .iter()
+            .zip(indices)
+            .map(|(slot, index)| {
+                slot[*index]
+                    .map(|c| ranks[c["id"].as_str().unwrap()])
+                    .unwrap_or(0)
+            })
+            .sum::<usize>() as i64)
+    };
+    let mut heap = BinaryHeap::new();
+    let mut visited = BTreeSet::new();
+    for (pattern, (slots, _)) in compiled.iter().enumerate() {
+        let indices = vec![0; slots.len()];
+        heap.push((score(pattern, &indices), pattern, indices.clone()));
+        visited.insert((pattern, indices));
+    }
+    let mut result = vec![];
+    let mut physical = BTreeSet::new();
+    let mut repeated = vec![];
+    while let Some((_, pattern, indices)) = heap.pop() {
+        let (slots, missing) = &compiled[pattern];
+        let mut selected = mandatory.clone();
+        for (slot, index) in slots.iter().zip(&indices) {
+            if let Some(c) = slot[*index] {
+                selected.push(c);
             }
         }
-        let initial = vec![0usize; slots.len()];
-        let mut heap = BinaryHeap::new();
-        let mut visited = BTreeSet::new();
-        heap.push((0i64, initial.clone()));
-        visited.insert(initial);
-        while let Some((_, indices)) = heap.pop() {
-            let mut selected: Vec<&Value> = mandatory.iter().collect();
-            for (slot, index) in slots.iter().zip(&indices) {
-                if let Some(c) = slot[*index] {
-                    selected.push(c);
-                }
-            }
-            let mut ids: Vec<String> = selected
+        let mut ids: Vec<String> = selected
+            .iter()
+            .map(|c| c["id"].as_str().unwrap().to_owned())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        if !ids.is_empty() && !forbidden.contains(&ids) && physical.insert(ids.clone()) {
+            let mut layers = HashMap::new();
+            let items: Vec<Value> = selected
                 .iter()
-                .map(|c| c["id"].as_str().unwrap().to_owned())
+                .map(|c| {
+                    let (role, base) = role(c["category"].as_str().unwrap());
+                    let layer = layers.entry(role).or_insert(base);
+                    let value = entry(c, role, *layer);
+                    *layer += 1;
+                    value
+                })
                 .collect();
-            ids.sort();
-            ids.dedup();
-            if !ids.is_empty() && !forbidden.contains(&ids) && physical.insert(ids.clone()) {
-                let items: Vec<Value> = selected
-                    .iter()
-                    .map(|c| {
-                        let (role, layer) = role(c["category"].as_str().unwrap());
-                        entry(c, role, layer)
-                    })
-                    .collect();
-                let is_repeat = recent.contains(&ids);
-                let mut proposal = json!({"items":items,"complete":missing.is_empty(),"missing_roles":missing,"repeat_relaxed":is_repeat,"reasons":[if missing.is_empty(){"离线角色规则：真实可用衣物，固定与排除约束已保留"}else{"缺少基础角色；仅展示真实库存，不能视为完整穿搭"}]});
-                if is_repeat {
-                    proposal["reasons"]
-                        .as_array_mut()
-                        .unwrap()
-                        .push(json!("库存与硬约束不足，显式放宽最近7天实际穿着的软避重复"));
-                    repeated.push(proposal);
-                } else {
-                    result.push(proposal);
-                }
-                if result.len() == limit {
-                    return result;
-                }
+            let is_repeat = recent.contains(&ids);
+            let mut proposal = json!({"items":items,"complete":missing.is_empty(),"missing_roles":missing,"repeat_relaxed":is_repeat,"reasons":[if missing.is_empty(){"离线角色规则：真实可用衣物，固定与排除约束已保留"}else{"缺少基础角色或覆盖范围未知；仅展示真实库存，不能视为完整穿搭"}]});
+            if is_repeat {
+                proposal["reasons"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!("库存与硬约束不足，显式放宽最近7天实际穿着的软避重复"));
+                repeated.push(proposal);
+            } else {
+                result.push(proposal);
             }
-            for slot in 0..slots.len() {
-                let mut next = indices.clone();
-                next[slot] += 1;
-                if next[slot] < slots[slot].len() && visited.insert(next.clone()) {
-                    let rank = next.iter().sum::<usize>() as i64;
-                    heap.push((-rank, next));
-                }
+            if result.len() == limit {
+                return result;
+            }
+        }
+        for slot in 0..slots.len() {
+            let mut next = indices.clone();
+            next[slot] += 1;
+            if next[slot] < slots[slot].len() && visited.insert((pattern, next.clone())) {
+                heap.push((score(pattern, &next), pattern, next));
             }
         }
     }
@@ -545,7 +686,10 @@ fn ids(input: &Value, key: &str) -> Result<Vec<String>, ApiError> {
     let Some(value) = input.get(key) else {
         return Ok(vec![]);
     };
-    let array = value.as_array().ok_or_else(|| invalid("衣物ID须为数组"))?;
+    let array = value
+        .as_array()
+        .filter(|a| a.len() <= 100)
+        .ok_or_else(|| invalid("衣物ID须为最多100项的数组"))?;
     let mut result = vec![];
     for value in array {
         let id = value
@@ -566,7 +710,8 @@ fn entry(c: &Value, role: &str, layer: i32) -> Value {
 pub(super) fn descriptors() -> Vec<Value> {
     ["generate","get","list","replace","change","save"].into_iter().map(|op|{
  let mut properties=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
- if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"uniqueItems":true});}properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}if op=="save"{properties["name"]=json!({"type":"string","minLength":1,"maxLength":120});required.push("name");}}}}
+ if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids","retained_ids","action_excluded_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"uniqueItems":true});}properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}
+if op=="save"{properties["name"]=json!({"type":"string","minLength":1,"maxLength":120});required.push("name");}}}}
  json!({"name":format!("recommendation.{op}"),"description":format!("本地离线搭配 {op}；仅使用同成员真实可用衣物，生成与保存均不记录穿着"),"inputSchema":{"type":"object","required":required,"properties":properties,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"id":{"type":"string"},"proposals":{"type":"array"},"items":{"type":"array"}}}})
  }).collect()
 }

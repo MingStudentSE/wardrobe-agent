@@ -398,6 +398,14 @@ impl Application {
     // One member-wide read per source, then partition by physical clothing ID.
     // Caller owns the existing DEFERRED or IMMEDIATE snapshot.
     pub(super) fn care_batch(&self, member: &str) -> Result<Vec<Value>, ApiError> {
+        let wears = self.effective_wears(member)?;
+        self.care_batch_from_wears(member, &wears)
+    }
+    pub(super) fn care_batch_from_wears(
+        &self,
+        member: &str,
+        wears: &[Value],
+    ) -> Result<Vec<Value>, ApiError> {
         let mut configs = std::collections::HashMap::new();
         let mut st = self
             .connection
@@ -410,8 +418,13 @@ impl Application {
         }
         let mut timelines: std::collections::HashMap<String, Vec<(String, u8, String, Value)>> =
             std::collections::HashMap::new();
-        for wear in self.effective_wears(member)? {
-            let event = event_order(wear.clone(), 0);
+        for wear in wears {
+            let event = (
+                wear["occurred_at"].as_str().unwrap().to_owned(),
+                0,
+                wear["root_event_id"].as_str().unwrap().to_owned(),
+                json!({"time_precision":wear["time_precision"]}),
+            );
             for item in wear["items"].as_array().unwrap() {
                 timelines
                     .entry(item["clothing_id"].as_str().unwrap().to_owned())
