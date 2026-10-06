@@ -11,6 +11,7 @@ mod image_editing;
 mod imports;
 mod insights;
 mod jobs;
+mod learning;
 mod members;
 mod outfits;
 mod product;
@@ -27,7 +28,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 19;
+pub const DATABASE_SCHEMA_VERSION: u32 = 20;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -125,6 +126,7 @@ impl Application {
         recommendations::migrate(&tx)?;
         weather::migrate(&tx)?;
         feedback::migrate(&tx)?;
+        learning::migrate(&tx)?;
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
         cutout::migrate(&tx)?;
@@ -241,6 +243,7 @@ impl Application {
             "clothing.list" => self.clothing_list(input),
             op if op.starts_with("outfit.") => self.outfit_execute(op, input),
             op if op.starts_with("wear.") => self.wear_execute(op, input),
+            op if op.starts_with("learning.") => self.learning_execute(op, input),
             op if op.starts_with("feedback.") => self.feedback_execute(op, input),
             op if op.starts_with("weather.") => self.weather_execute(op, input),
             op if op.starts_with("recommendation.") => self.recommendation_execute(op, input),
@@ -298,6 +301,7 @@ pub fn operations() -> Value {
     descriptors.extend(recommendations::descriptors());
     descriptors.extend(weather::descriptors());
     descriptors.extend(feedback::descriptors());
+    descriptors.extend(learning::descriptors());
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());
     descriptors.extend(image_editing::descriptors());

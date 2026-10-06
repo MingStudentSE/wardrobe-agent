@@ -1,0 +1,43 @@
+npm notice run wardrobe-desktop@0.1.0 npx
+npm notice run 'playwright' test tests/learning.spec.ts -g 确认记忆修改
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5174 --strictPort
+[WebServer] (node:5300) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:5400) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/learning.spec.ts:29:1 › 确认记忆修改后的再次推荐使用新意图，未知响应重试保持原键 (6.4s)
+
+
+  1) tests/learning.spec.ts:29:1 › 确认记忆修改后的再次推荐使用新意图，未知响应重试保持原键 ────────────────────────────────────
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('#recommendations').locator('.recommendation-proposal')
+    Expected substring: "后创建蓝上衣"
+    Received string:    "方案 1 · 基础角色齐全先创建红上衣 · 上装 · 层 0替换 先创建红上衣偏好裤 · 下装 · 层 0替换 偏好裤偏好鞋 · 鞋 · 层 0替换 偏好鞋离线角色规则：真实可用衣物，固定与排除约束已保留日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）换一套搭配保存名称保存为搭配"
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('#recommendations').locator('.recommendation-proposal') with timeout 5000ms
+      - waiting for locator('#recommendations').locator('.recommendation-proposal')
+        14 × locator resolved to <article class="recommendation-proposal">…</article>
+           - unexpected value "方案 1 · 基础角色齐全先创建红上衣 · 上装 · 层 0替换 先创建红上衣偏好裤 · 下装 · 层 0替换 偏好裤偏好鞋 · 鞋 · 层 0替换 偏好鞋离线角色规则：真实可用衣物，固定与排除约束已保留日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）换一套搭配保存名称保存为搭配"
+
+
+      36 |  const operationKeys:string[]=[];await page.route('**/__wardrobe_dev_api',async route=>{const data=route.request().postDataJSON();if(data.operation==='learning.set'){operationKeys.push(data.input.operation_key);const response=await route.fetch();if(operationKeys.length===1){await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:{message:'偏好已记录，响应丢失'}})});return;}await route.fulfill({response});return;}await route.continue();});
+      37 |  await panel.getByRole('button',{name:'保存明确偏好',exact:true}).click();await expect(panel.getByRole('alert')).toContainText('响应丢失');await panel.getByRole('button',{name:'保存明确偏好',exact:true}).click();await expect(panel.getByRole('status')).toContainText('明确偏好已保存');expect(operationKeys).toHaveLength(2);expect(operationKeys[0]).toBe(operationKeys[1]);expect((await call('learning.get')).explicit).toHaveLength(1);
+    > 38 |  await page.getByRole('link',{name:'推荐',exact:true}).click();await rec.getByRole('button',{name:'生成离线搭配',exact:true}).click();await expect(rec.locator('.recommendation-proposal')).toContainText('后创建蓝上衣');expect((await call('wear.list')).items).toEqual([]);
+         |                                                                                                                                                                                     ^
+      39 |  }finally{await expect(choice).toBeEnabled();await choice.selectOption({label:'我'});}
+      40 | });
+      41 |
+        at /private/tmp/wardrobe-ticket-18/apps/desktop/tests/learning.spec.ts:38:181
+
+    Error Context: test-results/learning-确认记忆修改后的再次推荐使用新意图，未知响应重试保持原键/error-context.md
+
+  1 failed
+    tests/learning.spec.ts:29:1 › 确认记忆修改后的再次推荐使用新意图，未知响应重试保持原键 ─────────────────────────────────────
