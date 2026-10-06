@@ -1,0 +1,74 @@
+{
+  "run_id": 37513514443,
+  "source": "9070fa753abe8101014f9f12470ea632135305ef",
+  "run_status": "in_progress",
+  "run_conclusion": "",
+  "platforms": [
+    {
+      "platform": "desktop (ubuntu-22.04)",
+      "job_id": 112440467437,
+      "job_conclusion": "success",
+      "model_step": {
+        "completedAt": "2026-10-06T18:53:57Z",
+        "conclusion": "success",
+        "name": "Verify optimized actual local segmentation model",
+        "number": 12,
+        "startedAt": "2026-10-06T18:53:47Z",
+        "status": "completed"
+      }
+    },
+    {
+      "platform": "desktop (macos-14)",
+      "job_id": 112440467897,
+      "job_conclusion": "success",
+      "model_step": {
+        "completedAt": "2026-10-06T18:46:38Z",
+        "conclusion": "success",
+        "name": "Verify optimized actual local segmentation model",
+        "number": 12,
+        "startedAt": "2026-10-06T18:46:32Z",
+        "status": "completed"
+      }
+    },
+    {
+      "platform": "desktop (macos-15-intel)",
+      "job_id": 112440468022,
+      "job_conclusion": "success",
+      "model_step": {
+        "completedAt": "2026-10-06T18:52:36Z",
+        "conclusion": "success",
+        "name": "Verify optimized actual local segmentation model",
+        "number": 12,
+        "startedAt": "2026-10-06T18:52:25Z",
+        "status": "completed"
+      }
+    },
+    {
+      "platform": "desktop (ubuntu-24.04)",
+      "job_id": 112440468122,
+      "job_conclusion": "success",
+      "model_step": {
+        "completedAt": "2026-10-06T18:54:30Z",
+        "conclusion": "success",
+        "name": "Verify optimized actual local segmentation model",
+        "number": 12,
+        "startedAt": "2026-10-06T18:54:21Z",
+        "status": "completed"
+      }
+    },
+    {
+      "platform": "desktop (windows-latest)",
+      "job_id": 112440468159,
+      "job_conclusion": "",
+      "model_step": {
+        "completedAt": "2026-10-06T19:04:58Z",
+        "conclusion": "success",
+        "name": "Verify optimized actual local segmentation model",
+        "number": 12,
+        "startedAt": "2026-10-06T19:04:43Z",
+        "status": "completed"
+      }
+    }
+  ],
+  "scope": "actual optimized official model acquisition, SHA256, public white-shirt inference and cached restart; overall Windows job and native GUI installation not implied"
+}
