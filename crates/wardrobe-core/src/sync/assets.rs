@@ -293,7 +293,18 @@ pub(super) fn ensure_references(
         }
         Ok(())
     }
-    collect(doc, member, &mut ids)?;
+    if table == "feedback_events" {
+        for snapshot in doc["inventory_snapshots"]
+            .as_array()
+            .ok_or_else(|| error("sync_invalid"))?
+        {
+            if let Some(asset) = snapshot["display_asset_id"].as_str() {
+                ids.insert(asset.to_owned());
+            }
+        }
+    } else if table != "feedback_receipts" {
+        collect(doc, member, &mut ids)?;
+    }
     for id in ids {
         if uuid::Uuid::parse_str(&id).is_err() {
             return Err(error("sync_invalid"));
@@ -303,9 +314,11 @@ pub(super) fn ensure_references(
             "INSERT OR IGNORE INTO assets VALUES(?1,?2,?3)",
             params![id, member, stub.to_string()],
         )?;
-        if ["wear_events", "care_events"].contains(&table) {
+        if ["wear_events", "care_events", "feedback_events"].contains(&table) {
             let refs = if table == "wear_events" {
                 "wear_asset_refs"
+            } else if table == "feedback_events" {
+                "feedback_asset_refs"
             } else {
                 "care_asset_refs"
             };

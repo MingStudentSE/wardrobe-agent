@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Read, path::Path};
 use storage::{LocalFolder, SyncStorage, WriteCondition};
-const TABLES: [&str; 8] = [
+const TABLES: [&str; 10] = [
     "members",
     "clothing",
     "outfits",
@@ -23,12 +23,15 @@ const TABLES: [&str; 8] = [
     "care_config",
     "care_events",
     "insights_preferences",
+    "feedback_events",
+    "feedback_receipts",
 ];
 fn entity_key(table: &str, prefix: &str) -> String {
     match table {
         "outfit_versions" => format!("{prefix}.outfit_id||':'||{prefix}.version"),
         "care_config" => format!("{prefix}.clothing_id"),
         "insights_preferences" => format!("{prefix}.member_id"),
+        "feedback_receipts" => format!("{prefix}.member_id||':'||{prefix}.operation_key"),
         _ => format!("{prefix}.id"),
     }
 }
@@ -109,15 +112,50 @@ fn materialize(
             }
             tx.execute("INSERT INTO outfit_versions SELECT ?1,?2,?3 WHERE NOT EXISTS(SELECT 1 FROM outfit_versions WHERE outfit_id=?1 AND version=?2 AND document=?3)",params![outfit,doc["version"].as_u64(),serialized])?;
         }
-        "wear_events" | "care_events" => {
+        "wear_events" | "care_events" | "feedback_events" => {
             tx.execute(
                 &format!("INSERT OR IGNORE INTO {table} VALUES(?1,?2,?3,?4,?5)"),
                 params![
                     id,
                     member,
-                    string(doc, "root_event_id")?,
+                    string(
+                        doc,
+                        if table == "feedback_events" {
+                            "root_id"
+                        } else {
+                            "root_event_id"
+                        }
+                    )?,
                     doc["revision"].as_u64(),
                     serialized
+                ],
+            )?;
+        }
+        "feedback_receipts" => {
+            let result: Value =
+                serde_json::from_str(string(doc, "result")?).map_err(|_| error("sync_invalid"))?;
+            let prior: Option<String> = tx
+                .query_row(
+                    "SELECT document FROM feedback_events WHERE id=?1 AND member_id=?2",
+                    params![string(&result, "id")?, member],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let prior: Value =
+                serde_json::from_str(&prior.ok_or_else(|| error("sync_dependency"))?)
+                    .map_err(|_| error("sync_invalid"))?;
+            if prior != result {
+                return Err(error("sync_identity_conflict"));
+            }
+            // Alternative receipts remain immutable archived branches; an ambiguous
+            // operation key never silently replaces a previously returned result.
+            tx.execute(
+                "INSERT OR IGNORE INTO feedback_receipts VALUES(?1,?2,?3,?4)",
+                params![
+                    member,
+                    string(doc, "operation_key")?,
+                    string(doc, "request")?,
+                    string(doc, "result")?
                 ],
             )?;
         }
@@ -136,6 +174,7 @@ fn repair_immutable(tx: &Transaction<'_>) -> Result<(), ApiError> {
     for (table, refs) in [
         ("wear_events", Some("wear_asset_refs")),
         ("care_events", Some("care_asset_refs")),
+        ("feedback_events", Some("feedback_asset_refs")),
         ("outfit_versions", None),
     ] {
         let sql: String = tx.query_row(
@@ -145,6 +184,7 @@ fn repair_immutable(tx: &Transaction<'_>) -> Result<(), ApiError> {
         )?;
         if !sql.contains("UNIQUE(root_event_id,revision)")
             && !sql.contains("PRIMARY KEY(outfit_id,version)")
+            && !sql.contains("UNIQUE(root_id,revision)")
         {
             continue;
         }
@@ -158,7 +198,12 @@ fn repair_immutable(tx: &Transaction<'_>) -> Result<(), ApiError> {
         if table == "outfit_versions" {
             tx.execute_batch("CREATE TABLE outfit_versions(outfit_id TEXT NOT NULL REFERENCES outfits(id),version INTEGER NOT NULL,document TEXT NOT NULL)")?;
         } else {
-            tx.execute_batch(&format!("CREATE TABLE {table}(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_event_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL)"))?;
+            let root = if table == "feedback_events" {
+                "root_id"
+            } else {
+                "root_event_id"
+            };
+            tx.execute_batch(&format!("CREATE TABLE {table}(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),{root} TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL)"))?;
         }
         tx.execute_batch(&format!("INSERT INTO {table} SELECT * FROM {table}_legacy"))?;
         if let Some(refs) = refs {
@@ -166,11 +211,18 @@ fn repair_immutable(tx: &Transaction<'_>) -> Result<(), ApiError> {
         }
         tx.execute_batch(&format!("DROP TABLE {table}_legacy"))?;
     }
-    tx.execute_batch("CREATE INDEX IF NOT EXISTS sync_wear_root ON wear_events(root_event_id,revision,id);CREATE INDEX IF NOT EXISTS sync_care_root ON care_events(root_event_id,revision,id);CREATE INDEX IF NOT EXISTS sync_outfit_versions ON outfit_versions(outfit_id,version)")?;
+    tx.execute_batch("CREATE INDEX IF NOT EXISTS sync_wear_root ON wear_events(root_event_id,revision,id);CREATE INDEX IF NOT EXISTS sync_care_root ON care_events(root_event_id,revision,id);CREATE INDEX IF NOT EXISTS sync_outfit_versions ON outfit_versions(outfit_id,version);CREATE INDEX IF NOT EXISTS feedback_member_root ON feedback_events(member_id,root_id,revision)")?;
     Ok(())
 }
 fn immutable(table: &str) -> bool {
-    ["wear_events", "care_events", "outfit_versions"].contains(&table)
+    [
+        "wear_events",
+        "care_events",
+        "feedback_events",
+        "feedback_receipts",
+        "outfit_versions",
+    ]
+    .contains(&table)
 }
 fn error(code: &str) -> ApiError {
     ApiError::new(code, "同步未完成，保留本地事实后重试")
@@ -185,13 +237,17 @@ pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     for table in TABLES {
         for kind in ["INSERT", "UPDATE"] {
             let key = entity_key(table, "NEW");
-            let after = if table == "members" {
+            let after = if table == "feedback_receipts" {
+                "json_object('schema_version',1,'member_id',NEW.member_id,'operation_key',NEW.operation_key,'request',NEW.request,'result',NEW.result)"
+            } else if table == "members" {
                 "json_object('id',NEW.id,'name',NEW.name)"
             } else {
                 "NEW.document"
             };
             let before = if kind == "INSERT" {
                 "NULL"
+            } else if table == "feedback_receipts" {
+                "json_object('schema_version',1,'member_id',OLD.member_id,'operation_key',OLD.operation_key,'request',OLD.request,'result',OLD.result)"
             } else if table == "members" {
                 "json_object('id',OLD.id,'name',OLD.name)"
             } else {
@@ -276,7 +332,7 @@ impl Application {
             }
             let canonical = op["after"].to_string();
             let branch = digest(canonical.as_bytes());
-            if table != "outfit_versions" {
+            if !["outfit_versions", "feedback_receipts"].contains(&table) {
                 if op["after"]["id"] != entity {
                     return Err(error("sync_invalid"));
                 }
@@ -467,6 +523,8 @@ impl Application {
                     let key = entity_key(table, table);
                     let sql = if table == "members" {
                         "SELECT id,json_object('id',id,'name',name) FROM members WHERE ?1 OR EXISTS(SELECT 1 FROM clothing c WHERE c.member_id=members.id)".to_string()
+                    } else if table == "feedback_receipts" {
+                        format!("SELECT {key},json_object('schema_version',1,'member_id',member_id,'operation_key',operation_key,'request',request,'result',result) FROM {table} WHERE ?1 OR 1")
                     } else {
                         format!("SELECT {key},document FROM {table} WHERE ?1 OR 1")
                     };

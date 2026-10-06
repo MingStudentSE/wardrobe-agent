@@ -1,3 +1,4 @@
+mod feedback;
 use super::*;
 fn check(valid: bool) -> Result<(), ApiError> {
     if valid {
@@ -372,6 +373,8 @@ pub(super) fn validate(table: &str, entity: &str, doc: &Value) -> Result<(), Api
             timestamp(doc, "created_at")?;
             timestamp(doc, "updated_at")?;
         }
+        "feedback_events" => feedback::event(entity, doc)?,
+        "feedback_receipts" => feedback::receipt(entity, doc)?,
         _ => return Err(error("sync_invalid")),
     }
     Ok(())
@@ -404,6 +407,13 @@ pub(super) fn validate_identity(
             .query_row(
                 "SELECT member_id FROM outfits WHERE id=?1",
                 [string(doc, "id")?],
+                |r| r.get(0),
+            )
+            .optional()?,
+        "feedback_events" => tx
+            .query_row(
+                "SELECT member_id FROM feedback_events WHERE root_id=?1 LIMIT 1",
+                [string(doc, "root_id")?],
                 |r| r.get(0),
             )
             .optional()?,

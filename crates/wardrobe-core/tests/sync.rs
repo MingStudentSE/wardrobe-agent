@@ -1300,6 +1300,34 @@ fn new_paired_installation_receives_original_remote_histories_on_a_new_target() 
             json!({"member_id":member,"id":garment["id"],"name":"current edited remote shirt"}),
         )
         .unwrap();
+
+    for (name, category) in [("remote trousers", "bottom"), ("remote shoes", "shoes")] {
+        origin
+            .execute(
+                "clothing.create",
+                json!({"member_id":member,"name":name,"category":category}),
+            )
+            .unwrap();
+    }
+    let feedback_intent = origin
+        .execute(
+            "recommendation.generate",
+            json!({"member_id":member,"operation_key":"portable feedback source","timezone":"UTC"}),
+        )
+        .unwrap();
+    let feedback_input = json!({"member_id":member,"operation_key":"portable feedback receipt","intent_id":feedback_intent["id"],"proposal_index":0,"reaction":"like","scores":{"overall":5,"comfort":null,"style":4}});
+    let feedback = origin
+        .execute("feedback.record", feedback_input.clone())
+        .unwrap();
+    origin.execute("feedback.correct",json!({"member_id":member,"operation_key":"portable feedback correction","root_id":feedback["root_id"],"expected_revision":1,"reaction":"dislike"})).unwrap();
+    origin.execute("feedback.revoke",json!({"member_id":member,"operation_key":"portable feedback revocation","root_id":feedback["root_id"],"expected_revision":2,"reason":"original feedback history remains"})).unwrap();
+    let expected_feedback = origin
+        .execute(
+            "feedback.history",
+            json!({"member_id":member,"root_id":feedback["root_id"]}),
+        )
+        .unwrap()["items"]
+        .clone();
     for app in [&origin, &owner] {
         app.execute(
             "sync.configure",
@@ -1341,6 +1369,16 @@ fn new_paired_installation_receives_original_remote_histories_on_a_new_target() 
             .unwrap()["items"],
         expected_care
     );
+    assert_eq!(
+        owner
+            .execute(
+                "feedback.history",
+                json!({"member_id":member,"root_id":feedback["root_id"]})
+            )
+            .unwrap()["items"],
+        expected_feedback,
+        "all accepted explicit feedback revisions must be portable"
+    );
     pair(
         &owner,
         &newcomer,
@@ -1373,6 +1411,26 @@ fn new_paired_installation_receives_original_remote_histories_on_a_new_target() 
             )
             .unwrap()["items"],
         expected_care
+    );
+    assert_eq!(
+        newcomer
+            .execute(
+                "feedback.history",
+                json!({"member_id":member,"root_id":feedback["root_id"]})
+            )
+            .unwrap()["items"],
+        expected_feedback
+    );
+    assert_eq!(newcomer.execute("feedback.record",feedback_input).unwrap(),feedback,"the portable receipt must replay the original result without requiring private recommendation intents");
+    assert_eq!(
+        newcomer
+            .execute(
+                "wear.history",
+                json!({"member_id":member,"root_event_id":wear["root_event_id"]})
+            )
+            .unwrap()["items"],
+        expected_wear,
+        "ordinary feedback must not create or alter wear"
     );
     for version in [1, 2] {
         assert_eq!(

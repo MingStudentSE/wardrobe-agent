@@ -80,7 +80,15 @@ pub(super) fn has_original(
         if table == "members" && !creation {
             continue;
         }
-        if !["outfit_versions", "wear_events", "care_events"].contains(&table) {
+        if ![
+            "outfit_versions",
+            "wear_events",
+            "care_events",
+            "feedback_events",
+            "feedback_receipts",
+        ]
+        .contains(&table)
+        {
             return Ok(true);
         }
         let after: Value = serde_json::from_str(&after).map_err(|_| error("sync_invalid"))?;
