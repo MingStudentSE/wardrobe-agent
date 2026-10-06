@@ -77,7 +77,19 @@ fn manual_templates_accept_all_categories_but_reject_invalid_structure_atomicall
     let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
     let mut items = vec![];
     let mut garments = vec![];
-    for category in wardrobe_core::CATEGORIES {
+    for category in [
+        "top",
+        "bottom",
+        "outerwear",
+        "dress",
+        "one_piece",
+        "shoes",
+        "bag",
+        "accessory",
+        "underwear",
+        "sportswear",
+        "other",
+    ] {
         let c = app
             .execute(
                 "clothing.create",
@@ -122,6 +134,7 @@ fn manual_templates_accept_all_categories_but_reject_invalid_structure_atomicall
             json!({"member_id":"default","name":"全部类别","items":items}),
         )
         .unwrap();
+    assert_eq!(outfit["items"].as_array().unwrap().len(), 11);
     app.execute(
         "outfit.favorite",
         json!({"member_id":"default","id":outfit["id"],"favorite":true}),
