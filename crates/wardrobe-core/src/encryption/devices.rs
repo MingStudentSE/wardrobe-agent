@@ -715,3 +715,70 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
         _ => Err(ApiError::new("unsupported_operation", "此加密操作尚不可用")),
     }
 }
+
+impl Application {
+    pub(crate) fn sync_identity(&self) -> Result<Value, ApiError> {
+        let (mut s, w) = existing(self)?;
+        if s["pending"] == true || s["revoked"] == true {
+            return Err(ApiError::new("device_revoked", "设备未确认或已撤销"));
+        }
+        if s["manifest"].is_null() {
+            assert_owner(&s)?;
+            s["manifest"] = signed_manifest(&s, &w)?;
+            let tx = self.begin_write()?;
+            update(&tx, &s, &w)?;
+            tx.commit()?;
+        }
+        Ok(
+            json!({"space_id":s["space_id"],"device_id":s["device_id"],"epoch":s["epoch"],"manifest":s["manifest"]}),
+        )
+    }
+    pub(crate) fn sync_encrypt(&self, kind: &str, value: &Value) -> Result<Value, ApiError> {
+        let identity = self.sync_identity()?;
+        let (s, w) = existing(self)?;
+        let epoch = s["epoch"].as_u64().ok_or_else(invalid)?;
+        let master = master(&w, epoch)?;
+        let key = derive(master.as_ref(), string(&s, "space_id")?, epoch, kind)?;
+        let plain = Zeroizing::new(value.to_string());
+        if plain.len() > 1024 * 1024 {
+            return Err(ApiError::new("sync_too_large", "同步日志对象超出分片大小"));
+        }
+        Ok(
+            json!({"protocol_version":1,"identity":identity,"envelope":seal(key.as_ref(),string(&s,"space_id")?,epoch,kind,plain.as_bytes())?}),
+        )
+    }
+    pub(crate) fn sync_decrypt(&self, kind: &str, value: &Value) -> Result<Value, ApiError> {
+        self.sync_identity()?;
+        let (s, w) = existing(self)?;
+        let i = &value["identity"];
+        if value["protocol_version"] != 1
+            || i["space_id"] != s["space_id"]
+            || i["epoch"] != s["epoch"]
+        {
+            return Err(ApiError::new(
+                "sync_state_required",
+                "请先更新已验证设备状态",
+            ));
+        }
+        package::manifest(&s, &i["manifest"])?;
+        if !s["devices"]
+            .as_array()
+            .ok_or_else(invalid)?
+            .iter()
+            .any(|d| d["device_id"] == i["device_id"])
+        {
+            return Err(error());
+        }
+        let epoch = s["epoch"].as_u64().ok_or_else(invalid)?;
+        let master = master(&w, epoch)?;
+        let key = derive(master.as_ref(), string(&s, "space_id")?, epoch, kind)?;
+        let plain = open(
+            key.as_ref(),
+            string(&s, "space_id")?,
+            epoch,
+            kind,
+            &value["envelope"],
+        )?;
+        serde_json::from_slice(&plain).map_err(|_| invalid())
+    }
+}

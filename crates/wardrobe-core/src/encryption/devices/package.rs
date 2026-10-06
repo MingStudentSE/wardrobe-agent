@@ -301,7 +301,7 @@ fn encrypt_object(
     let descriptor = json!({"name":name,"kind":kind,"sha256":hash(&bytes),"bytes":bytes.len()});
     Ok((name, bytes, descriptor))
 }
-fn manifest(s: &Value, supplied: &Value) -> Result<(), ApiError> {
+pub(super) fn manifest(s: &Value, supplied: &Value) -> Result<(), ApiError> {
     fields(supplied, &["payload_base64", "signature"])?;
     let raw = bytes(supplied, "payload_base64", MAX_BYTES)?;
     let key = VerifyingKey::from_bytes(&exact::<32>(s, "owner_public")?).map_err(|_| error())?;
