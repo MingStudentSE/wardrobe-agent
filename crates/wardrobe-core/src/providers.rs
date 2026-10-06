@@ -53,17 +53,19 @@ impl Application {
     }
     pub(crate) fn provider_validate(&self, input: Value) -> Result<Value, ApiError> {
         use std::io::Read;
-        fields(&input, &["id"])?;
+        fields(&input, &["id", "capability"])?;
         let id = string(&input, "id")?;
+        let capability = string(&input, "capability")?;
         let p = self.provider_get(id)?;
-        if !p["capabilities"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("text"))
+        if !CAPABILITIES.contains(&capability)
+            || !p["capabilities"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(capability))
         {
             return Err(ApiError::new(
                 "unsupported_capability",
-                "连接验证需要文本能力；视觉验证在真实图片任务中单独记录",
+                "请选择已配置的文本或视觉能力",
             ));
         }
         let client = reqwest::blocking::Client::builder()
@@ -71,7 +73,18 @@ impl Application {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|_| ApiError::new("connection_error", "无法建立连接客户端"))?;
-        let mut request=client.post(format!("{}/chat/completions",p["endpoint"].as_str().unwrap())).json(&json!({"model":p["model"],"messages":[{"role":"user","content":"Reply OK."}],"max_tokens":1}));
+        let content = if capability == "vision" {
+            use base64::Engine;
+            let image_url = format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD
+                    .encode(include_bytes!("validation-image.png"))
+            );
+            json!([{"type":"text","text":"Briefly describe the shapes and colors in this test image."},{"type":"image_url","image_url":{"url":image_url,"detail":"low"}}])
+        } else {
+            json!("Reply OK.")
+        };
+        let mut request = client.post(format!("{}/chat/completions",p["endpoint"].as_str().unwrap())).json(&json!({"model":p["model"],"messages":[{"role":"user","content":content}],"max_tokens":if capability=="vision" {32} else {1}}));
         if p["authentication"] == "bearer" {
             let key = match credential_entry_for(&p)?.get_password() {
                 Ok(key) => key,
@@ -124,7 +137,10 @@ impl Application {
         }
         let result: Value = serde_json::from_slice(&body)
             .map_err(|_| ApiError::new("provider_response", "供应商未返回兼容JSON响应"))?;
-        if !result["choices"][0]["message"]["content"].is_string() {
+        if result["choices"][0]["message"]["content"]
+            .as_str()
+            .is_none_or(|s| s.trim().is_empty())
+        {
             return Err(ApiError::new("provider_response", "供应商响应缺少文本结果"));
         }
         let mut usage = json!({});
@@ -134,7 +150,7 @@ impl Application {
             }
         }
         Ok(
-            json!({"schema_version":1,"id":id,"verified_capabilities":["text"],"verified_at":chrono::Utc::now().to_rfc3339(),"usage":usage}),
+            json!({"schema_version":1,"id":id,"verified_capabilities":[capability],"verified_at":chrono::Utc::now().to_rfc3339(),"usage":usage}),
         )
     }
     pub(crate) fn provider_save(&self, input: Value) -> Result<Value, ApiError> {
@@ -303,7 +319,7 @@ pub(crate) fn descriptors() -> Vec<Value> {
     let mut result = vec![
         json!({"name":"provider.save","description":"保存模型端点和能力；更换端点会移除旧凭据","inputSchema":{"type":"object","required":["name","endpoint","model","capabilities","authentication"],"properties":{"id":{"type":"string"},"name":{"type":"string"},"endpoint":{"type":"string"},"model":{"type":"string"},"capabilities":{"type":"array","items":{"enum":CAPABILITIES}},"authentication":{"enum":["none","bearer"]}},"additionalProperties":false},"outputSchema":provider_schema()}),
         json!({"name":"provider.list","description":"读取本机模型配置，不包含凭据","inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":provider_schema()}}}}),
-        json!({"name":"provider.validate","description":"显式调用配置的文本模型验证连接，会使用供应商额度","inputSchema":id_input,"outputSchema":{"type":"object","required":["schema_version","id","verified_capabilities","verified_at","usage"],"properties":{"schema_version":{"const":1,"type":"integer"},"id":{"type":"string"},"verified_capabilities":{"type":"array","items":{"const":"text"}},"verified_at":{"type":"string"},"usage":{"type":"object"}}}}),
+        json!({"name":"provider.validate","description":"显式选择文本或视觉连接验证；视觉仅发送内置测试图，每次调用可能使用供应商额度，不验证图像生成或试穿","inputSchema":{"type":"object","required":["id","capability"],"properties":{"id":{"type":"string"},"capability":{"type":"string","enum":["text","vision"]}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","id","verified_capabilities","verified_at","usage"],"properties":{"schema_version":{"const":1,"type":"integer"},"id":{"type":"string"},"verified_capabilities":{"type":"array","items":{"type":"string","enum":["text","vision"]},"minItems":1,"maxItems":1},"verified_at":{"type":"string"},"usage":{"type":"object"}}}}),
     ];
     for name in [
         "provider.credential.set",
