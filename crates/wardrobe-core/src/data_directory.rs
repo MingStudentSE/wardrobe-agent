@@ -32,12 +32,18 @@ pub(super) fn resolve(path: &Path) -> Result<PathBuf, ApiError> {
         if bytes.len() > 16384 {
             return Err(ApiError::new("directory_invalid", "位置记录损坏"));
         }
-        let record: Value = serde_json::from_slice(&bytes)
+        let mut record: Value = serde_json::from_slice(&bytes)
             .map_err(|_| ApiError::new("directory_invalid", "位置记录损坏"))?;
         if record["source_file"].as_str() != current.file_name().and_then(|s| s.to_str()) {
             return Ok(current);
         }
         if record["phase"] == "pending" {
+            #[cfg(test)]
+            AFTER_PENDING_READ.with(|hook| {
+                if let Some(hook) = hook.borrow_mut().take() {
+                    hook();
+                }
+            });
             let lock = fs::OpenOptions::new()
                 .create(true)
                 .truncate(false)
@@ -47,8 +53,32 @@ pub(super) fn resolve(path: &Path) -> Result<PathBuf, ApiError> {
                 .map_err(io)?;
             match lock.try_lock() {
                 Ok(()) => {
-                    fs::remove_file(&marker).map_err(io)?;
-                    return Ok(current);
+                    // The publisher can activate the location between our first read
+                    // and lock acquisition. Only an orphaned pending marker is removable.
+                    let mut latest = Vec::new();
+                    match fs::File::open(&marker) {
+                        Ok(file) => {
+                            file.take(16385).read_to_end(&mut latest).map_err(io)?;
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                            return Ok(current)
+                        }
+                        Err(error) => return Err(io(error)),
+                    }
+                    if latest.len() > 16384 {
+                        return Err(ApiError::new("directory_invalid", "位置记录损坏"));
+                    }
+                    record = serde_json::from_slice(&latest)
+                        .map_err(|_| ApiError::new("directory_invalid", "位置记录损坏"))?;
+                    if record["source_file"].as_str()
+                        != current.file_name().and_then(|s| s.to_str())
+                    {
+                        return Ok(current);
+                    }
+                    if record["phase"] == "pending" {
+                        fs::remove_file(&marker).map_err(io)?;
+                        return Ok(current);
+                    }
                 }
                 Err(std::fs::TryLockError::WouldBlock) => {
                     return Err(ApiError::new(
@@ -303,6 +333,8 @@ impl Application {
             record["phase"] = json!("active");
             publish(&marker, &record)?;
             pending = false;
+            #[cfg(all(debug_assertions, feature = "backup-test-diagnostics"))]
+            crate::backup::process_test_gate("directory-published");
             Ok(
                 json!({"switched":true,"directory":destination,"old_directory":source,"copied_media_bytes":bytes}),
             )
@@ -321,4 +353,52 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({"name":"data_directory.status","description":"读取当前本机数据目录","outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":1}}},"inputSchema":{"type":"object","additionalProperties":false,"properties":{}}}),
         json!({"name":"data_directory.move","description":"校验完整本机副本后切换目录并保留旧源","outputSchema":crate::maintenance::job_schema(),"inputSchema":{"type":"object","additionalProperties":false,"required":["directory"],"properties":{"directory":{"type":"string"},"operation_key":{"type":"string","minLength":1,"maxLength":200}}}}),
     ]
+}
+
+#[cfg(test)]
+thread_local! {
+    static AFTER_PENDING_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn pending_reader_preserves_concurrently_published_active_location() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let target = temp.path().join("target");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&target).unwrap();
+        let source_db = source.join("wardrobe.sqlite");
+        let target_db = target.join("wardrobe.sqlite");
+        fs::write(&source_db, []).unwrap();
+        fs::write(&target_db, []).unwrap();
+        let marker = source.join(".wardrobe-location.json");
+        let lock = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(source.join(".wardrobe-move.lock"))
+            .unwrap();
+        lock.try_lock().unwrap();
+        let record =
+            json!({"source_file":"wardrobe.sqlite","phase":"pending","target_database":target_db});
+        publish(&marker, &record).unwrap();
+        let publish_marker = marker.clone();
+        AFTER_PENDING_READ.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                let mut active = record;
+                active["phase"] = json!("active");
+                publish(&publish_marker, &active).unwrap();
+                drop(lock);
+            }))
+        });
+        assert_eq!(resolve(&source_db).unwrap(), target_db);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(marker).unwrap()).unwrap()["phase"],
+            "active"
+        );
+    }
 }

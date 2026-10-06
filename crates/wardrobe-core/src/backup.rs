@@ -28,10 +28,33 @@ const TABLES: &[&str] = &[
     "insights_preferences",
     "recommendation_intents",
     "recommendation_saves",
+    "weather_preferences",
 ];
 pub(super) fn migrate(tx: &rusqlite::Transaction<'_>) -> Result<(), ApiError> {
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS backup_preferences(id INTEGER PRIMARY KEY CHECK(id=1),document TEXT NOT NULL);CREATE TABLE IF NOT EXISTS local_installation_state(id INTEGER PRIMARY KEY CHECK(id=1),generation INTEGER NOT NULL);INSERT OR IGNORE INTO local_installation_state VALUES(1,0);")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS backup_preferences(id INTEGER PRIMARY KEY CHECK(id=1),document TEXT NOT NULL);CREATE TABLE IF NOT EXISTS local_installation_state(id INTEGER PRIMARY KEY CHECK(id=1),generation INTEGER NOT NULL);INSERT OR IGNORE INTO local_installation_state VALUES(1,0);CREATE TABLE IF NOT EXISTS local_submission_guards(space_id TEXT NOT NULL,member_id TEXT NOT NULL,kind TEXT NOT NULL,operation_key TEXT NOT NULL,payload_hash TEXT NOT NULL,submitted_at TEXT NOT NULL,submission_count INTEGER NOT NULL,last_outcome TEXT NOT NULL,PRIMARY KEY(space_id,member_id,kind,operation_key));")?;
     Ok(())
+}
+#[cfg(all(debug_assertions, feature = "backup-test-diagnostics"))]
+pub(super) fn process_test_gate(phase: &str) {
+    let Some(directory) = std::env::var_os("WARDROBE_BACKUP_TEST_GATE") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(directory);
+    let marker = directory.join(phase);
+    if fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&marker)
+        .is_err()
+    {
+        return;
+    }
+    let started = std::time::Instant::now();
+    while !directory.join("continue").exists()
+        && started.elapsed() < std::time::Duration::from_secs(15)
+    {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 }
 fn io(_: std::io::Error) -> ApiError {
     ApiError::new("backup_io", "备份文件操作失败，原数据保留")
@@ -305,6 +328,10 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
                     ));
                 }
             }
+            if *table == "weather_preferences" {
+                crate::weather::validate_portable_document(&document)
+                    .map_err(|_| ApiError::new("backup_invalid", "天气配置格式或私有字段不支持"))?;
+            }
             if *table == "clothing" {
                 crate::clothing::validate_stored_document(&document)
                     .map_err(|_| ApiError::new("backup_invalid", "单品领域格式不支持"))?;
@@ -441,16 +468,16 @@ fn validate_media(db: &Connection, manifest: &Value, directory: &Path) -> Result
     let files = manifest["files"]
         .as_array()
         .ok_or_else(|| ApiError::new("backup_invalid", "缺少清单"))?;
-    let mut inventory = std::collections::HashSet::new();
+    let mut inventory = std::collections::HashMap::new();
     for item in files {
         let name = item["path"]
             .as_str()
             .ok_or_else(|| ApiError::new("backup_invalid", "缺少文件名"))?;
-        if !inventory.insert(name) {
+        if inventory.insert(name, item).is_some() {
             return Err(ApiError::new("backup_invalid", "文件清单重复"));
         }
     }
-    if !inventory.contains("facts.sqlite") {
+    if !inventory.contains_key("facts.sqlite") {
         return Err(ApiError::new("backup_invalid", "缺少事实数据库"));
     }
     let mut decoded = std::collections::HashMap::new();
@@ -462,8 +489,18 @@ fn validate_media(db: &Connection, manifest: &Value, directory: &Path) -> Result
             .map_err(|_| ApiError::new("backup_invalid", "图片记录损坏"))?;
         for variant in ["original", "display", "thumbnail"] {
             if let Some(name) = document[variant]["local_path"].as_str() {
-                if !name.starts_with("media/") || !inventory.contains(name) {
+                if !name.starts_with("media/") || !inventory.contains_key(name) {
                     return Err(ApiError::new("backup_invalid", "图片引用缺失"));
+                }
+                let entry = inventory[name];
+                if matches!(variant, "original" | "display")
+                    && (document[variant]["id"] != entry["sha256"]
+                        || document[variant]["bytes"] != entry["bytes"])
+                {
+                    return Err(ApiError::new(
+                        "backup_invalid",
+                        "图片内容与不可变资产身份不一致",
+                    ));
                 }
                 if variant != "original" {
                     let dimensions = if let Some(dimensions) = decoded.get(name) {
@@ -500,6 +537,37 @@ impl Drop for RestoreFiles {
     }
 }
 impl Application {
+    pub(super) fn recover_created_backup(
+        &self,
+        input: &Value,
+        id: &str,
+        control: Option<&crate::maintenance::Control>,
+    ) -> Result<Option<Value>, ApiError> {
+        let directory = Path::new(string(input, "directory")?);
+        if !directory.is_dir() {
+            return Ok(None);
+        }
+        let owned = bounded_manifest(&directory.join("manifest.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .is_some_and(|manifest| manifest["maintenance_job_id"] == id);
+        if !owned {
+            return Ok(None);
+        }
+        let validated =
+            self.backup_run("backup.preview", json!({"directory":directory}), control)?;
+        if validated["manifest"]["includes_originals"]
+            != input["include_originals"].as_bool().unwrap_or(false)
+        {
+            return Err(ApiError::new(
+                "backup_invalid",
+                "已发布备份范围与维护意图不一致",
+            ));
+        }
+        Ok(Some(
+            json!({"schema_version":1,"directory":directory,"includes_originals":validated["manifest"]["includes_originals"]}),
+        ))
+    }
     pub(super) fn backup_operation(
         &self,
         operation: &str,
@@ -613,14 +681,36 @@ impl Application {
                             .join(",");
                         let mut insert = destination
                             .prepare(&format!("INSERT INTO \"{table}\" VALUES({placeholders})"))?;
+                        let document_index = statement
+                            .column_names()
+                            .iter()
+                            .position(|name| *name == "document");
                         let mut rows = statement.query([])?;
                         while let Some(row) = rows.next()? {
                             if let Some(control) = control {
                                 control.tick()?;
                             }
-                            let values = (0..columns)
+                            let mut values = (0..columns)
                                 .map(|index| row.get::<_, rusqlite::types::Value>(index))
                                 .collect::<Result<Vec<_>, _>>()?;
+                            if *table == "weather_preferences" {
+                                let document_index = document_index.unwrap();
+                                let rusqlite::types::Value::Text(raw) = &values[document_index]
+                                else {
+                                    return Err(ApiError::new(
+                                        "backup_invalid",
+                                        "天气配置记录损坏",
+                                    ));
+                                };
+                                let mut document: Value =
+                                    serde_json::from_str(raw).map_err(|_| {
+                                        ApiError::new("backup_invalid", "天气配置记录损坏")
+                                    })?;
+                                document["cache"] = Value::Null;
+                                document["last_error"] = Value::Null;
+                                values[document_index] =
+                                    rusqlite::types::Value::Text(document.to_string());
+                            }
                             insert.execute(rusqlite::params_from_iter(values))?;
                         }
                     }
@@ -694,7 +784,12 @@ impl Application {
                         control.enter_critical(self)?;
                         let tx = self.begin_write()?;
                         fs::rename(&staging, directory).map_err(io)?;
-                        control.complete(&tx, "backup.create", &result)?;
+                        #[cfg(all(debug_assertions, feature = "backup-test-diagnostics"))]
+                        process_test_gate("create-published");
+                        if let Err(error) = control.complete(&tx, "backup.create", &result) {
+                            let _ = fs::remove_dir_all(directory);
+                            return Err(error);
+                        }
                         if let Err(error) = tx.commit() {
                             let _ = fs::remove_dir_all(directory);
                             return Err(error.into());
@@ -856,6 +951,7 @@ impl Application {
                     [media.join("facts.sqlite").to_string_lossy().as_ref()],
                 )?;
                 let result = (|| {
+                    crate::jobs::retain_submission_guards(&tx)?;
                     tx.execute_batch("PRAGMA defer_foreign_keys=ON;DELETE FROM recognition_suggestions;DELETE FROM import_drafts;DELETE FROM import_batches;DELETE FROM jobs;DELETE FROM encryption_pairings;DELETE FROM encryption_state;DELETE FROM clients;")?;
                     for table in TABLES.iter().rev() {
                         tx.execute_batch(&format!("DELETE FROM \"{table}\""))?;
@@ -878,6 +974,8 @@ impl Application {
                     #[cfg(all(debug_assertions, feature = "backup-test-diagnostics"))]
                     eprintln!("backup_test_phase=commit");
                     tx.commit()?;
+                    #[cfg(all(debug_assertions, feature = "backup-test-diagnostics"))]
+                    process_test_gate("restore-committed");
                     let credential_cleanup = previous_credential.as_deref().is_none_or(|id| {
                         keyring::Entry::new("wardrobe-agent.encryption", id).is_ok_and(|entry| {
                             matches!(

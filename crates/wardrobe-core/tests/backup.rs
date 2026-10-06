@@ -1350,6 +1350,7 @@ fn assert_rejects_corrupted_domain_document(
     app.execute_and_wait("care.record",json!({"member_id":"default","clothing_id":garments[0]["id"],"action":"wash","local_date":"2020-01-02","timezone":"UTC","operation_key":"care-fixture"})).unwrap();
     let intent=app.execute_and_wait("recommendation.generate",json!({"member_id":"default","operation_key":"intent-fixture","timezone":"UTC","avoid_recent":false})).unwrap();
     app.execute_and_wait("recommendation.save",json!({"member_id":"default","id":intent["id"],"proposal_index":0,"name":"saved fixture","operation_key":"save-fixture"})).unwrap();
+    app.execute("weather.configure", json!({"member_id":"default","mode":"automatic","location":"fixture","latitude":31.2,"longitude":121.4,"usage":"noncommercial"})).unwrap();
     let directory = archive.path().join("backup");
     app.execute_and_wait("backup.create", json!({"directory":directory}))
         .unwrap();
@@ -1494,4 +1495,134 @@ fn restored_old_configuration_and_saved_outfit_receipts_keep_original_revisions(
             .unwrap()["version"],
         2
     );
+}
+#[test]
+fn portable_backup_keeps_explicit_weather_config_but_excludes_cached_results_and_errors() {
+    let source = tempfile::tempdir().unwrap();
+    let archive = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    let database = source.path().join("wardrobe.sqlite");
+    let app = Application::open(&database).unwrap();
+    let configured=app.execute("weather.configure",json!({"member_id":"default","mode":"automatic","location":"temporary fixture","latitude":31.2,"longitude":121.4,"usage":"noncommercial"})).unwrap();
+    let mut derived = configured.clone();
+    derived["cache"] = json!({"private_fixture_canary":"weather-derived-canary-32"});
+    derived["last_error"] = json!({"message":"weather-error-canary-32"});
+    let sql = rusqlite::Connection::open(&database).unwrap();
+    sql.execute(
+        "UPDATE weather_preferences SET document=?1 WHERE member_id=?2",
+        rusqlite::params![
+            derived.to_string(),
+            configured["member_id"].as_str().unwrap()
+        ],
+    )
+    .unwrap();
+    drop(sql);
+    let directory = archive.path().join("backup");
+    app.execute_and_wait("backup.create", json!({"directory":directory}))
+        .unwrap();
+    let bytes = std::fs::read(directory.join("facts.sqlite")).unwrap();
+    assert!(!bytes
+        .windows(b"weather-derived-canary-32".len())
+        .any(|window| window == b"weather-derived-canary-32"));
+    assert!(!bytes
+        .windows(b"weather-error-canary-32".len())
+        .any(|window| window == b"weather-error-canary-32"));
+    let restored = Application::open(&target.path().join("wardrobe.sqlite")).unwrap();
+    restored
+        .execute_and_wait(
+            "backup.restore",
+            json!({"directory":directory,"confirm_overwrite":true}),
+        )
+        .unwrap();
+    drop(restored);
+    let restored = Application::open(&target.path().join("wardrobe.sqlite")).unwrap();
+    assert_eq!(
+        restored
+            .execute("weather.get", json!({"member_id":"default"}))
+            .unwrap(),
+        configured
+    );
+}
+#[test]
+fn preview_rejects_valid_changed_blob_with_old_immutable_id_even_when_transport_is_resigned() {
+    use sha2::{Digest, Sha256};
+    let source = tempfile::tempdir().unwrap();
+    let archive = tempfile::tempdir().unwrap();
+    let app = Application::open(&source.path().join("wardrobe.sqlite")).unwrap();
+    let picture = source.path().join("original.png");
+    image::RgbImage::from_pixel(16, 16, image::Rgb([100, 90, 80]))
+        .save(&picture)
+        .unwrap();
+    app.execute(
+        "assets.import",
+        json!({"member_id":"default","path":picture}),
+    )
+    .unwrap();
+    for variant in ["original", "display"] {
+        let directory = archive.path().join(variant);
+        app.execute_and_wait(
+            "backup.create",
+            json!({"directory":directory,"include_originals":true}),
+        )
+        .unwrap();
+        let db = rusqlite::Connection::open(directory.join("facts.sqlite")).unwrap();
+        let raw: String = db
+            .query_row("SELECT document FROM assets", [], |row| row.get(0))
+            .unwrap();
+        let mut asset: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let relative = asset[variant]["local_path"].as_str().unwrap().to_owned();
+        let replacement = image::RgbImage::from_pixel(16, 16, image::Rgb([20, 160, 210]));
+        let bytes = if variant == "display" {
+            webp::Encoder::from_rgb(replacement.as_raw(), 16, 16)
+                .encode(82.0)
+                .to_vec()
+        } else {
+            let file = source.path().join("changed.png");
+            replacement.save(&file).unwrap();
+            std::fs::read(file).unwrap()
+        };
+        let hash = Sha256::digest(&bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert_ne!(asset[variant]["id"], hash);
+        std::fs::write(directory.join(&relative), &bytes).unwrap();
+        asset[variant]["bytes"] = json!(bytes.len());
+        db.execute("UPDATE assets SET document=?1", [asset.to_string()])
+            .unwrap();
+        drop(db);
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(directory.join("manifest.json")).unwrap())
+                .unwrap();
+        for entry in manifest["files"].as_array_mut().unwrap() {
+            if entry["path"] == relative {
+                entry["sha256"] = json!(hash);
+                entry["bytes"] = json!(bytes.len());
+            }
+            if entry["path"] == "facts.sqlite" {
+                let bytes = std::fs::read(directory.join("facts.sqlite")).unwrap();
+                entry["bytes"] = json!(bytes.len());
+                entry["sha256"] = json!(Sha256::digest(&bytes)
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>());
+            }
+        }
+        std::fs::write(directory.join("manifest.json"), manifest.to_string()).unwrap();
+        assert_eq!(
+            app.execute_and_wait("backup.preview", json!({"directory":directory}))
+                .unwrap_err()
+                .code,
+            "backup_invalid",
+            "{variant} cannot claim its old immutable blob id"
+        );
+    }
+}
+
+#[test]
+fn preview_rejects_weather_config_with_embedded_endpoint_credentials() {
+    assert_rejects_corrupted_domain_document("weather_preferences", "document", |doc| {
+        doc["config"]["endpoint"] =
+            json!("https://secret-user:secret-password@example.com/forecast");
+    });
 }

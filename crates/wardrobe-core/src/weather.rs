@@ -25,6 +25,92 @@ fn present(mut v: Value) -> Value {
     }
     v
 }
+fn configuration(input: &Value) -> Result<Value, ApiError> {
+    let mode = string(&input, "mode")?;
+    let config = match mode {
+        "off" => {
+            if input.as_object().unwrap().len() != 2 {
+                return Err(bad("关闭天气时只提供成员与模式"));
+            }
+            json!({"mode":"off"})
+        }
+        "automatic" => {
+            let location = string(&input, "location")?;
+            if location.trim().is_empty() || location.chars().count() > 120 {
+                return Err(bad("请输入120字内地点名称"));
+            }
+            let lat = input["latitude"]
+                .as_f64()
+                .filter(|x| x.is_finite() && (-90.0..=90.0).contains(x))
+                .ok_or_else(|| bad("纬度须为-90至90"))?;
+            let lon = input["longitude"]
+                .as_f64()
+                .filter(|x| x.is_finite() && (-180.0..=180.0).contains(x))
+                .ok_or_else(|| bad("经度须为-180至180"))?;
+            if string(&input, "usage")? != "noncommercial" {
+                return Err(bad(
+                    "免费Open-Meteo仅非商业用途；商业部署须配置获授权服务后再接入",
+                ));
+            }
+            let endpoint = input
+                .get("endpoint")
+                .and_then(Value::as_str)
+                .unwrap_or("https://api.open-meteo.com/v1/forecast");
+            let url = reqwest::Url::parse(endpoint).map_err(|_| bad("天气端点须为URL"))?;
+            let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
+            if (!local && url.scheme() != "https")
+                || !matches!(url.scheme(), "https" | "http")
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+            {
+                return Err(bad("天气端点须HTTPS或本机HTTP，不含凭据或查询"));
+            }
+            json!({"mode":mode,"location":location,"latitude":lat,"longitude":lon,"endpoint":endpoint,"usage":"noncommercial","attribution":"Weather data by Open-Meteo · CC BY 4.0","source_url":"https://open-meteo.com/"})
+        }
+        _ => return Err(bad("天气可关闭或配置自动获取")),
+    };
+    Ok(config)
+}
+pub(super) fn validate_portable_document(doc: &Value) -> Result<(), ApiError> {
+    fields(
+        doc,
+        &[
+            "schema_version",
+            "member_id",
+            "config",
+            "cache",
+            "last_error",
+        ],
+    )?;
+    if doc["schema_version"] != 1 || !doc["cache"].is_null() || !doc["last_error"].is_null() {
+        return Err(bad("便携天气配置不含派生结果"));
+    }
+    let mut input = doc["config"].clone();
+    let map = input
+        .as_object_mut()
+        .ok_or_else(|| bad("天气配置须为对象"))?;
+    map.remove("attribution");
+    map.remove("source_url");
+    map.insert("member_id".into(), doc["member_id"].clone());
+    fields(
+        &input,
+        &[
+            "member_id",
+            "mode",
+            "location",
+            "latitude",
+            "longitude",
+            "endpoint",
+            "usage",
+        ],
+    )?;
+    if configuration(&input)? != doc["config"] {
+        return Err(bad("天气配置格式不支持"));
+    }
+    Ok(())
+}
 impl Application {
     pub(super) fn weather_execute(&self, op: &str, input: Value) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
@@ -41,51 +127,7 @@ impl Application {
                     "usage",
                 ],
             )?;
-            let mode = string(&input, "mode")?;
-            let config = match mode {
-                "off" => {
-                    if input.as_object().unwrap().len() != 2 {
-                        return Err(bad("关闭天气时只提供成员与模式"));
-                    }
-                    json!({"mode":"off"})
-                }
-                "automatic" => {
-                    let location = string(&input, "location")?;
-                    if location.trim().is_empty() || location.chars().count() > 120 {
-                        return Err(bad("请输入120字内地点名称"));
-                    }
-                    let lat = input["latitude"]
-                        .as_f64()
-                        .filter(|x| x.is_finite() && (-90.0..=90.0).contains(x))
-                        .ok_or_else(|| bad("纬度须为-90至90"))?;
-                    let lon = input["longitude"]
-                        .as_f64()
-                        .filter(|x| x.is_finite() && (-180.0..=180.0).contains(x))
-                        .ok_or_else(|| bad("经度须为-180至180"))?;
-                    if string(&input, "usage")? != "noncommercial" {
-                        return Err(bad(
-                            "免费Open-Meteo仅非商业用途；商业部署须配置获授权服务后再接入",
-                        ));
-                    }
-                    let endpoint = input
-                        .get("endpoint")
-                        .and_then(Value::as_str)
-                        .unwrap_or("https://api.open-meteo.com/v1/forecast");
-                    let url = reqwest::Url::parse(endpoint).map_err(|_| bad("天气端点须为URL"))?;
-                    let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
-                    if (!local && url.scheme() != "https")
-                        || !matches!(url.scheme(), "https" | "http")
-                        || !url.username().is_empty()
-                        || url.password().is_some()
-                        || url.query().is_some()
-                        || url.fragment().is_some()
-                    {
-                        return Err(bad("天气端点须HTTPS或本机HTTP，不含凭据或查询"));
-                    }
-                    json!({"mode":mode,"location":location,"latitude":lat,"longitude":lon,"endpoint":endpoint,"usage":"noncommercial","attribution":"Weather data by Open-Meteo · CC BY 4.0","source_url":"https://open-meteo.com/"})
-                }
-                _ => return Err(bad("天气可关闭或配置自动获取")),
-            };
+            let config = configuration(&input)?;
             let tx = self.begin_write()?;
             let doc = json!({"schema_version":1,"member_id":member,"config":config,"cache":null,"last_error":null});
             tx.execute("INSERT INTO weather_preferences VALUES(?1,?2) ON CONFLICT(member_id) DO UPDATE SET document=excluded.document",params![member,doc.to_string()])?;

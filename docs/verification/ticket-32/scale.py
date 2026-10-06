@@ -2,6 +2,7 @@
 import copy,json,pathlib,shutil,sqlite3,struct,subprocess,sys,tempfile,time,uuid,zlib
 CLI=str(pathlib.Path(sys.argv[1]).resolve())
 def command(db,name,args):
+ started=time.monotonic()
  p=subprocess.Popen([CLI,'--db',str(db),'--trusted-local',name,'--input-stdin'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
  pending=json.dumps(args)
  while True:
@@ -17,6 +18,7 @@ def command(db,name,args):
  result=response['result']
  if name in ('backup.create','backup.preview','backup.restore','data_directory.move'):
   assert result['state']=='queued' and result['job_id'],result
+  print(json.dumps({'operation':name,'durable_queued_reply_ms':(time.monotonic()-started)*1000,'job_id':result['job_id']}),flush=True)
   completed=command(db,'maintenance.worker.run',{'id':result['job_id']})
   if completed['state']!='succeeded':raise RuntimeError({'operation':name,'job':completed})
   return completed['result']

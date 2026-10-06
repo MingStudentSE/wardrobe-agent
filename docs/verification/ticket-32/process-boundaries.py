@@ -16,7 +16,7 @@ def start_move(db,target):return subprocess.Popen([CLI,'--db',str(db),'--trusted
 def launch(db,target):
  submitted=subprocess.run([CLI,'--db',str(db),'--trusted-local','data_directory.move','--input-stdin'],input=json.dumps({'directory':str(target)}),text=True,capture_output=True)
  job=json.loads(submitted.stdout)['result'];assert job['state']=='queued' and not target.exists()
- p=start_move(db,target);p.stdin.write(json.dumps({'id':job['job_id']}));p.stdin.close();return p
+ p=start_move(db,target);p._wardrobe_job_id=job['job_id'];p.stdin.write(json.dumps({'id':job['job_id']}));p.stdin.close();return p
 def copying(root,process):
  deadline=time.monotonic()+15
  while time.monotonic()<deadline:
@@ -57,14 +57,17 @@ with tempfile.TemporaryDirectory(prefix='wardrobe32-kill-') as raw:
  root=pathlib.Path(raw);old,db,fact=fixture(root);target=root/'moved';move=launch(db,target);copying(root,move);move.kill();move.wait(timeout=10)
  assert command(db,'clothing.get',{'member_id':'default','id':fact['id']})==fact
  assert not (old/'.wardrobe-location.json').exists()
- result['actual_process_kill_during_copy']={'exit':move.returncode,'old_source_readable':True,'location_not_switched':True}
+ retry=command(db,'maintenance.retry',{'id':move._wardrobe_job_id});assert retry['state']=='queued'
+ recovered=command(db,'maintenance.worker.run',{'id':move._wardrobe_job_id});assert recovered['state']=='succeeded',recovered
+ assert command(db,'clothing.get',{'member_id':'default','id':fact['id']})==fact
+ result['actual_process_kill_during_copy']={'exit':move.returncode,'old_source_readable':True,'location_not_switched_before_explicit_recovery':True,'explicit_recovery_succeeded':True}
 if os.name=='posix' and os.geteuid()!=0:
  with tempfile.TemporaryDirectory(prefix='wardrobe32-publish-failure-') as raw:
   root=pathlib.Path(raw);old,db,fact=fixture(root);target=root/'moved';move=launch(db,target);copying(root,move);old.chmod(0o500)
   try:
-   move.wait(timeout=20);failure=json.loads(move.stdout.read());assert move.returncode!=0,failure
+   move.wait(timeout=20);failure=json.loads(move.stdout.read());assert move.returncode==0 and failure['result']['state']=='failed',failure
   finally:old.chmod(0o700)
   assert command(db,'clothing.get',{'member_id':'default','id':fact['id']})==fact
   assert not (old/'.wardrobe-location.json').exists()
-  result['actual_marker_publish_permission_failure']={'error':failure['error']['code'],'old_source_readable':True,'location_not_switched':True}
+  result['actual_marker_publish_permission_failure']={'error':failure['result']['error']['code'],'old_source_readable':True,'location_not_switched':True}
 print(json.dumps(result,ensure_ascii=False,indent=2))

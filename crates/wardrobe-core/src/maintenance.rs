@@ -34,11 +34,95 @@ fn save(db: &Connection, doc: &Value) -> Result<(), ApiError> {
     db.execute("INSERT INTO maintenance_jobs VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET document=excluded.document",rusqlite::params![doc["id"].as_str(),doc["operation"].as_str(),doc["operation_key"].as_str(),doc.to_string()])?;
     Ok(())
 }
-fn worker_lock(app:&Application, doc:&Value) -> Result<std::fs::File,ApiError> {
-    let path=doc["_worker_lock_uri"].as_str().and_then(|uri|uri.strip_prefix("file://")).map(PathBuf::from).unwrap_or_else(||Path::new(app.connection.path().unwrap()).parent().unwrap().join(".maintenance-locks").join(format!("{}.lock",doc["id"].as_str().unwrap())));
-    std::fs::create_dir_all(path.parent().unwrap()).map_err(|_|ApiError::new("storage_error","维护执行锁目录不可写"))?;
-    let lock=std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path).map_err(|_|ApiError::new("storage_error","维护执行锁不可用"))?;
-    lock.try_lock().map_err(|_|ApiError::new("job_unavailable","维护任务仍有本机执行者，不能并发接管"))?;
+fn lock_identity(path: &Path) -> Result<Value, ApiError> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|_| ApiError::new("maintenance_lock_changed", "维护锁已消失或被替换"))?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(ApiError::new(
+            "maintenance_lock_changed",
+            "维护锁须为本机普通文件",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() != 1 {
+            return Err(ApiError::new(
+                "maintenance_lock_changed",
+                "维护锁不能有外部硬链接",
+            ));
+        }
+        Ok(json!([metadata.dev(), metadata.ino()]))
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(json!(path.canonicalize().map_err(|_| ApiError::new(
+            "maintenance_lock_changed",
+            "维护锁路径无效"
+        ))?))
+    }
+}
+fn lock_path(app: &Application, doc: &Value) -> PathBuf {
+    doc["_worker_lock_uri"]
+        .as_str()
+        .and_then(|uri| uri.strip_prefix("file://"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            Path::new(app.connection.path().unwrap())
+                .parent()
+                .unwrap()
+                .join(".maintenance-locks")
+                .join(format!("{}.lock", doc["id"].as_str().unwrap()))
+        })
+}
+fn worker_lock(app: &Application, doc: &Value) -> Result<std::fs::File, ApiError> {
+    let path = lock_path(app, doc);
+    let directory = path.parent().unwrap();
+    std::fs::create_dir_all(directory)
+        .map_err(|_| ApiError::new("storage_error", "维护执行锁目录不可写"))?;
+    let metadata = std::fs::symlink_metadata(directory)
+        .map_err(|_| ApiError::new("storage_error", "维护执行锁目录不可用"))?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(ApiError::new(
+            "maintenance_lock_changed",
+            "维护锁目录不能指向外部位置",
+        ));
+    }
+    if path.exists() || path.symlink_metadata().is_ok() {
+        lock_identity(&path)?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(false).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let lock = options
+        .open(&path)
+        .map_err(|_| ApiError::new("storage_error", "维护执行锁不可用"))?;
+    lock.try_lock()
+        .map_err(|_| ApiError::new("job_unavailable", "维护任务仍有本机执行者，不能并发接管"))?;
+    let identity = lock_identity(&path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let opened = lock
+            .metadata()
+            .map_err(|_| ApiError::new("storage_error", "维护锁不可读取"))?;
+        if identity != json!([opened.dev(), opened.ino()]) {
+            return Err(ApiError::new(
+                "maintenance_lock_changed",
+                "维护锁在打开时被替换",
+            ));
+        }
+    }
+    if !doc["_worker_identity"].is_null() && doc["_worker_identity"] != identity {
+        return Err(ApiError::new(
+            "maintenance_lock_changed",
+            "维护锁身份改变，不能自动接管",
+        ));
+    }
     Ok(lock)
 }
 fn public(mut doc: Value) -> Value {
@@ -69,6 +153,8 @@ pub(super) struct Control {
     operation: String,
     last: Cell<Instant>,
     critical: Cell<bool>,
+    worker_path: PathBuf,
+    worker_identity: Value,
 }
 #[cfg(test)]
 thread_local! { static BEFORE_LEASE_SAVE: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = std::cell::RefCell::new(None); }
@@ -90,9 +176,19 @@ impl Control {
             operation: doc["operation"].as_str().unwrap().into(),
             last: Cell::new(Instant::now() - Duration::from_secs(2)),
             critical: Cell::new(false),
+            worker_path: lock_path(app, doc),
+            worker_identity: doc["_worker_identity"].clone(),
         }
     }
     fn checked(&self, db: &Connection) -> Result<Value, ApiError> {
+        if !self.worker_identity.is_null()
+            && lock_identity(&self.worker_path)? != self.worker_identity
+        {
+            return Err(ApiError::new(
+                "maintenance_lock_changed",
+                "维护锁被外部替换，执行已停止",
+            ));
+        }
         let doc = load(db, &self.id)?;
         if doc["state"] == "cancelled" {
             return Err(ApiError::new("job_cancelled", "维护任务已取消"));
@@ -168,7 +264,7 @@ impl Control {
         db: &Connection,
         result: &Value,
     ) -> Result<(), ApiError> {
-        let mut doc = load(db, &self.id)?;
+        let mut doc = self.checked(db)?;
         doc["_pending_result"] = result.clone();
         save(db, &doc)
     }
@@ -378,16 +474,19 @@ impl Application {
                 doc["_lease"] = Value::Null;
             }
             "maintenance.retry" => {
-                let expired = doc["state"] == "running"
-                    && doc["_lease_expires"].as_i64().unwrap_or(0) <= now();
+                let _retry_lock = worker_lock(self, &doc)?;
+                // A successfully acquired OS lock proves no worker still owns this
+                // receipt; explicit recovery need not wait five minutes after a kill.
+                let expired = doc["state"] == "running";
                 if !expired && doc["state"] != "failed" && doc["state"] != "cancelled" {
                     return Err(ApiError::new(
                         "job_unavailable",
                         "只能明确重试失败、取消或已失去执行者的维护任务",
                     ));
                 }
+                let published = doc["operation"] == "backup.create" && doc["phase"] == "committing";
                 doc["state"] = json!("queued");
-                doc["phase"] = json!("queued");
+                doc["phase"] = json!(if published { "committing" } else { "queued" });
                 doc["error"] = Value::Null;
                 doc["_lease"] = Value::Null;
                 doc["_lease_expires"] = json!(0);
@@ -413,9 +512,10 @@ impl Application {
             tx.commit()?;
             return Ok(public(doc));
         }
-        let _worker_lock=worker_lock(self,&doc)?;
-        let expired =
-            doc["state"] == "running" && doc["_lease_expires"].as_i64().unwrap_or(0) <= now();
+        let _worker_lock = worker_lock(self, &doc)?;
+        doc["_worker_identity"] = lock_identity(&lock_path(self, &doc))?;
+        // The OS lock, retained for the entire worker, is authoritative locally.
+        let expired = doc["state"] == "running";
         if doc["state"] != "queued" && !expired {
             return Err(ApiError::new(
                 "job_unavailable",
@@ -428,8 +528,9 @@ impl Application {
                 "维护意图早于恢复，请明确重新确认",
             ));
         }
+        let published = doc["operation"] == "backup.create" && doc["phase"] == "committing";
         doc["state"] = json!("running");
-        doc["phase"] = json!("working");
+        doc["phase"] = json!(if published { "committing" } else { "working" });
         doc["_lease"] = json!(uuid::Uuid::now_v7().to_string());
         doc["_lease_expires"] = json!(now() + 300_000);
         doc["attempts"] = json!(doc["attempts"].as_u64().unwrap_or(0) + 1);
@@ -439,6 +540,12 @@ impl Application {
         let operation = doc["operation"].as_str().unwrap();
         let result = if operation == "data_directory.move" {
             self.directory_run(operation, doc["input"].clone(), Some(&control))
+        } else if operation == "backup.create" {
+            self.recover_created_backup(&doc["input"], id, Some(&control))
+                .and_then(|published| match published {
+                    Some(result) => Ok(result),
+                    None => self.backup_run(operation, doc["input"].clone(), Some(&control)),
+                })
         } else {
             self.backup_run(operation, doc["input"].clone(), Some(&control))
         };
@@ -486,6 +593,105 @@ pub(super) fn descriptors() -> Vec<Value> {
 #[cfg(test)]
 mod lease_tests {
     use super::*;
+    #[test]
+    fn published_backup_recovers_its_durable_receipt_without_creating_another_package() {
+        let root = tempfile::tempdir().unwrap();
+        let app = Application::open(&root.path().join("wardrobe.sqlite")).unwrap();
+        let directory = root.path().join("backup");
+        let queued = app
+            .execute("backup.create", json!({"directory":directory}))
+            .unwrap();
+        let id = queued["id"].as_str().unwrap();
+        let completed = app
+            .execute("maintenance.worker.run", json!({"id":id}))
+            .unwrap();
+        assert_eq!(completed["state"], "succeeded");
+        // Deterministic receipt rollback at the post-rename/pre-SQL-commit seam.
+        let mut doc = load(&app.connection, id).unwrap();
+        doc["state"] = json!("running");
+        doc["phase"] = json!("committing");
+        doc["result"] = Value::Null;
+        doc["_completed_lease"] = Value::Null;
+        doc["_lease"] = json!("vanished-worker");
+        doc["_lease_expires"] = json!(0);
+        save(&app.connection, &doc).unwrap();
+        let recovered = app
+            .execute("maintenance.worker.run", json!({"id":id}))
+            .unwrap();
+        assert_eq!(recovered["state"], "succeeded");
+        assert_eq!(recovered["result"]["directory"], json!(directory));
+        assert_eq!(
+            std::fs::read_dir(root.path())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with("backup"))
+                .count(),
+            1
+        );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn replacing_a_live_lock_inode_cannot_start_a_second_worker_or_publish_first_worker() {
+        let root = tempfile::tempdir().unwrap();
+        let app = Application::open(&root.path().join("wardrobe.sqlite")).unwrap();
+        let queued = app
+            .execute(
+                "backup.create",
+                json!({"directory":root.path().join("backup")}),
+            )
+            .unwrap();
+        let id = queued["id"].as_str().unwrap();
+        let mut doc = load(&app.connection, id).unwrap();
+        let held = worker_lock(&app, &doc).unwrap();
+        let path = lock_path(&app, &doc);
+        let identity = lock_identity(&path).unwrap();
+        doc["state"] = json!("running");
+        doc["_lease"] = json!("original-worker");
+        doc["_lease_expires"] = json!(0);
+        doc["_worker_identity"] = identity.clone();
+        save(&app.connection, &doc).unwrap();
+        let control = Control::new(&app, &doc);
+        // Real external replacement while the original open file still owns its lock.
+        std::fs::rename(&path, path.with_extension("held-original")).unwrap();
+        std::fs::write(&path, b"replacement inode").unwrap();
+        assert_ne!(lock_identity(&path).unwrap(), identity);
+        assert_eq!(
+            app.execute("maintenance.worker.run", json!({"id":id}))
+                .unwrap_err()
+                .code,
+            "maintenance_lock_changed"
+        );
+        assert_eq!(
+            control.enter_critical(&app).unwrap_err().code,
+            "maintenance_lock_changed"
+        );
+        assert!(!root.path().join("backup").exists());
+        drop(held);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn maintenance_worker_rejects_an_external_symbolic_lock_target() {
+        let root = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        let app = Application::open(&root.path().join("wardrobe.sqlite")).unwrap();
+        let queued = app
+            .execute(
+                "backup.create",
+                json!({"directory":root.path().join("backup")}),
+            )
+            .unwrap();
+        let id = queued["id"].as_str().unwrap();
+        let locks = root.path().join(".maintenance-locks");
+        std::fs::create_dir_all(&locks).unwrap();
+        let foreign = external.path().join("unrelated");
+        std::fs::write(&foreign, b"foreign data").unwrap();
+        std::os::unix::fs::symlink(&foreign, locks.join(format!("{id}.lock"))).unwrap();
+        assert!(app
+            .execute("maintenance.worker.run", json!({"id":id}))
+            .is_err());
+        assert_eq!(std::fs::read(foreign).unwrap(), b"foreign data");
+        assert!(!root.path().join("backup").exists());
+    }
     #[test]
     fn a_live_worker_lock_prevents_a_second_worker_from_claiming_an_expired_receipt() {
         let root = tempfile::tempdir().unwrap();
