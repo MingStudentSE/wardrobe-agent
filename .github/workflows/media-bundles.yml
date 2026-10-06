@@ -123,3 +123,12 @@ jobs:
             ${{ runner.temp }}/distribution/deb-contents.txt
             ${{ runner.temp }}/distribution/*loader.txt
             ${{ runner.temp }}/distribution/*.tar.gz
+      - name: Upload compact runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-runtime-evidence-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/distribution/*runtime.json
+            ${{ runner.temp }}/distribution/deb-contents.txt
+            ${{ runner.temp }}/distribution/*loader.txt
