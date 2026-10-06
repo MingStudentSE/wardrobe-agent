@@ -271,3 +271,151 @@ fn correcting_time_or_action_preserves_notes_when_not_explicitly_replaced() {
     let correction=a.execute("care.correct",json!({"member_id":"default","root_event_id":event["id"],"expected_revision":1,"action":"dry_clean","local_date":"2020-01-02","timezone":"UTC","operation_key":"two"})).unwrap();
     assert_eq!(correction["notes"], "手洗阴干");
 }
+
+#[test]
+fn correction_rejects_conflicting_manual_dirty_and_cleaning_intents_instead_of_ignoring_fields() {
+    let (_d, a, c) = setup();
+    let wash=a.execute("care.record",json!({"member_id":"default","clothing_id":c["id"],"action":"wash","local_date":"2020-01-01","timezone":"UTC","operation_key":"wash"})).unwrap();
+    let mark=a.execute("care.mark_dirty",json!({"member_id":"default","clothing_id":c["id"],"dirty":true,"local_date":"2020-01-02","timezone":"UTC","operation_key":"mark"})).unwrap();
+    for (event, key) in [(&wash, "correct-wash"), (&mark, "correct-mark")] {
+        let input = json!({"member_id":"default","root_event_id":event["id"],"expected_revision":1,"action":"wash","dirty":false,"local_date":"2020-01-03","timezone":"UTC","operation_key":key});
+        assert_eq!(
+            a.execute("care.correct", input).unwrap_err().code,
+            "invalid_input"
+        );
+        assert_eq!(
+            a.execute(
+                "care.history",
+                json!({"member_id":"default","root_event_id":event["id"]})
+            )
+            .unwrap()["items"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+}
+
+#[test]
+fn revoked_care_snapshot_keeps_adopted_asset_after_detach_delete_and_restart() {
+    let (d, a, c) = setup();
+    let path = d.path().join("photo.png");
+    std::fs::write(&path, include_bytes!("fixtures/generated-colors.png")).unwrap();
+    let asset = a
+        .execute("assets.import", json!({"member_id":"default","path":path}))
+        .unwrap();
+    a.execute(
+        "assets.adopt",
+        json!({"member_id":"default","asset_id":asset["id"],"clothing_id":c["id"]}),
+    )
+    .unwrap();
+    let care=a.execute("care.record",json!({"member_id":"default","clothing_id":c["id"],"action":"maintenance","local_date":"2020-01-01","timezone":"UTC","operation_key":"care"})).unwrap();
+    a.execute("care.revoke",json!({"member_id":"default","root_event_id":care["id"],"expected_revision":1,"reason":"误记","operation_key":"revoke"})).unwrap();
+    a.execute(
+        "assets.detach",
+        json!({"member_id":"default","asset_id":asset["id"],"clothing_id":c["id"]}),
+    )
+    .unwrap();
+    a.execute(
+        "clothing.delete",
+        json!({"member_id":"default","id":c["id"]}),
+    )
+    .unwrap();
+    drop(a);
+    let a = Application::open(&d.path().join("wardrobe.sqlite")).unwrap();
+    let current = a
+        .execute(
+            "assets.get",
+            json!({"member_id":"default","id":asset["id"]}),
+        )
+        .unwrap();
+    assert_eq!(current["state"], "adopted");
+    assert_eq!(current["display"]["sync_scope"], "workspace");
+    let history = a
+        .execute(
+            "care.history",
+            json!({"member_id":"default","root_event_id":care["id"]}),
+        )
+        .unwrap();
+    assert_eq!(
+        history["items"][1]["snapshot"]["display_asset_id"],
+        asset["id"]
+    );
+    let manifest = a
+        .execute("assets.sync_manifest", json!({"member_id":"default"}))
+        .unwrap();
+    assert!(manifest
+        .to_string()
+        .contains(asset["display"]["id"].as_str().unwrap()));
+    let db = rusqlite::Connection::open(d.path().join("wardrobe.sqlite")).unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
+            .unwrap(),
+        13
+    );
+    for table in [
+        "recognition_suggestions",
+        "encryption_state",
+        "care_events",
+        "care_config",
+        "care_asset_refs",
+        "care_receipts",
+    ] {
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                [table],
+                |r| r.get::<_, u64>(0)
+            )
+            .unwrap(),
+            1
+        );
+    }
+}
+
+#[test]
+fn availability_reads_atomic_config_cohorts_on_one_snapshot_during_external_writes() {
+    let (d, a, c) = setup();
+    let second = a
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"另一件","category":"top"}),
+        )
+        .unwrap();
+    for (n, item) in [&c, &second].iter().enumerate() {
+        a.execute("care.configure",json!({"member_id":"default","clothing_id":item["id"],"wash_after_wears":1,"expected_revision":0,"operation_key":format!("config{n}")})).unwrap();
+    }
+    let path = d.path().join("wardrobe.sqlite");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let start = barrier.clone();
+    let writer = std::thread::spawn(move || {
+        let mut db = rusqlite::Connection::open(path).unwrap();
+        db.busy_timeout(std::time::Duration::from_secs(5)).unwrap();
+        start.wait();
+        for n in 0..400 {
+            let tx = db
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .unwrap();
+            tx.execute(
+                "UPDATE care_config SET document=json_set(document,'$.wash_after_wears',?1)",
+                [1 + n % 2],
+            )
+            .unwrap();
+            tx.commit().unwrap();
+            std::thread::yield_now();
+        }
+    });
+    barrier.wait();
+    for _ in 0..200 {
+        let result = a
+            .execute("care.availability", json!({"member_id":"default"}))
+            .unwrap();
+        let items = result["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["wash_after_wears"], items[1]["wash_after_wears"]);
+    }
+    writer.join().unwrap();
+    // The read transaction is closed; subsequent public writes still work.
+    a.execute("care.configure",json!({"member_id":"default","clothing_id":c["id"],"wash_after_wears":null,"expected_revision":1,"operation_key":"after-read"})).unwrap();
+}

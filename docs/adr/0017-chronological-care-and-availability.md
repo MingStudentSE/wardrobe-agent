@@ -1,6 +1,6 @@
 # ADR 0017：按有效时间线计算洗护与可用性
 
-状态：采用（#10，待独立验收），2026-10-07。
+状态：采用（#10，独立功能审查通过），2026-10-07。
 
 每个成员的真实单品身份拥有独立洗护配置。wash_after_wears 默认为 null，配置只能是正整数或 null；配置 revision 使用 CAS，操作标识保存完整意图收据。待洗不改变 active/archived/deleted 生命周期。照片相同不表示同一件衣物，多个模板引用同一件衣物则共用它的洗护投影。
 
@@ -13,3 +13,5 @@ care.record 保存 wash/dry_clean/maintenance；care.mark_dirty 保存标记或�
 care.status / availability 给后续推荐提供 available 与稳定 exclusion_reasons（manual_dirty、threshold_reached、archived、deleted）。待洗不阻止用户如实记录实际穿着。care.dirty_list / reminders 给出需洗护条目、累计次数、阈值与最近清洗，notification_scheduled=false；自动通知调度由后续任务交付。本模块不借此缩减 Beta 总体功能。
 
 GUI、CLI、MCP 共用 Application 和 operation/member scope，没有 GUI 独有事实写入。
+
+独立审查补充：所有护理读操作在autocommit连接上使用同一DEFERRED读取事务，状态/可用性内嵌读取或已有IMMEDIATE写事务复用快照；避免一份推荐可用性组合多个并发版本。更正操作拒绝同时携带action与dirty，不静默丢弃明确意图。

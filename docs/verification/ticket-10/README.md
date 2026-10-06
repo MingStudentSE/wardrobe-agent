@@ -15,3 +15,5 @@ clippy --workspace --all-targets --locked -D warnings、fmt check、desktop buil
 GUI完整首轮36 passed /4 skipped；第二轮与Rust重链CLI重叠时洗护保存出现dev_bridge_unavailable，失败日志保留为 gui-concurrent-relink-failure.log。CLI被替换是推测原因，不当成已验证原因；后续在所有Rust/CLI构建终态后序贯GUI整套：37 passed / 4 skipped，exit0，包含3项care真实后端测试。4项skip为既有需要实际模型/OS安全存储的门槛，本轮不执行且不计通过。
 
 独立预审发现只读历史迟到响应风险，已补success/error epoch guard，并实际延迟真实HTTP读取、切成员证明新成员不会显示旧历史。CarePanel在root本已按member key卸载，这项守卫同时保护组件复用。Hallmark既有Atelier tokens与组件语义保持，新增局部CSS不重写全局；七宽度断言与320/1280截图提供适配证据。
+
+独立merger审查补拒绝冲突更正意图与一致读取快照，并增加撤销历史资产保留/并发配置快照测试；本轮132 Rust passed/8 ignored、37 GUI passed/4 skipped。详见 [独立审查报告](merger/report.md)。功能结案由父任务决定，未替代原生全Beta门槛。

@@ -15,6 +15,25 @@ fn parse(s: String) -> Result<Value, ApiError> {
 }
 impl Application {
     pub(super) fn care_execute(&self, op: &str, mut input: Value) -> Result<Value, ApiError> {
+        // A deferred read transaction keeps all projection queries on one WAL snapshot.
+        // Recursive reads reuse an existing snapshot or a caller's IMMEDIATE write transaction.
+        if [
+            "care.status",
+            "care.dirty_list",
+            "care.reminders",
+            "care.availability",
+            "care.get",
+            "care.list",
+            "care.history",
+        ]
+        .contains(&op)
+            && self.connection.is_autocommit()
+        {
+            let tx = self.connection.unchecked_transaction()?;
+            let result = self.care_execute(op, input)?;
+            tx.commit()?;
+            return Ok(result);
+        }
         let allowed = match op {
             "care.status" => vec!["member_id", "clothing_id"],
             "care.dirty_list" | "care.reminders" | "care.availability" => vec!["member_id"],
@@ -70,6 +89,9 @@ impl Application {
         }
         if (op == "care.record" && input.get("dirty").is_some())
             || (op == "care.mark_dirty" && input.get("action").is_some())
+            || (op == "care.correct"
+                && input.get("action").is_some()
+                && input.get("dirty").is_some())
         {
             return Err(invalid("手动待洗与洗护类型须分别明确"));
         }
