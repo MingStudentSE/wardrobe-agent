@@ -1196,3 +1196,86 @@ fn cli_mcp_real_multimage_tryon_preview_and_local_save_keep_template_and_wear() 
         json!([])
     );
 }
+#[test]
+fn cli_mcp_share_durable_care_threshold_chronology_and_reminder_availability() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    cli(&path, "space.default", json!({}));
+    let c = cli(
+        &path,
+        "clothing.create",
+        json!({"member_id":"default","name":"洗护衬衫","category":"top"}),
+    )["result"]
+        .clone();
+    let conf = cli(
+        &path,
+        "care.configure",
+        json!({"member_id":"default","clothing_id":c["id"],"wash_after_wears":1,"expected_revision":0,"operation_key":"config"}),
+    );
+    assert_eq!(conf["result"]["revision"], 1);
+    cli(
+        &path,
+        "wear.record",
+        json!({"member_id":"default","clothing_ids":[c["id"]],"local_date":"2020-01-01","timezone":"UTC","operation_key":"wear"}),
+    );
+    let status = cli(
+        &path,
+        "care.status",
+        json!({"member_id":"default","clothing_id":c["id"]}),
+    )["result"]
+        .clone();
+    assert_eq!(status["dirty"], true);
+    let token = client_token(&path);
+    let mut mcp = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let requests = [
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":"care.record","arguments":{"member_id":"default","clothing_id":c["id"],"action":"wash","local_date":"2020-01-02","timezone":"UTC","operation_key":"clean"}}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"authorization_token":token,"name":"care.reminders","arguments":{"member_id":"default"}}}),
+    ];
+    let mut stdin = mcp.stdin.take().unwrap();
+    for request in requests {
+        writeln!(stdin, "{request}").unwrap();
+    }
+    drop(stdin);
+    let output = mcp.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let lines = String::from_utf8(output.stdout).unwrap();
+    let responses: Vec<Value> = lines
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    let event: Value = serde_json::from_str(
+        responses[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(event["action"], "wash");
+    let reminders: Value = serde_json::from_str(
+        responses[1]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reminders["items"], json!([]));
+    assert_eq!(
+        cli(
+            &path,
+            "care.status",
+            json!({"member_id":"default","clothing_id":c["id"]})
+        )["result"]["wears_since_clean"],
+        0
+    );
+    assert_eq!(
+        cli(
+            &path,
+            "care.get",
+            json!({"member_id":"default","id":event["id"]})
+        )["result"],
+        event
+    );
+}

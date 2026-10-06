@@ -198,9 +198,9 @@ impl Application {
                     |r| r.get(0),
                 )
                 .optional()?;
+            let old = old.map(parse).transpose()?;
             let rev = old
-                .map(parse)
-                .transpose()?
+                .as_ref()
                 .and_then(|v| v["revision"].as_u64())
                 .unwrap_or(0);
             if let Some(expected) = input.get("expected_revision") {
@@ -208,7 +208,7 @@ impl Application {
                     return Err(ApiError::new("version_conflict", "阈值已改变，请重新读取"));
                 }
             }
-            result = json!({"schema_version":1,"member_id":member,"clothing_id":id,"wash_after_wears":threshold,"revision":rev+1,"created_at":Utc::now().to_rfc3339(),"updated_at":Utc::now().to_rfc3339()});
+            result = json!({"schema_version":1,"member_id":member,"clothing_id":id,"wash_after_wears":threshold,"revision":rev+1,"created_at":old.as_ref().map(|v|v["created_at"].clone()).unwrap_or(json!(Utc::now().to_rfc3339())),"updated_at":Utc::now().to_rfc3339(),"id":old.as_ref().map(|v|v["id"].clone()).unwrap_or(json!(uuid::Uuid::now_v7().to_string()))});
             tx.execute("INSERT INTO care_config VALUES(?1,?2,?3) ON CONFLICT(member_id,clothing_id) DO UPDATE SET document=excluded.document",params![member,id,result.to_string()])?;
         } else {
             let previous = if ["care.correct", "care.revoke"].contains(&op) {
@@ -431,5 +431,15 @@ impl Application {
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
-    ["configure","mark_dirty","record","correct","revoke","status","get","list","history","dirty_list","reminders","availability"].into_iter().map(|op|{let mut props=json!({"member_id":{"type":"string"}});let mut req=vec!["member_id"];if ["configure","mark_dirty","record","status","list"].contains(&op){props["clothing_id"]=json!({"type":"string"});if op!="list"{req.push("clothing_id");}}if ["configure","mark_dirty","record","correct","revoke"].contains(&op){props["operation_key"]=json!({"type":"string"});req.push("operation_key");}if op=="configure"{props["wash_after_wears"]=json!({"type":["integer","null"],"minimum":1});props["expected_revision"]=json!({"type":"integer","minimum":0});req.push("wash_after_wears");req.push("expected_revision");}if ["mark_dirty","record","correct"].contains(&op){for k in ["local_date","timezone"]{props[k]=json!({"type":"string"});req.push(k);}for k in ["local_time","notes"]{props[k]=json!({"type":"string"});}props["action"]=json!({"enum":["wash","dry_clean","maintenance"]});props["dirty"]=json!({"type":"boolean"});if op=="record"{req.push("action");}if op=="mark_dirty"{req.push("dirty");}}if ["correct","revoke","history"].contains(&op){props["root_event_id"]=json!({"type":"string"});req.push("root_event_id");}if ["correct","revoke"].contains(&op){props["expected_revision"]=json!({"type":"integer","minimum":1});req.push("expected_revision");}if op=="revoke"{props["reason"]=json!({"type":"string"});req.push("reason");}if op=="get"{props["id"]=json!({"type":"string"});req.push("id");}if op=="list"{props["include_revoked"]=json!({"type":"boolean"});}json!({"name":format!("care.{op}"),"description":format!("洗护 {op}"),"inputSchema":{"type":"object","additionalProperties":false,"required":req,"properties":props},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1}}}})}).collect()
+    ["configure","mark_dirty","record","correct","revoke","status","get","list","history","dirty_list","reminders","availability"].into_iter().map(|op|{let mut props=json!({"member_id":{"type":"string"}});let mut req=vec!["member_id"];if ["configure","mark_dirty","record","status","list"].contains(&op){props["clothing_id"]=json!({"type":"string"});if op!="list"{req.push("clothing_id");}}
+if ["configure","mark_dirty","record","correct","revoke"].contains(&op){props["operation_key"]=json!({"type":"string"});req.push("operation_key");}
+if op=="configure"{props["wash_after_wears"]=json!({"type":["integer","null"],"minimum":1});props["expected_revision"]=json!({"type":"integer","minimum":0});req.push("wash_after_wears");req.push("expected_revision");}
+if ["mark_dirty","record","correct"].contains(&op){for k in ["local_date","timezone"]{props[k]=json!({"type":"string"});req.push(k);}for k in ["local_time","notes"]{props[k]=json!({"type":"string"});}if op!="mark_dirty" {props["action"]=json!({"enum":["wash","dry_clean","maintenance"]});}
+if op!="record" {props["dirty"]=json!({"type":"boolean"});}if op=="record"{req.push("action");}
+if op=="mark_dirty"{req.push("dirty");}}
+if ["correct","revoke","history"].contains(&op){props["root_event_id"]=json!({"type":"string"});req.push("root_event_id");}
+if ["correct","revoke"].contains(&op){props["expected_revision"]=json!({"type":"integer","minimum":1});req.push("expected_revision");}
+if op=="revoke"{props["reason"]=json!({"type":"string"});req.push("reason");}
+if op=="get"{props["id"]=json!({"type":"string"});req.push("id");}
+if op=="list"{props["include_revoked"]=json!({"type":"boolean"});}json!({"name":format!("care.{op}"),"description":format!("洗护 {op}"),"inputSchema":{"type":"object","additionalProperties":false,"required":req,"properties":props},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1}}}})}).collect()
 }
