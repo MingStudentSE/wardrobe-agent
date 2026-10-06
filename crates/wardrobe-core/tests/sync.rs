@@ -1223,3 +1223,171 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
             "one indexed publisher must not hide another authenticated legacy publisher's facts",
         );
 }
+
+#[test]
+#[ignore = "requires actual OS credential store"]
+fn new_paired_installation_receives_original_remote_histories_on_a_new_target() {
+    fn pair(owner: &Application, peer: &Application, name: &str) {
+        let offer = owner
+            .execute("encryption.pair.offer", json!({"device_name":name}))
+            .unwrap();
+        let receipt = peer.execute("encryption.pair.accept",json!({"invitation":offer["invitation"],"pairing_secret":offer["pairing_secret"],"password":"temporary generated-fixture peer password"})).unwrap();
+        let confirmation = owner
+            .execute(
+                "encryption.pair.confirm",
+                json!({"receipt":receipt["receipt"]}),
+            )
+            .unwrap();
+        peer.execute(
+            "encryption.device.apply",
+            json!({"manifest":confirmation["manifest"]}),
+        )
+        .unwrap();
+    }
+    fn drain(app: &Application) {
+        let queued = app.execute("sync.run", json!({})).unwrap();
+        for _ in 0..20 {
+            let job = app
+                .execute("sync.process", json!({"id":queued["job_id"]}))
+                .unwrap();
+            assert_ne!(
+                job["state"], "failed",
+                "public worker failed: {:?}",
+                job["error"]
+            );
+            if job["state"] == "succeeded" {
+                return;
+            }
+        }
+        panic!("small three-device fixture failed to drain its bounded durable job");
+    }
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let c = tempfile::tempdir().unwrap();
+    let old_target = tempfile::tempdir().unwrap();
+    let new_target = tempfile::tempdir().unwrap();
+    let ap = a.path().join("db");
+    let bp = b.path().join("db");
+    let cp = c.path().join("db");
+    let owner = Application::open(&ap).unwrap();
+    let origin = Application::open(&bp).unwrap();
+    let newcomer = Application::open(&cp).unwrap();
+    let _a = Cleanup(ap);
+    let _b = Cleanup(bp);
+    let _c = Cleanup(cp);
+    owner.execute("encryption.create",json!({"password":"temporary original-history owner password","device_name":"history relay"})).unwrap();
+    pair(&owner, &origin, "original history author");
+    let member = origin
+        .execute("member.create", json!({"name":"original remote family"}))
+        .unwrap()["member_id"]
+        .clone();
+    let garment = origin
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"original remote blue shirt","category":"top"}),
+        )
+        .unwrap();
+    let look = origin.execute("outfit.create",json!({"member_id":member,"name":"original template snapshot","items":[{"clothing_id":garment["id"],"role":"top","layer":0}]})).unwrap();
+    let wear = origin.execute("wear.record",json!({"member_id":member,"source_outfit_id":look["id"],"source_version":1,"local_date":"2026-10-01","timezone":"Asia/Shanghai","operation_key":"third-device original wear"})).unwrap();
+    origin.execute("wear.correct",json!({"member_id":member,"root_event_id":wear["root_event_id"],"expected_revision":1,"clothing_ids":[garment["id"]],"local_date":"2026-10-02","timezone":"Asia/Shanghai","operation_key":"third-device correction"})).unwrap();
+    origin.execute("wear.revoke",json!({"member_id":member,"root_event_id":wear["root_event_id"],"expected_revision":2,"reason":"historical correction retained","operation_key":"third-device revocation"})).unwrap();
+    let care = origin.execute("care.record",json!({"member_id":member,"clothing_id":garment["id"],"action":"wash","local_date":"2026-10-01","timezone":"Asia/Shanghai","operation_key":"third-device original care"})).unwrap();
+    origin.execute("care.revoke",json!({"member_id":member,"root_event_id":care["root_event_id"],"expected_revision":1,"reason":"retain original care revision","operation_key":"third-device care revocation"})).unwrap();
+    origin.execute("outfit.update",json!({"member_id":member,"id":look["id"],"expected_version":1,"name":"later template","items":[{"clothing_id":garment["id"],"role":"top","layer":0}]})).unwrap();
+    origin
+        .execute(
+            "clothing.update",
+            json!({"member_id":member,"id":garment["id"],"name":"current edited remote shirt"}),
+        )
+        .unwrap();
+    for app in [&origin, &owner] {
+        app.execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":old_target.path()}),
+        )
+        .unwrap();
+    }
+    drain(&origin);
+    drain(&owner);
+    let expected_wear = origin
+        .execute(
+            "wear.history",
+            json!({"member_id":member,"root_event_id":wear["root_event_id"]}),
+        )
+        .unwrap()["items"]
+        .clone();
+    let expected_care = origin
+        .execute(
+            "care.history",
+            json!({"member_id":member,"root_event_id":care["root_event_id"]}),
+        )
+        .unwrap()["items"]
+        .clone();
+    assert_eq!(
+        owner
+            .execute(
+                "wear.history",
+                json!({"member_id":member,"root_event_id":wear["root_event_id"]})
+            )
+            .unwrap()["items"],
+        expected_wear
+    );
+    assert_eq!(
+        owner
+            .execute(
+                "care.history",
+                json!({"member_id":member,"root_event_id":care["root_event_id"]})
+            )
+            .unwrap()["items"],
+        expected_care
+    );
+    pair(
+        &owner,
+        &newcomer,
+        "third installation without original author",
+    );
+    for app in [&owner, &newcomer] {
+        app.execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":new_target.path()}),
+        )
+        .unwrap();
+    }
+    drain(&owner);
+    drain(&newcomer);
+    assert_eq!(newcomer.execute("clothing.get",json!({"member_id":member,"id":garment["id"]})).expect("a fresh paired installation needs the received original stream, not only a snapshot with an unseen remote causal base")["name"],"current edited remote shirt");
+    assert_eq!(
+        newcomer
+            .execute(
+                "wear.history",
+                json!({"member_id":member,"root_event_id":wear["root_event_id"]})
+            )
+            .unwrap()["items"],
+        expected_wear
+    );
+    assert_eq!(
+        newcomer
+            .execute(
+                "care.history",
+                json!({"member_id":member,"root_event_id":care["root_event_id"]})
+            )
+            .unwrap()["items"],
+        expected_care
+    );
+    for version in [1, 2] {
+        assert_eq!(
+            newcomer
+                .execute(
+                    "outfit.version",
+                    json!({"member_id":member,"id":look["id"],"version":version})
+                )
+                .unwrap(),
+            origin
+                .execute(
+                    "outfit.version",
+                    json!({"member_id":member,"id":look["id"],"version":version})
+                )
+                .unwrap()
+        );
+    }
+}
