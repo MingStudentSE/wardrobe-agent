@@ -361,6 +361,6 @@ fn version_eight_lookbook_gains_batch_tables_without_losing_versions_after_resta
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        8
+        wardrobe_core::DATABASE_SCHEMA_VERSION
     );
 }

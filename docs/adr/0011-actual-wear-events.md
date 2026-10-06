@@ -1,0 +1,15 @@
+# ADR 0011：真实穿着与追加更正
+
+状态：采用（#9，待集成平台验收），2026-10-07。
+
+WearEvent 是实际穿着事实，搭配保存、收藏、克隆和预览均不产生穿着。一次事实根有稳定 root_event_id；更正/撤销另建事件，引用原根与上一版本，不 UPDATE 或 DELETE 已存事件。expected_revision 做事务内 CAS。同日换装创建新根；实际改穿更正已有根。
+
+调用方保留 operation_key；成员范围内所有穿着写入共用幂等收据。相同键及完全相同业务请求返回原始结果，即使后来已更正；不同意图不得复用键。成员 default 别名先规范化为 UUID。请求不默默去重重复单品。
+
+日期为用户明确输入的当地日，timezone 为 IANA 标识；可选 local_time 保存明确时刻，否则采用当地中午作为有说明的排序锚点，time_precision=date，不冒充用户知道确切时刻。拒绝无效、歧义、不存在的当地时刻及当地未来日期。跨时区不将 created_at 当作穿着日期。更正后的有效事实按保存的当地日期计算天数，按根计算次数。未来洗护统一使用有效投影，按 occurred_at 和 root_event_id 确定排序。
+
+保存独立衣物事实与可选明确版本模板快照，不动态查询当前模板当历史。模板记录须明确 source_version；实际选择不同衣物可提供 clothing_ids，保留来源模板同时保存实际集合。当前回收站单品拒绝新增实际事实；更正未改衣物的日期/备注保留原快照，即使来源已删除。资产引用写入 wear_asset_refs 并永久保留，撤销不删除历史引用。
+
+数据库9依据真实表/索引幂等迁移，使用现有 IMMEDIATE 事务和最高版本保护；事件、引用、幂等收据、audit 与 outbox 同事务提交。业务 JSON 不包含原图路径、凭据或原图 EXIF。Application 是 GUI/CLI/MCP 共用边界；新操作必须通过既有客户端 operation 与成员 scope。
+
+IANA转换采用 chrono-tz 0.10.4 的编译时数据库；from_local_datetime.single 明确拒绝 DST fold/gap。官方接口参考：[Chrono-TZ](https://docs.rs/chrono-tz/0.10.4/chrono_tz/)、[Chrono LocalResult](https://docs.rs/chrono/0.4.45/chrono/offset/enum.LocalResult.html)。缺失明确时刻采用 date 精度锚点，后续洗护须展示同日先后未知的局限，不能把中午当证实时间。
