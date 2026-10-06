@@ -134,7 +134,7 @@ impl Application {
         }
         Ok(json!({"schema_version":1,"assets":assets}))
     }
-    fn store_blob(
+    pub(super) fn store_blob(
         &self,
         scope: &str,
         bytes: &[u8],
@@ -155,6 +155,12 @@ impl Application {
         Ok((id, path.to_string_lossy().into_owned()))
     }
     pub(super) fn asset_import(&self, input: Value) -> Result<Value, ApiError> {
+        self.asset_import_with_id(input, &uuid::Uuid::now_v7().to_string())
+    }
+    pub(super) fn asset_import_with_id(&self, input: Value, id: &str) -> Result<Value, ApiError> {
+        if let Ok(existing) = self.asset_get(json!({"member_id":input["member_id"],"id":id})) {
+            return Ok(existing);
+        }
         let member = self.member(&input)?;
         let path = Path::new(string(&input, "path")?);
         let meta = std::fs::metadata(path).map_err(io_error)?;
@@ -187,7 +193,6 @@ impl Application {
             .encode(82.0)
             .to_vec();
         let (_, thumbnail_path) = self.store_blob("thumbnails-local-only", &thumbnail, "webp")?;
-        let id = uuid::Uuid::now_v7().to_string();
         let doc = json!({"schema_version":1,"id":id,"member_id":member,"state":"preview","original":{"id":original_id,"local_path":original_path,"sync_scope":"local_only","bytes":bytes.len()},"display":{"id":display_id,"local_path":display_path,"role":"product_display","state":"preview","sync_scope":"local_only","width":display.width(),"height":display.height(),"bytes":encoded.len(),"mime":"image/webp","quality":82,"soft_threshold_exceeded":encoded.len()>500*1024},"thumbnail":{"local_path":thumbnail_path,"sync_scope":"local_only","width":thumb.width(),"height":thumb.height()}});
         let tx = self.begin_write()?;
         tx.execute(

@@ -1,6 +1,8 @@
 mod assets;
 mod authorization;
 mod clothing;
+mod imports;
+mod jobs;
 mod members;
 mod providers;
 
@@ -10,7 +12,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 5;
+pub const DATABASE_SCHEMA_VERSION: u32 = 6;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -100,7 +102,13 @@ impl Application {
             "CREATE TABLE IF NOT EXISTS providers(id TEXT PRIMARY KEY, document TEXT NOT NULL);",
         )?;
         assets::migrate(&tx)?;
-        tx.execute_batch("CREATE TABLE IF NOT EXISTS clients(id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, document TEXT NOT NULL); PRAGMA user_version=5;")?;
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS clients(id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, document TEXT NOT NULL);")?;
+        jobs::migrate(&tx)?;
+        imports::migrate(&tx)?;
+        tx.execute_batch(&format!(
+            "PRAGMA user_version={};",
+            version.max(DATABASE_SCHEMA_VERSION)
+        ))?;
         tx.commit()?;
         Ok(Self {
             connection,
@@ -133,6 +141,13 @@ impl Application {
             return Err(ApiError::new("invalid_input", "输入必须是 JSON 对象"));
         }
         let allowed: Option<&[&str]> = match operation {
+            "imports.create" => Some(&["member_id", "operation_key", "paths"]),
+            "imports.list" | "jobs.list" => Some(&["member_id"]),
+            "imports.get" | "jobs.get" | "jobs.cancel" | "jobs.retry" => Some(&["member_id", "id"]),
+            "imports.process" => Some(&["member_id", "id", "item_id"]),
+            "imports.group" => Some(&["member_id", "id", "item_ids"]),
+            "imports.update" => Some(&["member_id", "id", "draft_id", "facts"]),
+            "imports.commit" => Some(&["member_id", "id", "draft_id", "operation_key", "facts"]),
             "space.default" | "member.list" => Some(&[]),
             "member.create" => Some(&["name"]),
             "member.update" => Some(&["member_id", "name"]),
@@ -146,7 +161,7 @@ impl Application {
                 .keys()
                 .any(|key| !allowed.contains(&key.as_str()))
             {
-                return Err(ApiError::new("invalid_input", "成员操作包含不支持的字段"));
+                return Err(ApiError::new("invalid_input", "操作包含不支持的字段"));
             }
         }
         match operation {
@@ -175,6 +190,16 @@ impl Application {
             }
             "clothing.get" => self.clothing_get(input),
             "clothing.list" => self.clothing_list(input),
+            "imports.update" => self.imports_update(input),
+            "imports.group" => self.imports_group(input),
+            "imports.commit" => self.imports_commit(input),
+            "imports.create" => self.imports_create(input),
+            "imports.get" => self.imports_get(input),
+            "imports.list" => self.imports_list(input),
+            "imports.process" => self.imports_process(input),
+            "jobs.get" => self.job_get(input),
+            "jobs.list" => self.job_list(input),
+            "jobs.cancel" | "jobs.retry" => self.job_action(operation, input),
             "assets.import" => self.asset_import(input),
             "assets.get" => self.asset_get(input),
             "assets.preview" => self.asset_preview(input),
@@ -199,6 +224,8 @@ pub fn operations() -> Value {
     descriptors.extend(providers::descriptors());
     descriptors.extend(authorization::descriptors());
     descriptors.extend(assets::descriptors());
+    descriptors.extend(jobs::descriptors());
+    descriptors.extend(imports::descriptors());
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );
