@@ -289,7 +289,7 @@ fn manual_weather_controls_are_explicit_offline_stale_and_strictly_validated() {
         .any(|i| i["role"] == "outerwear"));
     for weather in [
         json!({"mode":"manual","temperature_c":100}),
-        json!({"mode":"automatic"}),
+        json!({"mode":"automatic","temperature_c":10}),
         json!({"mode":"off","temperature_c":10}),
     ] {
         assert_eq!(a.execute("recommendation.generate",json!({"member_id":"default","operation_key":weather.to_string(),"timezone":"UTC","weather":weather})).unwrap_err().code,"invalid_input");

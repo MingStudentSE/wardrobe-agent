@@ -1,3 +1,4 @@
+mod ai_recommendations;
 mod assets;
 mod authorization;
 mod backup;
@@ -20,6 +21,7 @@ mod recognition;
 mod recommendations;
 mod tryon;
 mod wears;
+mod weather;
 
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -27,7 +29,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 17;
+pub const DATABASE_SCHEMA_VERSION: u32 = 18;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -134,6 +136,7 @@ impl Application {
         insights::migrate(&tx)?;
         care::migrate(&tx)?;
         recommendations::migrate(&tx)?;
+        weather::migrate(&tx)?;
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
         cutout::migrate(&tx)?;
@@ -304,6 +307,7 @@ impl Application {
             "clothing.list" => self.clothing_list(input),
             op if op.starts_with("outfit.") => self.outfit_execute(op, input),
             op if op.starts_with("wear.") => self.wear_execute(op, input),
+            op if op.starts_with("weather.") => self.weather_execute(op, input),
             op if op.starts_with("recommendation.") => self.recommendation_execute(op, input),
             "insights.summary" => self.insights_summary(input),
             "insights.configure" => self.insights_configure(input),
@@ -365,6 +369,7 @@ pub fn operations() -> Value {
     descriptors.extend(insights::descriptors());
     descriptors.extend(care::descriptors());
     descriptors.extend(recommendations::descriptors());
+    descriptors.extend(weather::descriptors());
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());
     descriptors.extend(image_editing::descriptors());

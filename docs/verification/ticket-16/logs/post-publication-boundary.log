@@ -1,0 +1,22 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-16/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 16.27s
+     Running unittests src/lib.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/wardrobe_core-1455b102a1d64765)
+
+running 1 test
+test ai_recommendations::publication_boundary::published_intent_survives_cancel_between_commit_and_job_finish_and_retry_is_cached ... FAILED
+
+failures:
+
+---- ai_recommendations::publication_boundary::published_intent_survives_cancel_between_commit_and_job_finish_and_retry_is_cached stdout ----
+
+thread 'ai_recommendations::publication_boundary::published_intent_survives_cancel_between_commit_and_job_finish_and_retry_is_cached' (3516886) panicked at crates/wardrobe-core/src/ai_recommendations.rs:470:14:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "storage_error", message: "本地数据库操作失败" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ai_recommendations::publication_boundary::published_intent_survives_cancel_between_commit_and_job_finish_and_retry_is_cached
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p wardrobe-core --lib`

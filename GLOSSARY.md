@@ -61,3 +61,9 @@
 - **恢复预备备份（Restore Prebackup）**：明确覆盖前实际保存的原安装事实和可用原图，保留可再次预览/恢复的路径；不是仅在内存缓存旧值。
 - **本机安装代际（Installation Generation）**：本机恢复事务递增的并发边界，拒绝恢复前已授权但尚未提交的旧连接写入；便携回退不倒退它，同设备搬迁保留它。
 - **数据位置切换（Data Location Switch）**：验证同安装全部本机副本后发布的新数据库位置，旧源保留；待发布标记与进程锁防止阻塞写入落入旧库。
+
+## Weather estimate and AI recommendation
+
+- **Weather estimate**: An explicitly configured member location's provider estimate, with provider valid time, retrieval time, source and attribution. It becomes stale strictly after three hours; off/manual input remains usable when retrieval fails.
+- **Validated AI recommendation**: A text model organizes existing rule planner candidates; the application validates current IDs, member, availability, body coverage, roles/layers, fixed/excluded controls and recent wear before publishing an immutable intent. Its explanation is unverified text, not clothing facts.
+- **Unknown text submission**: A persisted recommendation job was submitted but its outcome is unconfirmed. Same-key requests do not blindly POST again; explicit offline rules remain available. A confirmed invalid output permits only the bounded second attempt.

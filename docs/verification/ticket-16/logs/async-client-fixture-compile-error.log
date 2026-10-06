@@ -1,0 +1,19 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-16/crates/wardrobe-core)
+error[E0599]: no method named `complete` found for struct `Connection` in the current scope
+   --> crates/wardrobe-core/tests/ai_recommendations.rs:397:18
+    |
+396 | /             connection
+397 | |                 .complete(
+    | |                 -^^^^^^^^ method not found in `Connection`
+    | |_________________|
+    |
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+note: `CompletionClient` defines an item `complete`, perhaps you need to implement it
+   --> crates/wardrobe-core/tests/ai_recommendations.rs:5:1
+    |
+  5 | trait CompletionClient {
+    | ^^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `wardrobe-core` (test "ai_recommendations") due to 1 previous error

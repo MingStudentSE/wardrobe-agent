@@ -1,0 +1,43 @@
+{
+  "initial_receipt": {
+    "error": null,
+    "intent_id": null,
+    "job_id": "01a11311-6a80-722e-9e03-79df43986452",
+    "member_id": "01a11311-6a44-70ff-95a9-12284a2df35b",
+    "next_due": 0,
+    "progress": 0,
+    "schema_version": 1,
+    "state": "queued"
+  },
+  "initial_provider_posts": 0,
+  "killed_worker_returncode": -9,
+  "same_key_restart_receipt": {
+    "error": null,
+    "intent_id": null,
+    "job_id": "01a11311-6a80-722e-9e03-79df43986452",
+    "member_id": "01a11311-6a44-70ff-95a9-12284a2df35b",
+    "next_due": 0,
+    "progress": 0,
+    "schema_version": 1,
+    "state": "running"
+  },
+  "worker_before_lease_expiry": "running",
+  "explicit_clock_seam_only_lease_expiry": true,
+  "worker_after_expiry": "waiting_input",
+  "unknown_error": {
+    "code": "provider_outcome_unknown",
+    "message": "结果未知，无法查询；请核对供应商或显式选择离线规则",
+    "retryable": false
+  },
+  "generic_retry": {
+    "error": {
+      "code": "submission_already_sent",
+      "message": "此生成任务已经提交，不能盲重发；请检查供应商记录，显式创建新生成意图"
+    }
+  },
+  "provider_posts_after_kill_and_restart": 1,
+  "rule_count": 1,
+  "wear_count": 0,
+  "temporary_data_removed": true,
+  "no_credential": true
+}

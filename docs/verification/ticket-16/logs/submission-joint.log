@@ -1,0 +1,29 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-16/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 1.15s
+     Running tests/ai_recommendations.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/ai_recommendations-a8dd888404013697)
+
+running 5 tests
+test model_cannot_claim_recent_repeat_is_inventory_shortage_when_fresh_alternative_exists ... ok
+test illegal_model_ids_retry_twice_then_real_rule_fallback_preserves_fixed_and_no_wear ... ok
+test model_response_after_inventory_changes_cannot_restore_archived_item ... ok
+test valid_model_outfit_uses_current_real_ids_and_shared_template_save_without_wear ... ok
+test two_public_connections_same_intent_have_only_one_provider_submission ... FAILED
+
+failures:
+
+---- two_public_connections_same_intent_have_only_one_provider_submission stdout ----
+
+thread '<unnamed>' (3505310) panicked at crates/wardrobe-core/tests/ai_recommendations.rs:243:48:
+called `Result::unwrap()` on an `Err` value: Os { code: 35, kind: WouldBlock, message: "Resource temporarily unavailable" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'two_public_connections_same_intent_have_only_one_provider_submission' (3505296) panicked at crates/wardrobe-core/tests/ai_recommendations.rs:283:10:
+called `Result::unwrap()` on an `Err` value: Timeout
+
+
+failures:
+    two_public_connections_same_intent_have_only_one_provider_submission
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.07s
+
+error: test failed, to rerun pass `-p wardrobe-core --test ai_recommendations`
