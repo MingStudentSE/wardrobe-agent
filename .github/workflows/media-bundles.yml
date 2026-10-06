@@ -1,5 +1,14 @@
 name: Packaged media runtime
-on: [workflow_dispatch]
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/beta-integration]
+    paths:
+      - .github/workflows/media-bundles.yml
+      - scripts/prepare-media-distribution.py
+      - scripts/verify-packaged-cli.py
+      - scripts/bootstrap-media-*.sh
+      - scripts/bootstrap-media-*.ps1
 jobs:
   bundle:
     strategy:
