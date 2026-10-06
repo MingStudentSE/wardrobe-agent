@@ -9,5 +9,10 @@ serde_json = "1"
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = "0.4"
 iso_currency = "0.7"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+sha2 = "0.11.0"
+base64 = "0.23.1"
+webp = "0.3.1"
+libheif-rs = { version = "3.0.0", default-features = false, features = ["v1_19"] }
 [dev-dependencies]
 tempfile = "3"

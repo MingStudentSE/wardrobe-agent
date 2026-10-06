@@ -1,3 +1,4 @@
+mod assets;
 mod clothing;
 mod members;
 
@@ -7,7 +8,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 3;
+pub const DATABASE_SCHEMA_VERSION: u32 = 4;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -29,6 +30,7 @@ impl From<rusqlite::Error> for ApiError {
 }
 pub struct Application {
     connection: Connection,
+    asset_root: PathBuf,
 }
 impl Application {
     pub fn open(path: &Path) -> Result<Self, ApiError> {
@@ -92,9 +94,13 @@ impl Application {
         }
         tx.execute_batch("CREATE INDEX IF NOT EXISTS clothing_member_status_id ON clothing(member_id,json_extract(document,'$.status'),id);")?;
         members::migrate(&tx)?;
-        tx.execute_batch("PRAGMA user_version=3;")?;
+        assets::migrate(&tx)?;
+        tx.execute_batch("PRAGMA user_version=4;")?;
         tx.commit()?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            asset_root: path.parent().unwrap_or(Path::new(".")).join("assets"),
+        })
     }
     fn check_schema(&self) -> Result<(), ApiError> {
         let version: u32 = self
@@ -155,6 +161,13 @@ impl Application {
             }
             "clothing.get" => self.clothing_get(input),
             "clothing.list" => self.clothing_list(input),
+            "assets.import" => self.asset_import(input),
+            "assets.get" => self.asset_get(input),
+            "assets.preview" => self.asset_preview(input),
+            "assets.rebuild_thumbnail" => self.asset_rebuild_thumbnail(input),
+            "assets.adopt" => self.asset_adopt(input),
+            "assets.reorder" => self.asset_reorder(input),
+            "assets.sync_manifest" => self.asset_sync_manifest(input),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
         }
     }
@@ -168,6 +181,7 @@ fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
 pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
     descriptors.extend(clothing::descriptors());
+    descriptors.extend(assets::descriptors());
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );
