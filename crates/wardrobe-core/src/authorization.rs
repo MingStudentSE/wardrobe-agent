@@ -130,6 +130,13 @@ impl Application {
             return Err(ApiError::new("unsupported_operation", "此操作尚不可用"));
         }
         if let Some(members) = grant["member_ids"].as_array() {
+            if ["sync.configure", "sync.run", "sync.status"].contains(&operation) {
+                return Err(ApiError::new(
+                    "member_denied",
+                    "同步目标和运行操作需要明确授权全部成员",
+                ));
+            }
+
             if input.get("member_id").is_some() {
                 let member = self.member(&input)?;
                 if !members.contains(&json!(member)) {
@@ -156,6 +163,9 @@ impl Application {
             let mut result = self.execute(operation, input)?;
             result["operations"].as_array_mut().unwrap().retain(|o| {
                 !privileged(o["name"].as_str().unwrap())
+                    && (grant["member_ids"].is_null()
+                        || !["sync.configure", "sync.run", "sync.status"]
+                            .contains(&o["name"].as_str().unwrap()))
                     && (grant["mode"] == "full"
                         || o["name"] == "capabilities"
                         || grant["operations"].as_array().unwrap().contains(&o["name"]))

@@ -2,6 +2,7 @@
 mod assets;
 mod branches;
 mod conflicts;
+mod schema;
 pub mod storage;
 use crate::{string, ApiError, Application};
 use rusqlite::{params, OptionalExtension, Transaction};
@@ -172,7 +173,7 @@ fn error(code: &str) -> ApiError {
 }
 pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     repair_immutable(tx)?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_reassert(op_id TEXT PRIMARY KEY,fields TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_resolution_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_quarantine(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,code TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_reassert(op_id TEXT PRIMARY KEY,fields TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_resolution_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
     for table in TABLES {
         for kind in ["INSERT", "UPDATE"] {
             let key = entity_key(table, "NEW");
@@ -229,11 +230,18 @@ fn bounded(storage: &dyn SyncStorage, key: &str) -> Result<Vec<u8>, ApiError> {
 impl Application {
     fn sync_apply(&self, op: &Value, local: bool) -> Result<(), ApiError> {
         let id = string(op, "op_id")?;
-        if self.connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM sync_inbox WHERE op_id=?1)",
-            [id],
-            |r| r.get::<_, bool>(0),
-        )? {
+        let prior: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT document FROM sync_inbox WHERE op_id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(prior) = prior {
+            if prior != op.to_string() {
+                return Err(error("sync_identity_conflict"));
+            }
             return Ok(());
         }
         let table = string(op, "entity_type")?;
@@ -241,6 +249,7 @@ impl Application {
             return Err(error("sync_invalid"));
         }
         let entity = string(op, "entity_id")?;
+        schema::validate(table, entity, &op["after"])?;
         let after = op["after"]
             .as_object()
             .ok_or_else(|| error("sync_invalid"))?;
@@ -354,6 +363,30 @@ impl Application {
         Ok(())
     }
     pub(crate) fn sync_operation(&self, op: &str, input: Value) -> Result<Value, ApiError> {
+        let allowed: &[&str] = match op {
+            "sync.configure" => &["provider_kind", "directory"],
+            "sync.run" | "sync.status" => &[],
+            "sync.conflicts" => &["member_id"],
+            "sync.history" => &["member_id", "entity_type", "entity_id"],
+            "sync.resolve" => &[
+                "member_id",
+                "entity_type",
+                "entity_id",
+                "field",
+                "value",
+                "branch_id",
+                "expected_token",
+                "operation_key",
+            ],
+            _ => return Err(error("unsupported_operation")),
+        };
+        if !input
+            .as_object()
+            .is_some_and(|o| o.keys().all(|k| allowed.contains(&k.as_str())))
+        {
+            return Err(error("invalid_input"));
+        }
+
         match op {
             "sync.conflicts" => self.sync_conflicts(input),
             "sync.resolve" => self.sync_resolve(input),
@@ -451,6 +484,14 @@ impl Application {
                     })?
                     .collect::<Result<Vec<_>, _>>()?;
 
+                let mut quarantine_statement = self
+                    .connection
+                    .prepare("SELECT op_id,code FROM sync_quarantine ORDER BY marker_key")?;
+                let quarantine = quarantine_statement
+                    .query_map([], |r| {
+                        Ok(json!({"op_id":r.get::<_,String>(0)?,"code":r.get::<_,String>(1)?}))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
                 let target: Option<String> = self
                     .connection
                     .query_row(
@@ -460,7 +501,7 @@ impl Application {
                     )
                     .optional()?;
                 Ok(
-                    json!({"schema_version":1,"asset_errors":asset_errors,"target":target.map(|s|serde_json::from_str::<Value>(&s)).transpose().map_err(|_|error("storage_error"))?}),
+                    json!({"schema_version":1,"asset_errors":asset_errors,"quarantine":quarantine,"target":target.map(|s|serde_json::from_str::<Value>(&s)).transpose().map_err(|_|error("storage_error"))?}),
                 )
             }
             "sync.run" => {
@@ -546,6 +587,7 @@ impl Application {
                     }
                 }
                 let mut received = 0;
+                let mut quarantined = 0;
                 loop {
                     let initial = received;
                     let mut cursor = None;
@@ -571,6 +613,33 @@ impl Application {
                             match self.sync_apply(&op, false) {
                                 Ok(()) => {}
                                 Err(e) if e.code == "sync_dependency" => continue,
+                                Err(e)
+                                    if [
+                                        "sync_identity_conflict",
+                                        "sync_invalid",
+                                        "invalid_input",
+                                    ]
+                                    .contains(&e.code.as_str()) =>
+                                {
+                                    let tx = self.begin_write()?;
+                                    tx.execute(
+                                        "INSERT INTO sync_quarantine VALUES('primary',?1,?2,?3,?4)",
+                                        params![
+                                            object.key,
+                                            op["op_id"].as_str().unwrap_or("invalid"),
+                                            e.code,
+                                            op.to_string()
+                                        ],
+                                    )?;
+                                    tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.quarantine',?2)",params![op["entity_id"].as_str().unwrap_or("invalid"),json!({"op_id":op["op_id"],"code":e.code}).to_string()])?;
+                                    tx.execute(
+                                        "INSERT OR IGNORE INTO sync_cursors VALUES('primary',?1)",
+                                        [&object.key],
+                                    )?;
+                                    tx.commit()?;
+                                    quarantined += 1;
+                                    continue;
+                                }
                                 Err(e) => return Err(e),
                             }
                             self.connection.execute(
@@ -590,7 +659,7 @@ impl Application {
                 }
                 let missing_assets = self.sync_fetch_assets(&storage)?;
                 Ok(
-                    json!({"schema_version":1,"sent":sent,"received":received,"missing_assets":missing_assets}),
+                    json!({"schema_version":1,"sent":sent,"received":received,"quarantined":quarantined,"missing_assets":missing_assets}),
                 )
             }
             _ => Err(error("unsupported_operation")),
@@ -598,5 +667,14 @@ impl Application {
     }
 }
 pub(crate) fn descriptors() -> Vec<Value> {
-    ["configure","run","status","history","conflicts","resolve"].into_iter().map(|op|json!({"name":format!("sync.{op}"),"description":"同步已配对加密空间","inputSchema":{"type":"object","properties":{"provider_kind":{"type":"string"},"directory":{"type":"string"}}},"outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}}})).collect()
+    ["configure","run","status","history","conflicts","resolve"].into_iter().map(|op|{
+        let mut properties=json!({});let mut required=vec![];
+        if op=="configure" {properties=json!({"provider_kind":{"const":"local_folder"},"directory":{"type":"string","minLength":1}});required.extend(["provider_kind","directory"]);}
+        if ["history","conflicts","resolve"].contains(&op) {properties["member_id"]=json!({"type":"string"});required.push("member_id");}
+        if ["history","resolve"].contains(&op) {for key in ["entity_type","entity_id"] {properties[key]=json!({"type":"string"});required.push(key);}}
+        if op=="resolve" {for key in ["field","expected_token","operation_key"] {properties[key]=json!({"type":"string","minLength":1});required.push(key);}properties["value"]=json!({});properties["branch_id"]=json!({"type":"string"});}
+        let mut schema=json!({"type":"object","additionalProperties":false,"required":required,"properties":properties});
+        if op=="resolve" {schema["oneOf"]=json!([{"required":["value"],"not":{"required":["branch_id"]}},{"required":["branch_id"],"not":{"required":["value"]}}]);}
+        json!({"name":format!("sync.{op}"),"description":"同步已配对加密空间，空间级运行需要全部成员授权；冲突选择保留旧历史","inputSchema":schema,"outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}}})
+    }).collect()
 }

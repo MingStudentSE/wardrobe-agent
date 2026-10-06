@@ -18,7 +18,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
     let bp = b.path().join("wardrobe.sqlite");
     let owner = Application::open(&ap).unwrap();
     let peer = Application::open(&bp).unwrap();
-    let _a = Cleanup(ap);
+    let _a = Cleanup(ap.clone());
     let _b = Cleanup(bp);
     let existing = owner
         .execute(
@@ -26,7 +26,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
             json!({"member_id":"default","name":"启用同步之前的外套","category":"outerwear"}),
         )
         .unwrap();
-    owner
+    let created = owner
         .execute(
             "encryption.create",
             json!({"password":"temporary sync owner password","device_name":"sync owner"}),
@@ -433,6 +433,260 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .execute("wear.summary", json!({"member_id":member["member_id"]}))
         .unwrap();
     assert_eq!(a, b);
+    // Authenticated independent sender fixture uses only its generated recovery bundle and secret.
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    use wardrobe_core::sync::storage::{LocalFolder, SyncStorage, WriteCondition};
+    let read =
+        rusqlite::Connection::open_with_flags(&ap, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let operation: String = read
+        .query_row(
+            "SELECT op_id FROM sync_journal WHERE entity_type='wear_events' AND entity_id=?1",
+            [root["id"].as_str().unwrap()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    drop(read);
+    let storage = LocalFolder::new(remote.path()).unwrap();
+    let space = created["recovery_bundle"]["space_id"].as_str().unwrap();
+    let original: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            remote
+                .path()
+                .join(format!("{space}/changes/{operation}.object")),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    use chacha20poly1305::{
+        aead::{Aead, KeyInit, Payload},
+        XChaCha20Poly1305, XNonce,
+    };
+    let aad = |kind: &str| {
+        json!(["wardrobe-e2ee", 1, space, 1, kind])
+            .to_string()
+            .into_bytes()
+    };
+    let recovery_key = base64::engine::general_purpose::STANDARD
+        .decode(created["recovery_secret"].as_str().unwrap())
+        .unwrap();
+    let recovery_envelope = &created["recovery_bundle"]["recovery_wrap"];
+    let open = |key: &[u8], envelope: &serde_json::Value, kind: &str| {
+        let nonce = base64::engine::general_purpose::STANDARD
+            .decode(envelope["nonce"].as_str().unwrap())
+            .unwrap();
+        let ciphertext = base64::engine::general_purpose::STANDARD
+            .decode(envelope["ciphertext"].as_str().unwrap())
+            .unwrap();
+        XChaCha20Poly1305::new_from_slice(key)
+            .unwrap()
+            .decrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &ciphertext,
+                    aad: &aad(kind),
+                },
+            )
+            .unwrap()
+    };
+    let wallet: serde_json::Value =
+        serde_json::from_slice(&open(&recovery_key, recovery_envelope, "recovery-wrap")).unwrap();
+    let master = base64::engine::general_purpose::STANDARD
+        .decode(wallet["keys"][0]["key"].as_str().unwrap())
+        .unwrap();
+    let mut changes_key = [0u8; 32];
+    hkdf::Hkdf::<Sha256>::new(Some(space.as_bytes()), &master)
+        .expand(&aad("changes"), &mut changes_key)
+        .unwrap();
+    let mut changed: serde_json::Value =
+        serde_json::from_slice(&open(&changes_key, &original["envelope"], "changes")).unwrap();
+    let malicious_id = uuid::Uuid::now_v7().to_string();
+    changed["op_id"] = json!(malicious_id);
+    changed["after"]["notes"] = json!("authenticated immutable identity rewrite");
+    let wrap = |payload: &serde_json::Value| {
+        let mut nonce = [0u8; 24];
+        getrandom::fill(&mut nonce).unwrap();
+        let ciphertext = XChaCha20Poly1305::new_from_slice(&changes_key)
+            .unwrap()
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: payload.to_string().as_bytes(),
+                    aad: &aad("changes"),
+                },
+            )
+            .unwrap();
+        let envelope = json!({"protocol_version":1,"algorithm":"XChaCha20-Poly1305","space_id":space,"epoch":1,"kind":"changes","nonce":base64::engine::general_purpose::STANDARD.encode(nonce),"ciphertext":base64::engine::general_purpose::STANDARD.encode(ciphertext)});
+        json!({"protocol_version":1,"identity":original["identity"],"envelope":envelope})
+            .to_string()
+            .into_bytes()
+    };
+    let bytes = wrap(&changed);
+    let object = format!("{space}/changes/{malicious_id}.object");
+    storage
+        .put(&object, &mut bytes.as_slice(), WriteCondition::CreateOnly)
+        .unwrap();
+    let marker = wrap(
+        &json!({"key":object,"bytes":bytes.len(),"sha256":Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect::<String>()}),
+    );
+    storage
+        .put(
+            &format!("{space}/changes/{malicious_id}.commit"),
+            &mut marker.as_slice(),
+            WriteCondition::CreateOnly,
+        )
+        .unwrap();
+    let invalid_id = uuid::Uuid::now_v7().to_string();
+    let mut invalid = changed.clone();
+    invalid["op_id"] = json!(invalid_id);
+    invalid["entity_type"] = json!("clothing");
+    invalid["entity_id"] = garment["id"].clone();
+    invalid["after"] = owner
+        .execute(
+            "clothing.get",
+            json!({"member_id":member["member_id"],"id":garment["id"]}),
+        )
+        .unwrap();
+    invalid["after"]["category"] = json!("not-a-domain-category");
+    invalid["before"] = serde_json::Value::Null;
+    let bytes = wrap(&invalid);
+    let object = format!("{space}/changes/{invalid_id}.object");
+    storage
+        .put(&object, &mut bytes.as_slice(), WriteCondition::CreateOnly)
+        .unwrap();
+    let marker = wrap(
+        &json!({"key":object,"bytes":bytes.len(),"sha256":Sha256::digest(&bytes).iter().map(|b|format!("{b:02x}")).collect::<String>()}),
+    );
+    storage
+        .put(
+            &format!("{space}/changes/{invalid_id}.commit"),
+            &mut marker.as_slice(),
+            WriteCondition::CreateOnly,
+        )
+        .unwrap();
+    owner
+        .execute(
+            "clothing.update",
+            json!({"member_id":member["member_id"],"id":garment["id"],"size_label":"L"}),
+        )
+        .unwrap();
+    let result = owner
+        .execute("sync.run", json!({}))
+        .expect("bad immutable payload is isolated without blocking valid facts");
+    assert_eq!(result["quarantined"], 2);
+    peer.execute("sync.run", json!({})).unwrap();
+    assert_eq!(
+        peer.execute(
+            "clothing.get",
+            json!({"member_id":member["member_id"],"id":garment["id"]})
+        )
+        .unwrap()["size_label"],
+        "L"
+    );
+    for app in [&owner, &peer] {
+        let history = app
+            .execute(
+                "wear.history",
+                json!({"member_id":member["member_id"],"root_event_id":root["root_event_id"]}),
+            )
+            .unwrap();
+        assert_eq!(history["items"].as_array().unwrap().len(), 4);
+        assert!(history["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == &root));
+        let status = app.execute("sync.status", json!({})).unwrap();
+        assert!(status["quarantine"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["op_id"] == malicious_id && v["code"] == "sync_identity_conflict"));
+        assert!(status["quarantine"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["op_id"] == invalid_id && v["code"] == "sync_invalid"));
+        assert_eq!(
+            app.execute("sync.run", json!({})).unwrap()["quarantined"],
+            0
+        );
+    }
+
+    let disposable=owner.execute("clothing.create",json!({"member_id":member["member_id"],"name":"offline delete/edit","category":"top","tags":["baseline"]})).unwrap();
+    owner.execute("sync.run", json!({})).unwrap();
+    peer.execute("sync.run", json!({})).unwrap();
+    owner
+        .execute(
+            "clothing.update",
+            json!({"member_id":member["member_id"],"id":disposable["id"],"tags":[]}),
+        )
+        .unwrap();
+    peer.execute("clothing.update",json!({"member_id":member["member_id"],"id":disposable["id"],"tags":["baseline","new while offline"]})).unwrap();
+    for app in [&owner, &peer, &owner, &peer] {
+        app.execute("sync.run", json!({})).unwrap();
+    }
+    for app in [&owner, &peer] {
+        assert_eq!(
+            app.execute(
+                "clothing.get",
+                json!({"member_id":member["member_id"],"id":disposable["id"]})
+            )
+            .unwrap()["tags"],
+            json!(["new while offline"])
+        );
+    }
+    owner
+        .execute(
+            "clothing.delete",
+            json!({"member_id":member["member_id"],"id":disposable["id"]}),
+        )
+        .unwrap();
+    peer.execute("clothing.update",json!({"member_id":member["member_id"],"id":disposable["id"],"name":"edited while disconnected"})).unwrap();
+    for app in [&owner, &peer, &owner, &peer] {
+        app.execute("sync.run", json!({})).unwrap();
+    }
+    for app in [&owner, &peer] {
+        assert_eq!(
+            app.execute(
+                "clothing.get",
+                json!({"member_id":member["member_id"],"id":disposable["id"]})
+            )
+            .unwrap()["status"],
+            "deleted"
+        );
+    }
+    let conflicts = owner
+        .execute("sync.conflicts", json!({"member_id":member["member_id"]}))
+        .unwrap();
+    let conflict = conflicts["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["entity_id"] == disposable["id"] && v["field"] == "lifecycle")
+        .expect("concurrent delete/edit requires review");
+    owner.execute("sync.resolve",json!({"member_id":member["member_id"],"entity_type":"clothing","entity_id":disposable["id"],"field":"lifecycle","value":"active","expected_token":conflict["token"],"operation_key":"explicitly restore edited item"})).unwrap();
+    for app in [&owner, &peer, &owner, &peer] {
+        app.execute("sync.run", json!({})).unwrap();
+    }
+    for app in [&owner, &peer] {
+        let doc = app
+            .execute(
+                "clothing.get",
+                json!({"member_id":member["member_id"],"id":disposable["id"]}),
+            )
+            .unwrap();
+        assert_eq!(doc["status"], "active");
+        assert_eq!(doc["name"], "edited while disconnected");
+        assert!(app
+            .execute("sync.conflicts", json!({"member_id":member["member_id"]}))
+            .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v["entity_id"] != disposable["id"] || v["field"] != "lifecycle"));
+    }
 }
 
 #[test]

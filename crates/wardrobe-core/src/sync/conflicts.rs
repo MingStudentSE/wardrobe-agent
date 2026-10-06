@@ -120,6 +120,7 @@ impl Application {
                 items.push(json!({"entity_type":table,"entity_id":id,"field":field,"variants":variants,"token":digest(raw.as_bytes())}));
             }
         }
+        items.extend(lifecycle(&self.connection, &member)?);
         items.extend(super::branches::conflicts(&self.connection, &member)?);
         Ok(json!({"schema_version":1,"items":items}))
     }
@@ -149,10 +150,22 @@ impl Application {
         if table != "clothing" {
             return Err(error("sync_resolution_unsupported"));
         }
-        let raw:String=tx.query_row("SELECT variants FROM sync_fields WHERE entity_type=?1 AND entity_id=?2 AND field=?3",params![table,id,field],|r|r.get(0)).map_err(|_|error("conflict_changed"))?;
-        if input["expected_token"] != digest(raw.as_bytes()) {
-            return Err(error("conflict_changed"));
-        }
+        let field = if field == "lifecycle" {
+            let conflict = lifecycle(&tx, &member)?
+                .into_iter()
+                .find(|v| v["entity_id"] == id)
+                .ok_or_else(|| error("conflict_changed"))?;
+            if input["expected_token"] != conflict["token"] {
+                return Err(error("conflict_changed"));
+            }
+            "status"
+        } else {
+            let raw:String=tx.query_row("SELECT variants FROM sync_fields WHERE entity_type=?1 AND entity_id=?2 AND field=?3",params![table,id,field],|r|r.get(0)).map_err(|_|error("conflict_changed"))?;
+            if input["expected_token"] != digest(raw.as_bytes()) {
+                return Err(error("conflict_changed"));
+            }
+            field
+        };
         let serialized: String = tx
             .query_row(
                 "SELECT document FROM clothing WHERE id=?1 AND member_id=?2",
@@ -162,7 +175,7 @@ impl Application {
             .map_err(|_| error("not_found"))?;
         let mut doc: Value =
             serde_json::from_str(&serialized).map_err(|_| error("storage_error"))?;
-        if doc["status"] == "deleted" {
+        if doc["status"] == "deleted" && field != "status" {
             return Err(error("restore_required"));
         }
         let mut facts = serde_json::Map::new();
@@ -173,7 +186,17 @@ impl Application {
                 .cloned()
                 .ok_or_else(|| error("invalid_input"))?,
         );
-        crate::clothing::apply_facts(&mut doc, &Value::Object(facts))?;
+        if field == "status" {
+            if !["active", "deleted"].iter().any(|v| input["value"] == *v) {
+                return Err(error("invalid_input"));
+            }
+            doc["status"] = input["value"].clone();
+            if doc["status"] == "active" {
+                doc["deleted_at"] = Value::Null;
+            }
+        } else {
+            crate::clothing::apply_facts(&mut doc, &Value::Object(facts))?;
+        }
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         tx.execute(
             "UPDATE clothing SET document=?1 WHERE id=?2 AND member_id=?3",
@@ -209,4 +232,58 @@ impl Application {
         tx.commit()?;
         Ok(result)
     }
+}
+fn lifecycle(db: &rusqlite::Connection, member: &str) -> Result<Vec<Value>, ApiError> {
+    let mut result = vec![];
+    let mut st=db.prepare("SELECT c.id,s.variants FROM clothing c JOIN sync_fields s ON s.entity_type='clothing' AND s.entity_id=c.id AND s.field='status' WHERE c.member_id=?1 AND json_extract(c.document,'$.status')='deleted' ORDER BY c.id")?;
+    let rows = st
+        .query_map([member], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(st);
+    for (id, raw) in rows {
+        let statuses: Vec<Value> =
+            serde_json::from_str(&raw).map_err(|_| error("storage_error"))?;
+        let mut variants = vec![];
+        let mut st=db.prepare("SELECT field,variants FROM sync_fields WHERE entity_type='clothing' AND entity_id=?1 ORDER BY field")?;
+        let fields = st
+            .query_map([&id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        for deleted in statuses.iter().filter(|v| v["value"] == "deleted") {
+            for (field, raw) in &fields {
+                if [
+                    "status",
+                    "updated_at",
+                    "created_at",
+                    "id",
+                    "member_id",
+                    "schema_version",
+                    "taxonomy_version",
+                ]
+                .contains(&field.as_str())
+                {
+                    continue;
+                }
+                let values: Vec<Value> =
+                    serde_json::from_str(raw).map_err(|_| error("storage_error"))?;
+                for edit in values {
+                    if !dominates(&deleted["clock"], &edit["clock"])
+                        && !dominates(&edit["clock"], &deleted["clock"])
+                    {
+                        if variants.is_empty() {
+                            variants.push(json!({"field":"status","value":"deleted","clock":deleted["clock"],"op_id":deleted["op_id"]}));
+                        }
+                        variants.push(json!({"field":field,"value":edit["value"],"clock":edit["clock"],"op_id":edit["op_id"]}));
+                    }
+                }
+            }
+        }
+        if variants.len() > 1 {
+            result.push(json!({"entity_type":"clothing","entity_id":id,"field":"lifecycle","token":digest(json!(variants).to_string().as_bytes()),"variants":variants}));
+        }
+    }
+    Ok(result)
 }
