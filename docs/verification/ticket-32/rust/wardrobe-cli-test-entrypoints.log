@@ -1,5 +1,5 @@
    Compiling wardrobe-cli v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-cli)
-    Finished `test` profile [unoptimized] target(s) in 1.14s
+    Finished `test` profile [unoptimized] target(s) in 1.17s
      Running tests/entrypoints.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/entrypoints-95eae7cede4a3832)
 
 running 22 tests
@@ -7,18 +7,18 @@ test cli_imported_image_is_available_through_mcp_without_gui ... ok
 test cli_and_mcp_use_same_persisted_application_without_gui ... ok
 test authorized_cli_and_mcp_validate_only_explicit_vision_capability ... ok
 test authorized_cli_and_mcp_return_the_same_derived_insights_and_persistent_threshold ... ok
-test cli_and_mcp_share_product_job_consent_idempotency_and_cancellation ... ok
 test authorized_cli_mcp_share_actual_wear_retries_corrections_and_immutable_history ... ok
-test credential_command_requires_stdin_to_keep_secret_out_of_process_arguments ... ok
 test cli_mcp_share_durable_batch_job_ids_cancellation_and_idempotent_commit ... ok
+test cli_and_mcp_share_product_job_consent_idempotency_and_cancellation ... ok
+test credential_command_requires_stdin_to_keep_secret_out_of_process_arguments ... ok
 test cli_mcp_share_durable_care_threshold_chronology_and_reminder_availability ... ok
 test cli_member_profiles_and_mcp_inventory_share_member_scope ... ok
 test cli_saved_outfit_and_immutable_version_are_the_same_through_mcp_after_restart ... ok
 test external_cli_and_mcp_enforce_same_operation_and_member_grant ... ok
-test stdin_configuration_and_mcp_discovery_share_provider_contract_without_gui ... ok
 test unauthenticated_external_cli_cannot_read_inventory ... ok
-test mcp_edits_and_restores_same_clothing_as_cli_filters_without_gui ... ok
+test stdin_configuration_and_mcp_discovery_share_provider_contract_without_gui ... ok
 test cli_mcp_real_multimage_flatlay_preview_and_local_save_keep_template_and_wear ... ok
+test mcp_edits_and_restores_same_clothing_as_cli_filters_without_gui ... ok
 test cli_mcp_real_multimage_tryon_preview_and_local_save_keep_template_and_wear ... ok
 test cli_mcp_share_immutable_image_edits_and_cancelled_cutout_jobs ... ok
 test real_authorized_cli_and_stdin_mcp_share_persistent_offline_recommendation_ids ... ok
@@ -26,5 +26,5 @@ test mcp_initialized_full_authorization_is_reused_for_multiple_writes_without_re
 test authorized_cli_mcp_share_recognition_proposal_review_and_restart ... ok
 test space_crypto_uses_stdin_and_mcp_full_scope_does_not_expose_private_key_management ... ok
 
-test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.49s
 

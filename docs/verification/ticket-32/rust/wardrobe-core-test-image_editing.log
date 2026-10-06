@@ -11,5 +11,5 @@ test image_merge_and_replace_are_atomic_and_preserve_source_clothing ... ok
 test rotation_preserves_original_and_facts_and_restores_after_restart ... ok
 test twenty_image_limit_and_member_scope_reject_merge_atomically ... ok
 
-test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.09s
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.14s
 

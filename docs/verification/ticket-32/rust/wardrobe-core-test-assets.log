@@ -1,17 +1,17 @@
    Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
-    Finished `test` profile [unoptimized] target(s) in 0.82s
+    Finished `test` profile [unoptimized] target(s) in 0.97s
      Running tests/assets.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/assets-773e493192c33ac7)
 
 running 9 tests
 test header_over_sixty_megapixels_is_rejected_before_pixel_decode ... ok
 test malformed_input_and_overlarge_file_do_not_become_display_assets ... ok
-test imported_png_survives_restart_with_a_local_original_and_display ... ok
 test adopted_display_manifest_excludes_original_and_preview_assets ... ok
-test heic_decodes_real_container_without_external_model_and_preserves_bytes ... ok
+test imported_png_survives_restart_with_a_local_original_and_display ... ok
 test jpeg_exif_rotation_is_applied_once_before_display_encoding ... ok
 test detaching_an_image_preserves_bytes_and_other_clothing_references ... ok
+test heic_decodes_real_container_without_external_model_and_preserves_bytes ... ok
 test image_capabilities_describe_required_references_and_real_preview_output ... ok
 test large_jpeg_shrinks_and_thumbnail_can_be_rebuilt_without_original ... ok
 
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.07s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.63s
 

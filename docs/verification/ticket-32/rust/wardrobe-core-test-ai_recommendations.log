@@ -1,19 +1,19 @@
    Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
-    Finished `test` profile [unoptimized] target(s) in 0.93s
+    Finished `test` profile [unoptimized] target(s) in 3.66s
      Running tests/ai_recommendations.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/ai_recommendations-a8dd888404013697)
 
 running 11 tests
-test illegal_model_ids_retry_twice_then_real_rule_fallback_preserves_fixed_and_no_wear ... ok
 test model_cannot_claim_recent_repeat_is_inventory_shortage_when_fresh_alternative_exists ... ok
+test illegal_model_ids_retry_twice_then_real_rule_fallback_preserves_fixed_and_no_wear ... ok
 test two_public_connections_same_intent_have_only_one_provider_submission ... ok
-test model_response_after_inventory_changes_cannot_restore_archived_item ... ok
 test invalid_output_budget_survives_reopened_worker_and_separate_rate_limit_delay ... ok
-test confirmed_rate_limit_budget_is_global_across_three_reopened_workers ... ok
 test valid_model_outfit_uses_current_real_ids_and_shared_template_save_without_wear ... ok
+test model_response_after_inventory_changes_cannot_restore_archived_item ... ok
+test confirmed_rate_limit_budget_is_global_across_three_reopened_workers ... ok
 test cancelled_or_expired_submitted_request_cannot_publish_or_retry ... ok
 test cancellation_or_expiry_during_retry_after_wait_prevents_second_post ... ok
 test initial_ai_receipt_is_durable_and_precedes_weather_or_model_http ... ok
 test confirmed_rate_limit_waits_retry_after_then_returns_valid_model_result ... ok
 
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
 

@@ -1,15 +1,15 @@
    Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
-    Finished `test` profile [unoptimized] target(s) in 0.85s
+    Finished `test` profile [unoptimized] target(s) in 0.88s
      Running tests/imports.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/imports-fdde2689a15efba1)
 
 running 7 tests
 test missing_source_can_be_restored_then_retried_without_losing_other_drafts ... ok
-test concurrent_commit_responses_reference_one_clothing_and_one_history_entry ... ok
 test durable_batch_keeps_source_and_idempotent_identity_across_restart ... ok
-test draft_edits_survive_restart_and_default_unknowns_remain_manual ... ok
 test mixed_batch_can_cancel_retry_group_and_commit_exactly_once ... ok
+test draft_edits_survive_restart_and_default_unknowns_remain_manual ... ok
+test concurrent_commit_responses_reference_one_clothing_and_one_history_entry ... ok
 test batch_limits_grouping_scope_and_auth_are_enforced_without_partial_clothing ... ok
 test version_eight_lookbook_gains_batch_tables_without_losing_versions_after_restart ... ok
 
-test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
 

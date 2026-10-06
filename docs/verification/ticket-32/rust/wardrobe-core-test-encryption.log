@@ -1,5 +1,5 @@
    Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
-    Finished `test` profile [unoptimized] target(s) in 0.84s
+    Finished `test` profile [unoptimized] target(s) in 1.00s
      Running tests/encryption.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/encryption-e7ed1076601f67ba)
 
 running 9 tests
@@ -13,5 +13,5 @@ test highest_database_version_repairs_missing_encryption_tables_without_downgrad
 test external_full_scope_cannot_manage_space_secrets_even_with_member_argument ... ok
 test encrypted_envelopes_roundtrip_and_authenticate_workspace_kind_version_and_bytes ... ok
 
-test result: ok. 3 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 7.59s
+test result: ok. 3 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 8.34s
 

@@ -1,5 +1,5 @@
    Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
-    Finished `test` profile [unoptimized] target(s) in 0.86s
+    Finished `test` profile [unoptimized] target(s) in 0.94s
      Running tests/flatlay.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/flatlay-5d698fcfee5160b0)
 
 running 5 tests
@@ -9,5 +9,5 @@ test actual_multireference_http_result_saves_locally_without_wear_or_outfit_chan
 test all_inputs_preflight_rejects_missing_oversized_count_and_small_resolution_without_truncation ... ok
 test provider_failure_never_loses_saved_outfit_or_offline_collage_and_does_not_resubmit ... ok
 
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
 

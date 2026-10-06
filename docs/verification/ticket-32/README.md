@@ -1,8 +1,21 @@
-# #32 checkpoint — incomplete, not acceptance
+# #32 candidate evidence — independent acceptance pending
 
-Worktree `/tmp/wardrobe-ticket-32`, branch `codex/ticket-32`. Synthetic temporary installations only. No user database, person image, account key, push or ticket closure.
+Worktree `/tmp/wardrobe-ticket-32`, branch `codex/ticket-32`. Synthetic temporary installations and committed licensed public fixtures only. No user database, person image, account key, push or ticket closure. The sections below preserve historical checkpoints and exact source boundaries; the final reference-source section records the latest candidate checks.
 
-Implemented portable whitelist SQLite facts/media with explicit original option; actual prebackup and overwrite; readonly version/schema/hash/reference/content preview; restore reads a verified owned copy and excludes unlisted files; same-installation directory migration preserves local grants/config/wallet references and source. DB17 adds local settings and installation generation, both excluded portable; actual table repair coexists with accepted recommendations DB15 and insights DB14. Sync16 and weather18 remain unaccepted elsewhere and require accepted-module integration later.
+Implemented portable whitelist SQLite facts/media with explicit original option; actual prebackup and overwrite; readonly version/schema/hash/reference/content preview; restore reads a verified owned copy and excludes unlisted files; same-installation directory migration preserves local grants/config/wallet references and source. DB17 adds local settings and installation generation, both excluded portable; actual table repair coexists with accepted recommendations DB15 and insights DB14. Accepted weather DB18 and explicit feedback DB19 are integrated below. Sync DB16 and learning DB20 remain unaccepted elsewhere and are not copied; future accepted modules must extend the whitelist.
+
+## Current candidate verification
+
+Business source `ee976faa282b87ecfc0005357b0a575539ec551c`, CLI SHA256 `e2aae1ff5218d3356401563c3ef27c6fcaf8476d878a2e2fcb4b43f4436de680`. Subsequent changes are evidence/ADR and the acknowledged-switch GUI fixture only. Accepted root `1bd7737` is included; DB19 actual-table repair preserves local DB17 and weather18. Sync16/learning20 are not accepted/copied.
+
+- 47436: 29 sequential Rust target commands, 230 passed, 12 ignored, exit0. Not a single workspace invocation. Final backup36 and feedback9 contracts included. fmtcheck/clippy39775 pass; frontend55939 passed with identical frontend product source.
+- 57193: complete10k/100k+9originals and feedback corrections/revocation/observations, source removed before restore, public restart reads pass, package1,003,030,251 bytes. Enqueue18.120/10.032/20.621ms; worker create87.744/preview33.884/restore62.707s. Owner exit0/temp cleanup. No inferred cause for timing differences.
+- Current default CLI public member/global scopes, original-business scope, MCP create/preview/restore/move, old-session revocation and old-path following pass. Current actual TCP matrix23948 passes unknown POST/SIGKILL/restore with one POST, changed-payload conflict, rollback, completed/cached facts, cancelled submissions, same-member UUID in another space and ledger omission.
+- Actual current process6119/96560 exit0: blocked existing writer follows directory, kill during copy retains source and explicit retry recovers, permission-failed publish preserves source, stale authorized restore writer refused.
+- 68001: final full GUI51 passed/6 explicit real-resource opt-in skipped, exit0. All original backup/insights numerical/history assertions preserved; actual delayed acknowledgement seam verifies member isolation. Earlier40095 failure and error context remain, with explicit fixture diagnosis below. No product change for this fixture fix. Seven widths and backup screenshots included.
+- Public resigned feedback audit: four bad predecessor/member/asset-ref archives refused, explicit legal earlier-parent branch accepted. Other nine domain negatives and legitimate day/actual/changed restore contracts pass.
+
+Independent #32 acceptance remains pending. Cross-platform native/OS/model and whole-Beta release gates are not claimed by these macOS synthetic/fixture checks; future accepted modules extend facts and references. Historical sections below deliberately preserve earlier failures and source boundaries.
 
 ## Confirmed terminal contracts
 
@@ -17,7 +30,7 @@ Implemented portable whitelist SQLite facts/media with explicit original option;
 - `ticket32-restore-client-process-green.log`: actual MCP restore blocked writer already green; original misleading filename renamed in evidence.
 - `ticket32-gui-two-flows-green.log`: 2 passed, same CLI source as content/ref/generation/authorization continuation/path checks. Actual create/settings persistence, corrupt version preview refusal, overwrite/prebackup, seven widths and isolated actual directory switch plus old-path CLI/new GUI same data. Earlier second GUI failed only a locator matching four rendered elements; fixed exact heading selector.
 
-## Regression still incomplete
+## Historical regression checkpoint
 
 `run-rust-regression.py` runs explicit workspace targets sequentially and deletes only its own just-terminated test executable to manage disk. Do not call this a single `cargo test --workspace` invocation.
 
@@ -38,7 +51,7 @@ Session 40994 confirmed exit 1: full 743,403,520-byte synthetic source SQLite pl
 All spawned terminal handles for this subturn have exited. No additional build was started after the root coordination request. This checkpoint releases the agent slot for required independent #16 reviews; #32 work resumes afterward with full original scope.
 
 
-## Async maintenance checkpoint — incomplete
+## Historical async maintenance checkpoint
 
 Full diagnostic scale run 74163 exited 0: 10,000 clothing, 100,000 wear events/receipts, 270,001,539 bytes original media and a 1,002,981,099-byte package. Actual create 13.653s, preview 17.272s, restore 39.602s, source removed before restore, restart/public counts/original reads passed. Earlier generic storage_error causes remain unconfirmed. This scale precedes async maintenance and stricter receipt identity validation; it is not final same-source capacity acceptance. The synthetic expansion now fixes each receipt request operation_key/clothing_ids to agree with its SQL row.
 
@@ -102,3 +115,17 @@ Root owner-confirmed 71592 exit0: 36 backup contracts. Root then changed predece
 87942 current native-environment default CLI build confirmed exit0. Original expanded public audit exit0 on that current binary: four malformed references rejected, legal earlier parent accepted. One audit was mistakenly invoked while the build was still running and therefore used the older strict binary; its failure is saved as ticket32-feedback-reference-before-build-terminal.log and is an execution-order error, not a new-source product failure. Root's first build had omitted PKG_CONFIG_PATH and failed libheif-sys/pkg-config >=1.23 detection; it existed only in root tool output and has no fabricated raw log. Correct native environment build50009 passed before the last predecessor change.
 
 Current reference-source sequential29 targets, final capacity and focused GUI/public matrices follow. Root's query-only repair is included in this branch; no user database or key was accessed.
+
+
+Final reference-source business commit ee976faa282b87ecfc0005357b0a575539ec551c: 47436 owner-confirmed exit0, sequential29 targets 230 passed/0 failed/12 ignored. 39775 clippy and fmtcheck exit0. Default CLI SHA256 e2aae1ff5218d3356401563c3ef27c6fcaf8476d878a2e2fcb4b43f4436de680 (87942 build plus identical-source entrypoint relink); no source/build changes during final capacity57193/full GUI40095. Actual current-source stdin-client CLI/MCP scopes exit0 and TCP submission matrix23948 exit0. Final capacity/GUI terminal results follow separately; earlier successful source boundaries are preserved above.
+
+
+57193 owner-confirmed exit0 and automatic temporary cleanup at final business source ee976faa282b87ecfc0005357b0a575539ec551c: full 10,000 clothing/100,000 wear records/9 originals, exact feedback corrections/revocation/observation restored, package 1,003,030,251 bytes; source removed before restore and restart public reads passed. Create 87.744s / preview33.884s / restore62.707s. These differ from older12.676s creation; no cause is inferred from low disk or other process activity. Enqueue replies remain separately recorded. This is the current reference-validation source capacity evidence.
+
+40095 GUI owner exit1: 49 passed/1 failed/6 skipped. The unchanged insights fixture selected a member then immediately opened the old keyed panel, whose date field was first disabled and then hidden after the new member's isolation remount. Raw failure/error context are retained. Actual route.fetch delayed member.select acknowledgement seam88283 exit0: backend performs the real selection, pending old scope is read-only, acknowledgement mounts a closed new scope with no old result, reopening reads the new1-item inventory rather than old2-item inventory. This confirms different-member isolation, distinct from the retained same-member startup loading test. Only the fixture now waits for acknowledged selection (combobox enabled and correct value) before opening; no product/core/CLI change and no removal of original numerical/date/correction/revoke assertions. 18414 focused insights4/4 passed, including original startup loading contract. Final full GUI runs with this fixture and unchanged business source; its terminal result follows.
+
+
+Current default CLI actual process scripts6119/96560 owner-confirmed exit0: existing persistent MCP writer observed waiting before directory publication has its acknowledged write in the new directory; actual SIGKILL(-9) during copy retains old source and explicit retry recovers; actual POSIX permission-denied publication fails safely with directory_io; already authorized old restore waiter is refused and restored facts unchanged. These are macOS process/permission boundaries, not Windows/power-loss proof. Controlled post-publication SIGKILL gates from earlier stages remain explicitly feature-gated evidence, never relabeled as default production timing.
+
+
+Final GUI68001 owner-confirmed exit0:51 passed/6 skipped (57 discovered), on unchanged final ee976 business/UI product source and identical CLI hash. The extra test is the actual delayed member acknowledgement isolation contract. No existing assertions were dropped. All handles terminal; final clean commit removes only runtime symlinks and restores unrelated baseline screenshots generated by this GUI run. #32 is handed to independent acceptance, not closed or pushed.
