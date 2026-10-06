@@ -400,3 +400,33 @@ fn cancelled_or_expired_submitted_request_cannot_publish_or_retry() {
         }
     }
 }
+
+#[test]
+fn confirmed_rate_limit_waits_retry_after_then_returns_valid_model_result() {
+    use std::io::{Read, Write};
+    let d = tempfile::tempdir().unwrap();
+    let a = Application::open(&d.path().join("db")).unwrap();
+    let stock = seed(&a);
+    let items: Vec<Value> = stock.iter().map(|c|json!({"clothing_id":c["id"],"role":c["category"],"layer":0})).collect();
+    let server=std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    server.set_nonblocking(true).unwrap();
+    let endpoint=format!("http://{}/v1",server.local_addr().unwrap());
+    let worker=std::thread::spawn(move || {
+        let start=std::time::Instant::now(); let mut received=vec![];
+        while start.elapsed()<std::time::Duration::from_secs(4) && received.len()<2 {
+            let (mut s,_)=match server.accept(){Ok(v)=>v,Err(e) if e.kind()==std::io::ErrorKind::WouldBlock=>{std::thread::sleep(std::time::Duration::from_millis(5));continue;},Err(e)=>panic!("{e}")};
+            s.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+            let mut b=[0;65536];assert!(s.read(&mut b).unwrap()>0);received.push(std::time::Instant::now());
+            if received.len()==1 {write!(s,"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();}
+            else {let body=json!({"choices":[{"message":{"content":json!({"proposals":[{"items":items}]}).to_string()}}]}).to_string();write!(s,"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();}
+        }
+        received
+    });
+    let p=a.execute("provider.save",json!({"name":"confirmed rate limit protocol","endpoint":endpoint,"model":"text","capabilities":["text"],"authentication":"none"})).unwrap();
+    let r=a.execute("recommendation.generate",json!({"member_id":"default","operation_key":"rate-limit","timezone":"UTC","limit":1,"strategy":"ai","provider_id":p["id"]})).unwrap();
+    let received=worker.join().unwrap();
+    assert_eq!(received.len(),2,"confirmed rejection must be retried");
+    assert!(received[1].duration_since(received[0])>=std::time::Duration::from_secs(1),"Retry-After must be observed");
+    assert_eq!(r["generation"]["source"],"text_model");
+    assert_eq!(a.execute("wear.list",json!({"member_id":"default"})).unwrap()["items"],json!([]));
+}
