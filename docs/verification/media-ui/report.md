@@ -16,7 +16,7 @@
 本机原生媒体依赖环境：PKG_CONFIG=/opt/homebrew/opt/pkgconf/bin/pkg-config；PKG_CONFIG_PATH=/tmp/wardrobe-media-native/install/lib/pkgconfig；DYLD_LIBRARY_PATH=/tmp/wardrobe-media-native/install/lib。
 
 - `cargo test --workspace`：40 通过、1 忽略（OS 凭据库烟测，非图片测试）；已合并 provider 与旧连接 schema 保护测试。
-- `cargo clippy --workspace -- -D warnings`：图片分支通过；合并新增 provider 后再运行检查。
+- `cargo clippy --workspace -- -D warnings`：合并新增 provider 后通过。
 - `npm run build --prefix apps/desktop`：通过。
 - `WARDROBE_TEST_PORT=5178 npm run test:e2e --prefix apps/desktop`：15 通过，图片用例 4 项。
 
