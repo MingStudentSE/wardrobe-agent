@@ -16,3 +16,5 @@
 运行命令：配置本机独立libheif1.23.1前缀后 `cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo fmt --all -- --check`；desktop `npm run build`、`WARDROBE_TEST_PORT=5186 npx playwright test`。GUI完整20项通过；Rust计数与合并后的最终结果在下方更新。
 
 原生安装包、系统文件选择器和三平台完整Beta验收继续归 #35，不把浏览器bridge验证当作已安装原生GUI证据。当前Mac屏幕锁定不影响上述独立代码/SQLite/CLI/浏览器测试。
+
+最终自动化结果：Rust workspace **62 passed / 0 failed / 1 ignored**（ignored为既有需真实OS安全存储的smoke，本次未重新声称执行）；fmt通过、clippy -D warnings通过；前端tsc/Vite构建通过，GUI完整 **20 passed / 0 failed**。七宽度截图已经查看320px实际图，修复归并checkbox继承全宽的问题；交互文字单行、按钮可见。真实CLI/MCP批次、查询、逐项取消/重试、原文件删除后处理、同草稿跨入口重复入库均包含在62项实际运行测试中。
