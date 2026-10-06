@@ -137,3 +137,6 @@ This small real public contract does not cover receipt-key collision, history pa
 
 
 Same-revision feedback history pagination:7150 initial fixture compilation failed (undeclared Value; not a behavioral red).69032 confirmed actual red4.89s (`sync-feedback-branch-pagination-actual-red.log`): limit1 pages skipped the second revision2 branch.89979 confirmed exit0/8.13s (`sync-feedback-branch-pagination-green.log`) using revision:id continuation and strict UUID/integer parsing, while accepting legacy integer cursors. Public descriptor permits both; actual1-item pages reconstruct every immutable branch and resolution.
+
+
+Unresolved feedback projection:28332 actualred exit101/4.12s (`sync-feedback-unresolved-planner-red.log`) demonstrated recommendation.generate treating divergent feedback as definitive.75306 confirmed exit0/8.22s (`sync-feedback-unresolved-planner-green.log`): explicit effective feedback projections reject unresolved latest-root branches with sync_conflict and a review instruction; both historical variants remain readable. This does not yet establish equivalent wear/care/learning projection contracts.

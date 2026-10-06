@@ -1398,6 +1398,13 @@ fn new_paired_installation_receives_original_remote_histories_on_a_new_target() 
             item["entity_type"] == "feedback_events" && item["entity_id"] == branch_root["root_id"]
         })
         .expect("concurrent feedback revisions require explicit branch review");
+    let unresolved_plan = owner.execute("recommendation.generate", json!({"member_id":member,"operation_key":"ambiguous feedback cannot guide recommendation","timezone":"UTC"}));
+    assert_eq!(
+        unresolved_plan
+            .expect_err("planner must disclose unresolved mutually exclusive feedback")
+            .code,
+        "sync_conflict"
+    );
     let unsafe_revision = owner.execute("feedback.correct", json!({"member_id":member,"operation_key":"must review divergent feedback first","root_id":branch_root["root_id"],"expected_revision":2,"reaction":"like"}));
     assert_eq!(
         unsafe_revision

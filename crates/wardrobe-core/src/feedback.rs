@@ -14,10 +14,21 @@ fn invalid(s: &str) -> ApiError {
     ApiError::new("invalid_input", s)
 }
 impl Application {
+    fn feedback_require_resolved(&self, member: &str) -> Result<(), ApiError> {
+        let ambiguous: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM feedback_events e WHERE member_id=?1 AND revision=(SELECT max(revision) FROM feedback_events WHERE member_id=?1 AND root_id=e.root_id) GROUP BY root_id HAVING count(*)>1)", [member], |row| row.get(0))?;
+        if ambiguous {
+            return Err(ApiError::new(
+                "sync_conflict",
+                "反馈存在未选择的并发修订，请先查看同步冲突",
+            ));
+        }
+        Ok(())
+    }
     pub(super) fn feedback_disliked_sets(
         &self,
         member: &str,
     ) -> Result<std::collections::BTreeSet<Vec<String>>, ApiError> {
+        self.feedback_require_resolved(member)?;
         let mut st=self.connection.prepare("SELECT e.document FROM feedback_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM feedback_events WHERE root_id=e.root_id) AND json_extract(document,'$.revoked')=0 AND json_extract(document,'$.reaction')='dislike'")?;
         let mut sets = std::collections::BTreeSet::new();
         for row in st.query_map([member], |r| r.get::<_, String>(0))? {
@@ -39,6 +50,7 @@ impl Application {
         Ok(sets)
     }
     pub(super) fn feedback_day_exclusions(&self, member: &str) -> Result<Vec<String>, ApiError> {
+        self.feedback_require_resolved(member)?;
         let mut statement=self.connection.prepare("SELECT e.document FROM feedback_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM feedback_events WHERE root_id=e.root_id) AND json_extract(document,'$.revoked')=0 AND json_extract(document,'$.reaction')='day_exclude'")?;
         let mut ids = vec![];
         for row in statement.query_map([member], |r| r.get::<_, String>(0))? {
