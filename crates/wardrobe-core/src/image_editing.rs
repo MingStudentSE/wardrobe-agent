@@ -1,6 +1,7 @@
 use crate::{assets, string, ApiError, Application};
 use rusqlite::params;
 use serde_json::{json, Value};
+use sha2::Digest;
 impl Application {
     pub(super) fn image_links(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
         let tx = self.begin_write()?;
@@ -119,12 +120,7 @@ impl Application {
                 let degrees = input["degrees"]
                     .as_u64()
                     .ok_or_else(|| ApiError::new("invalid_input", "旋转角度须为90、180或270"))?;
-                let image = image::open(
-                    asset["display"]["local_path"]
-                        .as_str()
-                        .ok_or_else(|| ApiError::new("image_unavailable", "展示图尚未下载"))?,
-                )
-                .map_err(|_| ApiError::new("image_unavailable", "展示图尚未下载或已损坏"))?;
+                let image = read_display(&asset)?;
                 let rotated = match degrees {
                     90 => image.rotate90(),
                     180 => image.rotate180(),
@@ -143,6 +139,16 @@ impl Application {
                         "本机没有原图；请在导入设备恢复或重新导入原图",
                     )
                 })?;
+                let actual = sha2::Sha256::digest(&original)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>();
+                if asset["original"]["id"] != actual {
+                    return Err(ApiError::new(
+                        "original_checksum_mismatch",
+                        "本机原图已改变，请重新导入；旧展示图保留",
+                    ));
+                }
                 let image = assets::decode(&original)?;
                 let resized = if image.width() > 1600 || image.height() > 1600 {
                     image.resize(1600, 1600, image::imageops::FilterType::Lanczos3)
@@ -267,4 +273,34 @@ pub(super) fn validate_input(operation: &str, input: &Value) -> Result<(), ApiEr
         return Err(ApiError::new("invalid_input", "图片操作包含不支持字段"));
     }
     Ok(())
+}
+
+pub(super) fn read_display(asset: &Value) -> Result<image::DynamicImage, ApiError> {
+    let path = asset["display"]["local_path"]
+        .as_str()
+        .ok_or_else(|| ApiError::new("image_unavailable", "展示图尚未下载"))?;
+    let metadata = std::fs::metadata(path)
+        .map_err(|_| ApiError::new("image_unavailable", "展示图尚未下载或已损坏"))?;
+    if !metadata.is_file() || metadata.len() > 50 * 1024 * 1024 {
+        return Err(ApiError::new(
+            "image_unavailable",
+            "展示图大小异常，请重新导入",
+        ));
+    }
+    let bytes =
+        std::fs::read(path).map_err(|_| ApiError::new("image_unavailable", "展示图读取失败"))?;
+    if bytes.len() > 50 * 1024 * 1024 {
+        return Err(ApiError::new("image_unavailable", "展示图大小异常"));
+    }
+    let hash = sha2::Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    if asset["display"]["id"] != hash {
+        return Err(ApiError::new(
+            "image_unavailable",
+            "展示图校验失败，请重新导入；旧关联保留",
+        ));
+    }
+    assets::decode(&bytes)
 }

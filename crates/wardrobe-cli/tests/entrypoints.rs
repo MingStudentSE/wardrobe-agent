@@ -536,3 +536,94 @@ fn cli_mcp_share_durable_batch_job_ids_cancellation_and_idempotent_commit() {
         batch["id"]
     );
 }
+#[test]
+fn cli_mcp_share_immutable_image_edits_and_cancelled_cutout_jobs() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let source = dir.path().join("image.png");
+    std::fs::write(
+        &source,
+        include_bytes!("../../wardrobe-core/tests/fixtures/generated-colors.png"),
+    )
+    .unwrap();
+    cli(&path, "space.default", json!({}));
+    let asset = cli(
+        &path,
+        "assets.import",
+        json!({"member_id":"default","path":source}),
+    )["result"]
+        .clone();
+    let token = client_token(&path);
+    let mcp = |operation: &str, input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", path.to_str().unwrap(), "mcp"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":operation,"arguments":input}})).unwrap();
+        let response: Value =
+            serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+        serde_json::from_str::<Value>(response["result"]["content"][0]["text"].as_str().unwrap())
+            .unwrap()
+    };
+    let rotated = mcp(
+        "images.rotate",
+        json!({"member_id":"default","asset_id":asset["id"],"degrees":90}),
+    );
+    assert_ne!(rotated["id"], asset["id"]);
+    assert_eq!(rotated["display"]["width"], 32);
+    assert_eq!(rotated["display"]["height"], 64);
+    assert_eq!(
+        cli(
+            &path,
+            "assets.get",
+            json!({"member_id":"default","id":asset["id"]})
+        )["result"],
+        asset
+    );
+    let restored = cli(
+        &path,
+        "images.restore",
+        json!({"member_id":"default","asset_id":rotated["id"]}),
+    )["result"]
+        .clone();
+    assert_eq!(restored["display"]["width"], 64);
+    assert_eq!(
+        mcp(
+            "assets.get",
+            json!({"member_id":"default","id":restored["id"]})
+        ),
+        restored
+    );
+    let job = mcp(
+        "images.cutout",
+        json!({"member_id":"default","asset_id":asset["id"],"operation_key":"cancelled"}),
+    );
+    assert_eq!(job["state"], "queued");
+    let cancelled = cli(
+        &path,
+        "jobs.cancel",
+        json!({"member_id":"default","id":job["id"]}),
+    )["result"]
+        .clone();
+    assert_eq!(cancelled["state"], "cancelled");
+    assert_eq!(
+        mcp("jobs.get", json!({"member_id":"default","id":job["id"]})),
+        cancelled
+    );
+    assert_eq!(
+        mcp(
+            "images.worker.run",
+            json!({"member_id":"default","job_id":job["id"]})
+        )["error"]["code"],
+        "job_unavailable"
+    );
+    assert_eq!(
+        mcp(
+            "assets.get",
+            json!({"member_id":"default","id":asset["id"]})
+        ),
+        asset
+    );
+}

@@ -4,7 +4,7 @@
 Public licensed photo only. A disposable limited grant is passed over stdin;
 reports never contain its token. Native developer loader paths are removed.
 """
-import argparse,json,os,pathlib,subprocess,tempfile
+import argparse,json,os,pathlib,subprocess,tempfile,time
 p=argparse.ArgumentParser();p.add_argument('cli',type=pathlib.Path);p.add_argument('photo',type=pathlib.Path);p.add_argument('--report',type=pathlib.Path,required=True);args=p.parse_args()
 cli=str(args.cli.resolve(strict=True));photo=str(args.photo.resolve(strict=True))
 env={k:v for k,v in os.environ.items() if k not in ('LD_LIBRARY_PATH','DYLD_LIBRARY_PATH','DYLD_FALLBACK_LIBRARY_PATH','PKG_CONFIG_PATH','VCPKG_ROOT','VCPKGRS_DYNAMIC','WARDROBE_DATA_DIR','WARDROBE_CLIENT_TOKEN')}
@@ -21,12 +21,20 @@ with tempfile.TemporaryDirectory(prefix='wardrobe-cutout-packaged-') as temporar
         if token and token in process.stdout:raise RuntimeError('Client token leaked in business output')
         return response['result']
     member=execute('space.default',{},True)['member_id']
-    operations=['assets.import','assets.get','images.model.status','images.model.download','images.cutout','images.worker.run']
+    operations=['assets.import','assets.get','images.model.status','images.model.download','images.cutout','images.worker.run','jobs.get']
     grant=execute('client.authorize',{'name':'Disposable cutout acceptance','mode':'limited','operations':operations,'member_ids':[member],'expires_at':None},True);token=grant['token'];del grant
     missing=execute('images.model.status',{'member_id':member})
     if missing['state']!='missing':raise RuntimeError('New isolated model cache must be missing')
     job=execute('images.model.download',{'member_id':member,'operation_key':'download'})
-    downloaded=execute('images.worker.run',{'member_id':member,'job_id':job['id']})
+    def finish_job(job):
+        for attempt in range(3):
+            done=execute('images.worker.run',{'member_id':member,'job_id':job['id']})
+            if done['state']!='queued':return done
+            wait=max(0,(done['next_due']-time.time()*1000)/1000)
+            if wait>5:raise RuntimeError('Download retry requires longer backoff; rerun later')
+            time.sleep(wait+0.05)
+        return done
+    downloaded=finish_job(job)
     if downloaded['state']!='succeeded':raise RuntimeError('Actual official model download failed: '+json.dumps(downloaded['error']))
     model=execute('images.model.status',{'member_id':member})
     if not model['cached_offline']:raise RuntimeError('Downloaded model not verified')
@@ -54,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix='wardrobe-cutout-packaged-') as temporar
     if {v['name'] for v in tools}!=set(operations+['capabilities']):raise RuntimeError('MCP grant discovery differs')
     def call(name,data,identifier):
         result=rpc('tools/call',{'name':name,'arguments':data},identifier);response=json.loads(result['content'][0]['text'])
-        if 'error' in response:raise RuntimeError(name+': '+json.dumps(response['error']))
+        if set(response)=={'error'}:raise RuntimeError(name+': '+json.dumps(response['error']))
         return response
     mcp_job=call('images.cutout',{'member_id':member,'asset_id':original['id'],'operation_key':'mcp-offline'},3)
     mcp_done=call('images.worker.run',{'member_id':member,'job_id':mcp_job['id']},4)

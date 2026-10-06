@@ -1,0 +1,23 @@
+{
+  "result": "passed",
+  "cli": "/private/tmp/wardrobe-ticket07-distribution-final/portable/wardrobe-cli",
+  "developer_loader_environment": "removed",
+  "model": {
+    "model_id": "u2netp-rembg-v0",
+    "bytes": 4574861,
+    "sha256": "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
+    "license": "Apache-2.0",
+    "source_url": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx"
+  },
+  "official_model_acquisition": "downloaded and SHA256 verified",
+  "cached_restart": "passed with outbound HTTP proxy unavailable",
+  "direct_cli_inference": "passed",
+  "fresh_mcp_inference": "passed; identical display hash",
+  "source_asset": "unchanged",
+  "dimensions": [
+    1200,
+    1600
+  ],
+  "cutout_display_hash": "1cedb280e54d8a9e008c4a7fa7c07108f51c04000e024155bcc05e549d398768",
+  "gui_clean_install": "pending"
+}

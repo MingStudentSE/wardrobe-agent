@@ -347,3 +347,82 @@ fn real_model_download_white_shirt_cutout_and_cached_offline_restart() {
     assert_eq!(offline["state"], "succeeded");
     assert_eq!(offline["result"]["display"]["id"], cutout["display"]["id"]);
 }
+#[test]
+fn twenty_image_limit_and_member_scope_reject_merge_atomically() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shirt.png");
+    image::RgbImage::from_pixel(48, 24, image::Rgb([120, 190, 210]))
+        .save(&path)
+        .unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let source = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"来源","category":"top"}),
+        )
+        .unwrap();
+    let target = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"目标","category":"top"}),
+        )
+        .unwrap();
+    let mut source_ids = vec![];
+    for n in 0..21 {
+        let asset = app
+            .execute("assets.import", json!({"member_id":"default","path":path}))
+            .unwrap();
+        let clothing = if n < 19 { &target } else { &source };
+        app.execute(
+            "assets.adopt",
+            json!({"member_id":"default","asset_id":asset["id"],"clothing_id":clothing["id"]}),
+        )
+        .unwrap();
+        if n >= 19 {
+            source_ids.push(asset["id"].clone());
+        }
+    }
+    let before = app
+        .execute(
+            "clothing.get",
+            json!({"member_id":"default","id":target["id"]}),
+        )
+        .unwrap();
+    let error=app.execute("images.merge",json!({"member_id":"default","clothing_id":target["id"],"source_clothing_id":source["id"],"asset_ids":source_ids})).unwrap_err();
+    assert_eq!(error.code, "asset_limit");
+    assert_eq!(
+        app.execute(
+            "clothing.get",
+            json!({"member_id":"default","id":target["id"]})
+        )
+        .unwrap(),
+        before
+    );
+    let other = app
+        .execute("member.create", json!({"name":"其他成员"}))
+        .unwrap();
+    let foreign = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":other["member_id"],"name":"其他衣物","category":"top"}),
+        )
+        .unwrap();
+    let error=app.execute("images.merge",json!({"member_id":"default","clothing_id":target["id"],"source_clothing_id":foreign["id"],"asset_ids":source_ids})).unwrap_err();
+    assert_eq!(error.code, "not_found");
+    assert_eq!(
+        app.execute(
+            "clothing.get",
+            json!({"member_id":"default","id":target["id"]})
+        )
+        .unwrap(),
+        before
+    );
+    let error = app
+        .execute(
+            "images.main",
+            json!({"member_id":"default","clothing_id":target["id"],"asset_id":source_ids[0]}),
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input");
+}

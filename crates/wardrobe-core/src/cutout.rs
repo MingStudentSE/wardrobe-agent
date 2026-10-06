@@ -112,7 +112,13 @@ impl Application {
         let lease = job["lease_token"].as_str().unwrap();
         if job["kind"] == "local_model_download" {
             let result = self.cutout_download(&member, id, lease);
-            return match result {Ok(v)=>self.job_finish(&member,id,lease,"succeeded",v,Value::Null),Err(e)=>self.job_finish(&member,id,lease,"failed",Value::Null,json!({"code":e.code,"message":e.message,"retryable":matches!(e.code.as_str(),"download_offline"|"download_retryable")}))};
+            return match result {
+                Ok(v) => self.job_finish(&member, id, lease, "succeeded", v, Value::Null),
+                Err(e) => {
+                    let status = self.cutout_model_status(json!({"member_id":member}))?;
+                    self.job_finish(&member,id,lease,"failed",Value::Null,json!({"code":e.code,"message":e.message,"retryable":matches!(e.code.as_str(),"download_offline"|"download_retryable"),"retry_after_ms":status["error"]["retry_after_ms"]}))
+                }
+            };
         }
         let result = self.cutout_compute(&member, &job);
         match result {
@@ -160,6 +166,7 @@ impl Application {
         self.cutout_model_record(
             json!({"state":"downloading","progress":0,"error":null,"job_id":job_id}),
         )?;
+        let mut retry_after_ms = None;
         let result = (|| {
             let client = reqwest::blocking::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
@@ -176,6 +183,22 @@ impl Application {
                 .send()
                 .map_err(|_| ApiError::new("download_offline", "模型下载未连接；联网后重试"))?;
             if !response.status().is_success() {
+                retry_after_ms = response
+                    .headers()
+                    .get(reqwest::header::RETRY_AFTER)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| {
+                        v.parse::<i64>()
+                            .ok()
+                            .map(|seconds| seconds.saturating_mul(1000))
+                            .or_else(|| {
+                                chrono::DateTime::parse_from_rfc2822(v).ok().map(|date| {
+                                    date.timestamp_millis()
+                                        .saturating_sub(chrono::Utc::now().timestamp_millis())
+                                })
+                            })
+                    })
+                    .map(|milliseconds| milliseconds.clamp(1000, 300_000));
                 return Err(ApiError::new(
                     if response.status().is_server_error() || response.status().as_u16() == 429 {
                         "download_retryable"
@@ -246,7 +269,7 @@ impl Application {
                 self.cutout_model_status(json!({"member_id":member}))
             }
             Err(e) => {
-                self.cutout_model_record(json!({"state":if e.code=="download_offline"{"offline"}else{"failed"},"progress":0,"error":{"code":e.code,"message":e.message}}))?;
+                self.cutout_model_record(json!({"state":if e.code=="download_offline"{"offline"}else{"failed"},"progress":0,"error":{"code":e.code,"message":e.message,"retry_after_ms":retry_after_ms}}))?;
                 Err(e)
             }
         }
@@ -276,8 +299,7 @@ impl Application {
                 "来源图片已改变，请重新创建任务",
             ));
         }
-        let image = image::open(asset["display"]["local_path"].as_str().unwrap_or(""))
-            .map_err(|_| ApiError::new("image_unavailable", "展示图尚未下载或已损坏"))?;
+        let image = crate::image_editing::read_display(&asset)?;
         let failure = |_| {
             ApiError::new(
                 "local_inference_failed",
