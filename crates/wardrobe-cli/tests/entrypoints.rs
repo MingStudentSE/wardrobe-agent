@@ -628,6 +628,78 @@ fn cli_mcp_share_immutable_image_edits_and_cancelled_cutout_jobs() {
     );
 }
 #[test]
+fn cli_and_mcp_share_product_job_consent_idempotency_and_cancellation() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("db");
+    cli(&db, "space.default", json!({}));
+    let source = dir.path().join("shirt.png");
+    std::fs::write(
+        &source,
+        include_bytes!("../../wardrobe-core/tests/fixtures/generated-colors.png"),
+    )
+    .unwrap();
+    let a = cli(
+        &db,
+        "assets.import",
+        json!({"member_id":"default","path":source}),
+    )["result"]
+        .clone();
+    let c = cli(
+        &db,
+        "clothing.create",
+        json!({"member_id":"default","name":"shirt","category":"top"}),
+    )["result"]
+        .clone();
+    cli(
+        &db,
+        "assets.adopt",
+        json!({"member_id":"default","asset_id":a["id"],"clothing_id":c["id"]}),
+    );
+    let p=cli(&db,"provider.save",json!({"name":"Seedream","endpoint":"http://127.0.0.1:45678/api/v3","model":"doubao-seedream-5-0-flash-260915","adapter":"ark_seedream","capabilities":["image_generation"],"authentication":"none"}))["result"].clone();
+    let mut input = json!({"member_id":"default","asset_id":a["id"],"clothing_id":c["id"],"provider_id":p["id"],"operation_key":"product-one","upload_original":false});
+    assert_eq!(
+        cli(&db, "product.generate", input.clone())["error"]["code"],
+        "upload_consent_required"
+    );
+    input["upload_original"] = json!(true);
+    let job = cli(&db, "product.generate", input.clone())["result"].clone();
+    assert_eq!(
+        cli(&db, "product.generate", input)["result"]["id"],
+        job["id"]
+    );
+    let mut mcp = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", db.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let token = client_token(&db);
+    let mut stdin = mcp.stdin.take().unwrap();
+    writeln!(stdin,"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":"jobs.cancel","arguments":{"member_id":"default","id":job["id"]}}})).unwrap();
+    drop(stdin);
+    let output = mcp.wait_with_output().unwrap();
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let result: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(result["state"], "cancelled");
+    assert_eq!(
+        cli(
+            &db,
+            "jobs.get",
+            json!({"member_id":"default","id":job["id"]})
+        )["result"]["state"],
+        "cancelled"
+    );
+    assert_eq!(
+        cli(
+            &db,
+            "clothing.get",
+            json!({"member_id":"default","id":c["id"]})
+        )["result"]["display_asset_id"],
+        a["id"]
+    );
+}
+#[test]
 fn authorized_cli_mcp_share_actual_wear_retries_corrections_and_immutable_history() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("db");
