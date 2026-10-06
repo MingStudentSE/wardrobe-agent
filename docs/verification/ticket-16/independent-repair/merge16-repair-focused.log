@@ -1,0 +1,28 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-merge-16/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 4.98s
+     Running tests/ai_recommendations.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/ai_recommendations-a8dd888404013697)
+
+running 11 tests
+test illegal_model_ids_retry_twice_then_real_rule_fallback_preserves_fixed_and_no_wear ... ok
+test two_public_connections_same_intent_have_only_one_provider_submission ... ok
+test model_response_after_inventory_changes_cannot_restore_archived_item ... ok
+test model_cannot_claim_recent_repeat_is_inventory_shortage_when_fresh_alternative_exists ... ok
+test invalid_output_budget_survives_reopened_worker_and_separate_rate_limit_delay ... ok
+test confirmed_rate_limit_budget_is_global_across_three_reopened_workers ... ok
+test valid_model_outfit_uses_current_real_ids_and_shared_template_save_without_wear ... ok
+test cancelled_or_expired_submitted_request_cannot_publish_or_retry ... ok
+test cancellation_or_expiry_during_retry_after_wait_prevents_second_post ... ok
+test initial_ai_receipt_is_durable_and_precedes_weather_or_model_http ... ok
+test confirmed_rate_limit_waits_retry_after_then_returns_valid_model_result ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+     Running tests/weather.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/weather-b40e0cbe55c61bdb)
+
+running 3 tests
+test late_weather_response_cannot_restore_location_after_user_disables_weather ... ok
+test configured_weather_refresh_persists_real_http_result_and_failure_keeps_manual_off_available ... ok
+test weather_cache_is_fresh_before_three_hours_and_stale_after_and_highest_version_repairs_table ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
