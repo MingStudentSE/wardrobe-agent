@@ -1,0 +1,24 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-15/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.83s
+     Running tests/recommendations.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recommendations-4b434e0f15914463)
+
+running 1 test
+test manual_weather_controls_are_explicit_offline_stale_and_strictly_validated ... FAILED
+
+failures:
+
+---- manual_weather_controls_are_explicit_offline_stale_and_strictly_validated stdout ----
+
+thread 'manual_weather_controls_are_explicit_offline_stale_and_strictly_validated' (3364452) panicked at crates/wardrobe-core/tests/recommendations.rs:272:244:
+assertion `left == right` failed
+  left: Null
+ right: "manual"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    manual_weather_controls_are_explicit_offline_stale_and_strictly_validated
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p wardrobe-core --test recommendations`
