@@ -125,7 +125,7 @@ impl Application {
         let now = chrono::Utc::now().to_rfc3339();
         let doc = json!({"schema_version":1,"id":id,"member_id":member,"name":name,"category":category,"seasons":checked,"purchase_price_minor":price,"price_exponent":price_exponent,"currency":currency,"size_label":null,"status":"active","favorite":false,"created_at":now,"updated_at":now});
         let serialized = doc.to_string();
-        let tx = self.connection.unchecked_transaction()?;
+        let tx = self.begin_write()?;
         tx.execute(
             "INSERT INTO clothing VALUES (?1,?2,?3)",
             params![id, member, serialized],

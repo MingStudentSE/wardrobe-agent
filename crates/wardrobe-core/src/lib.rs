@@ -92,6 +92,7 @@ impl Application {
             }
             tx.execute_batch("PRAGMA user_version=2;")?;
         }
+        members::migrate(&tx)?;
         assets::migrate(&tx)?;
         tx.execute_batch("PRAGMA user_version=4;")?;
         tx.commit()?;
@@ -100,15 +101,57 @@ impl Application {
             asset_root: path.parent().unwrap_or(Path::new(".")).join("assets"),
         })
     }
+    fn check_schema(&self) -> Result<(), ApiError> {
+        let version: u32 = self
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if version > DATABASE_SCHEMA_VERSION {
+            return Err(ApiError::new(
+                "unsupported_schema",
+                "数据库由更新版本创建，请升级应用后再打开",
+            ));
+        }
+        Ok(())
+    }
+    fn begin_write(&self) -> Result<rusqlite::Transaction<'_>, ApiError> {
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        self.check_schema()?;
+        Ok(tx)
+    }
     pub fn execute(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
+        self.check_schema()?;
         if !input.is_object() {
             return Err(ApiError::new("invalid_input", "输入必须是 JSON 对象"));
+        }
+        let allowed: Option<&[&str]> = match operation {
+            "space.default" | "member.list" => Some(&[]),
+            "member.create" => Some(&["name"]),
+            "member.update" => Some(&["member_id", "name"]),
+            "member.select" => Some(&["member_id"]),
+            _ => None,
+        };
+        if let Some(allowed) = allowed {
+            if input
+                .as_object()
+                .unwrap()
+                .keys()
+                .any(|key| !allowed.contains(&key.as_str()))
+            {
+                return Err(ApiError::new("invalid_input", "成员操作包含不支持的字段"));
+            }
         }
         match operation {
             "capabilities" => {
                 Ok(json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES}))
             }
             "space.default" => self.default_space(),
+            "member.list" => self.member_list(),
+            "member.create" => self.member_create(input),
+            "member.update" => self.member_update(input),
+            "member.select" => self.member_select(input),
             "clothing.create" => self.clothing_create(input),
             "clothing.get" => self.clothing_get(input),
             "clothing.list" => self.clothing_list(input),

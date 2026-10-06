@@ -23,10 +23,7 @@ pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
 }
 impl Application {
     pub(super) fn asset_reorder(&self, input: Value) -> Result<Value, ApiError> {
-        let tx = rusqlite::Transaction::new_unchecked(
-            &self.connection,
-            rusqlite::TransactionBehavior::Immediate,
-        )?;
+        let tx = self.begin_write()?;
         let member = self.member(&input)?;
         let id = string(&input, "clothing_id")?;
         let mut clothing = self.clothing_get(json!({"member_id":member,"id":id}))?;
@@ -143,10 +140,12 @@ impl Application {
         let (_, thumbnail_path) = self.store_blob("thumbnails-local-only", &thumbnail, "webp")?;
         let id = uuid::Uuid::now_v7().to_string();
         let doc = json!({"schema_version":1,"id":id,"member_id":member,"state":"preview","original":{"id":original_id,"local_path":original_path,"sync_scope":"local_only","bytes":bytes.len()},"display":{"id":display_id,"local_path":display_path,"role":"product_display","state":"preview","sync_scope":"local_only","width":display.width(),"height":display.height(),"bytes":encoded.len(),"mime":"image/webp","quality":82,"soft_threshold_exceeded":encoded.len()>500*1024},"thumbnail":{"local_path":thumbnail_path,"sync_scope":"local_only","width":thumb.width(),"height":thumb.height()}});
-        self.connection.execute(
+        let tx = self.begin_write()?;
+        tx.execute(
             "INSERT OR IGNORE INTO assets VALUES (?1,?2,?3)",
             params![id, member, doc.to_string()],
         )?;
+        tx.commit()?;
         self.asset_get(json!({"member_id":member,"id":id}))
     }
     pub(super) fn asset_get(&self, input: Value) -> Result<Value, ApiError> {
@@ -183,6 +182,7 @@ impl Application {
         )
     }
     pub(super) fn asset_rebuild_thumbnail(&self, input: Value) -> Result<Value, ApiError> {
+        let tx = self.begin_write()?;
         let mut doc = self.asset_get(input.clone())?;
         let image = image::open(doc["display"]["local_path"].as_str().ok_or_else(failure)?)
             .map_err(|_| failure())?;
@@ -193,7 +193,7 @@ impl Application {
             .to_vec();
         let (_, path) = self.store_blob("thumbnails-local-only", &bytes, "webp")?;
         doc["thumbnail"] = json!({"local_path":path,"sync_scope":"local_only","width":image.width(),"height":image.height()});
-        self.connection.execute(
+        tx.execute(
             "UPDATE assets SET document=?1 WHERE id=?2 AND member_id=?3",
             params![
                 doc.to_string(),
@@ -201,13 +201,11 @@ impl Application {
                 doc["member_id"].as_str()
             ],
         )?;
+        tx.commit()?;
         Ok(doc)
     }
     pub(super) fn asset_adopt(&self, input: Value) -> Result<Value, ApiError> {
-        let tx = rusqlite::Transaction::new_unchecked(
-            &self.connection,
-            rusqlite::TransactionBehavior::Immediate,
-        )?;
+        let tx = self.begin_write()?;
         let member = self.member(&input)?;
         let mut asset =
             self.asset_get(json!({"member_id":member,"id":string(&input,"asset_id")?}))?;

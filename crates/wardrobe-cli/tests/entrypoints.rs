@@ -79,3 +79,34 @@ fn cli_and_mcp_use_same_persisted_application_without_gui() {
         "invalid_input"
     );
 }
+#[test]
+fn cli_member_profiles_and_mcp_inventory_share_member_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let a = cli(&path, "space.default", json!({}));
+    let b = cli(&path, "member.create", json!({"name":"另一个成员"}));
+    let created = cli(
+        &path,
+        "clothing.create",
+        json!({"member_id":a["result"]["member_id"],"name":"私人衣物","category":"top"}),
+    );
+    let mut mcp = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"clothing.get","arguments":{"member_id":b["result"]["member_id"],"id":created["result"]["id"]}}});
+    writeln!(mcp.stdin.take().unwrap(), "{request}").unwrap();
+    let output = mcp.wait_with_output().unwrap();
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["result"]["isError"], true);
+    assert_eq!(
+        cli(
+            &path,
+            "clothing.list",
+            json!({"member_id":b["result"]["member_id"]})
+        )["result"]["items"],
+        json!([])
+    );
+}
