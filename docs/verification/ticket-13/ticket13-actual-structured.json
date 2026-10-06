@@ -1,0 +1,36 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{ \"name\" :\"ILIA\", \"category\" :\"shoes\", \"color\" : [\"white\", \"green\", \"brown\" ], \"uncertainties\" : [ \"state unknown material\", \"brand\", \"size and print details\"]}"
+      }
+    }
+  ],
+  "created": 1791313016,
+  "model": "wardrobe-smolvlm",
+  "system_fingerprint": "b0-unknown",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 67,
+    "prompt_tokens": 192,
+    "total_tokens": 259,
+    "prompt_tokens_details": {
+      "cached_tokens": 3
+    }
+  },
+  "id": "chatcmpl-oyTiF28wXaJugzdTPhxjQdwCYVgEN3NR",
+  "timings": {
+    "cache_n": 3,
+    "prompt_n": 189,
+    "prompt_ms": 2378.541,
+    "prompt_per_token_ms": 12.584873015873017,
+    "prompt_per_second": 79.46047598086389,
+    "predicted_n": 67,
+    "predicted_ms": 294.263,
+    "predicted_per_token_ms": 4.458530303030303,
+    "predicted_per_second": 224.28915629895707
+  }
+}

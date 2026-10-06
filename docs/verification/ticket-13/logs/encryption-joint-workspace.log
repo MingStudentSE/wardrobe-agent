@@ -1,0 +1,297 @@
+   Compiling syn v2.0.119
+   Compiling generic-array v0.14.7
+   Compiling rand_core v0.6.4
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling semver v1.0.28
+   Compiling rustc_version v0.4.1
+   Compiling cmov v0.5.4
+   Compiling ctutils v0.4.3
+   Compiling curve25519-dalek v4.1.3
+   Compiling digest v0.11.3
+   Compiling inout v0.1.4
+   Compiling universal-hash v0.5.1
+   Compiling cpufeatures v0.2.17
+   Compiling base64ct v1.8.3
+   Compiling signature v2.2.0
+   Compiling opaque-debug v0.3.1
+   Compiling poly1305 v0.8.0
+   Compiling ed25519 v2.2.3
+   Compiling password-hash v0.5.0
+   Compiling zerocopy-derive v0.8.60
+   Compiling zeroize_derive v1.5.0
+   Compiling zeroize v1.9.0
+   Compiling derive-new v0.7.0
+   Compiling rustls-pki-types v1.15.1
+   Compiling zerocopy v0.8.60
+   Compiling rustls-webpki v0.103.15
+   Compiling rustls v0.23.45
+   Compiling half v2.7.1
+   Compiling tract-linalg v0.23.8
+   Compiling tract-data v0.23.8
+   Compiling ahash v0.8.12
+   Compiling hashbrown v0.14.5
+   Compiling tokio-rustls v0.26.6
+   Compiling webpki-roots v1.0.9
+   Compiling cipher v0.4.4
+   Compiling prost-derive v0.14.4
+   Compiling prost v0.14.4
+   Compiling chacha20 v0.9.1
+   Compiling hyper-rustls v0.27.10
+   Compiling hashlink v0.9.1
+   Compiling enumn v0.1.14
+   Compiling sha2 v0.10.9
+   Compiling hmac v0.13.0
+   Compiling blake2 v0.10.6
+   Compiling aead v0.5.2
+   Compiling reqwest v0.12.28
+   Compiling rusqlite v0.32.1
+   Compiling libheif-rs v3.0.0
+   Compiling sha2 v0.11.0
+   Compiling chacha20poly1305 v0.10.1
+   Compiling argon2 v0.5.3
+   Compiling hkdf v0.13.0
+   Compiling ed25519-dalek v2.2.0
+   Compiling tract-core v0.23.8
+   Compiling x25519-dalek v2.0.1
+   Compiling tract-nnef v0.23.8
+   Compiling tract-extra v0.23.8
+   Compiling tract-onnx-opl v0.23.8
+   Compiling tract-hir v0.23.8
+   Compiling tract-onnx v0.23.8
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-implementation/ticket-13/crates/wardrobe-core)
+   Compiling wardrobe-cli v0.1.0 (/private/tmp/wardrobe-implementation/ticket-13/crates/wardrobe-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 46.92s
+     Running unittests src/main.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wardrobe_cli-4a4fda564861368e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/entrypoints.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/entrypoints-ecb1bef7f9d63e74)
+
+running 18 tests
+test cli_imported_image_is_available_through_mcp_without_gui ... ok
+test cli_and_mcp_use_same_persisted_application_without_gui ... ok
+test cli_member_profiles_and_mcp_inventory_share_member_scope ... ok
+test credential_command_requires_stdin_to_keep_secret_out_of_process_arguments ... ok
+test authorized_cli_and_mcp_validate_only_explicit_vision_capability ... ok
+test cli_saved_outfit_and_immutable_version_are_the_same_through_mcp_after_restart ... ok
+test external_cli_and_mcp_enforce_same_operation_and_member_grant ... ok
+test cli_mcp_share_durable_batch_job_ids_cancellation_and_idempotent_commit ... ok
+test cli_and_mcp_share_product_job_consent_idempotency_and_cancellation ... ok
+test mcp_edits_and_restores_same_clothing_as_cli_filters_without_gui ... ok
+test unauthenticated_external_cli_cannot_read_inventory ... ok
+test stdin_configuration_and_mcp_discovery_share_provider_contract_without_gui ... ok
+test authorized_cli_mcp_share_actual_wear_retries_corrections_and_immutable_history ... ok
+test cli_mcp_share_immutable_image_edits_and_cancelled_cutout_jobs ... ok
+test mcp_initialized_full_authorization_is_reused_for_multiple_writes_without_reauthorization ... ok
+test cli_mcp_real_multimage_flatlay_preview_and_local_save_keep_template_and_wear ... ok
+test authorized_cli_mcp_share_recognition_proposal_review_and_restart ... ok
+test space_crypto_uses_stdin_and_mcp_full_scope_does_not_expose_private_key_management ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.73s
+
+     Running unittests src/lib.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wardrobe_core-2d77333e68f50264)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/application.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/application-0150d556162d5f53)
+
+running 10 tests
+test newer_database_version_is_refused_instead_of_downgraded ... ok
+test open_client_refuses_operations_after_newer_client_upgrades_database ... ok
+test wrong_type_cursor_is_rejected_instead_of_restarting_page ... ok
+test supported_early_database_migrates_price_and_category_without_losing_identity ... ok
+test invalid_currency_and_fractional_minor_units_are_rejected ... ok
+test currency_exponent_keeps_yen_and_dinar_prices_unambiguous ... ok
+test no_key_first_entry_survives_restart_with_unknown_values ... ok
+test invalid_page_and_member_are_typed_errors_without_writes ... ok
+test pagination_preserves_every_created_item_without_duplicates ... ok
+test discovered_operations_describe_output_required_fields_for_consumers ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/assets.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/assets-4a2f8b77a629b91d)
+
+running 9 tests
+test malformed_input_and_overlarge_file_do_not_become_display_assets ... ok
+test header_over_sixty_megapixels_is_rejected_before_pixel_decode ... ok
+test adopted_display_manifest_excludes_original_and_preview_assets ... ok
+test imported_png_survives_restart_with_a_local_original_and_display ... ok
+test heic_decodes_real_container_without_external_model_and_preserves_bytes ... ok
+test detaching_an_image_preserves_bytes_and_other_clothing_references ... ok
+test jpeg_exif_rotation_is_applied_once_before_display_encoding ... ok
+test image_capabilities_describe_required_references_and_real_preview_output ... ok
+test large_jpeg_shrinks_and_thumbnail_can_be_rebuilt_without_original ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.33s
+
+     Running tests/authorization.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/authorization-229d1789995e4ec5)
+
+running 7 tests
+test authorization_requires_an_explicit_member_scope_instead_of_silently_granting_all ... ok
+test trusted_gui_can_authorize_a_limited_client_with_a_one_time_token ... ok
+test damaged_grant_does_not_silently_expand_member_scope ... ok
+test client_cannot_remove_credentials_indirectly_by_changing_a_provider_binding ... ok
+test limited_client_can_read_one_member_but_cannot_write_or_read_another ... ok
+test full_client_does_not_need_repeat_confirmation_and_revocation_survives_restart_without_token_leak ... ok
+test expired_token_is_refused_and_discovery_and_member_list_hide_ungranted_data ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.22s
+
+     Running tests/clothing_management.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/clothing_management-60949fad7913bfb3)
+
+running 8 tests
+test unknown_patch_fields_cannot_silently_override_identity_assets_or_lifecycle ... ok
+test clothing_history_lifecycle_and_edit_are_scoped_to_the_owner_member ... ok
+test invalid_facts_are_rejected_without_partial_changes ... ok
+test audit_history_retains_prior_facts_after_edit_and_delete ... ok
+test canonical_taxonomy_and_color_ids_are_versioned_and_validated ... ok
+test optional_clothing_facts_round_trip_and_patch_preserves_omitted_facts ... ok
+test combined_filters_search_sort_and_pagination_find_only_matching_facts ... ok
+test soft_delete_hides_clothing_and_explicit_restore_keeps_identity_and_facts ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/encryption.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/encryption-c3e5383ca1d071ed)
+
+running 9 tests
+test database_and_wal_do_not_persist_exported_recovery_or_unwrapped_private_keys ... ignored, requires real OS credential store
+test device_confirmation_is_single_use_and_revocation_rotates_future_keys_for_remaining_devices ... ignored, requires real OS credential store
+test encrypted_space_restarts_with_system_key_and_pairing_imports_same_master_on_second_device ... ignored, requires real OS credential store
+test failed_rotation_is_atomic_and_recovery_keeps_all_historical_epochs ... ignored, requires real OS credential store
+test recovery_restores_keys_and_password_change_preserves_existing_ciphertext ... ignored, requires real OS credential store
+test two_connections_racing_confirmation_consume_invitation_once ... ignored, requires real OS credential store
+test highest_database_version_repairs_missing_encryption_tables_without_downgrade ... ok
+test external_full_scope_cannot_manage_space_secrets_even_with_member_argument ... ok
+test encrypted_envelopes_roundtrip_and_authenticate_workspace_kind_version_and_bytes ... ok
+
+test result: ok. 3 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 9.84s
+
+     Running tests/flatlay.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/flatlay-b720af5ab9c7ca8b)
+
+running 5 tests
+test saved_version_flatlay_requires_all_images_and_explicit_upload ... ok
+test immutable_version_inputs_and_scope_survive_later_template_edits ... ok
+test actual_multireference_http_result_saves_locally_without_wear_or_outfit_changes ... ok
+test all_inputs_preflight_rejects_missing_oversized_count_and_small_resolution_without_truncation ... ok
+test provider_failure_never_loses_saved_outfit_or_offline_collage_and_does_not_resubmit ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+     Running tests/image_editing.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/image_editing-361d033f86ccc3de)
+
+running 7 tests
+test real_model_download_white_shirt_cutout_and_cached_offline_restart ... ignored, explicit official model download and public licensed photo inference; run for packaged runtime acceptance
+test local_cutout_model_missing_status_is_actionable_and_no_fallback ... ok
+test cutout_queue_survives_restart_and_missing_model_fails_without_changing_asset ... ok
+test failed_restore_keeps_source_and_derived_display_unchanged ... ok
+test rotation_preserves_original_and_facts_and_restores_after_restart ... ok
+test image_merge_and_replace_are_atomic_and_preserve_source_clothing ... ok
+test twenty_image_limit_and_member_scope_reject_merge_atomically ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/imports.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/imports-a3d270046f7286ab)
+
+running 7 tests
+test durable_batch_keeps_source_and_idempotent_identity_across_restart ... ok
+test draft_edits_survive_restart_and_default_unknowns_remain_manual ... ok
+test missing_source_can_be_restored_then_retried_without_losing_other_drafts ... ok
+test concurrent_commit_responses_reference_one_clothing_and_one_history_entry ... ok
+test mixed_batch_can_cancel_retry_group_and_commit_exactly_once ... ok
+test batch_limits_grouping_scope_and_auth_are_enforced_without_partial_clothing ... ok
+test version_eight_lookbook_gains_batch_tables_without_losing_versions_after_restart ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running tests/jobs.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/jobs-3f32eaf22549d839)
+
+running 2 tests
+test concurrent_workers_have_one_lease_cancel_prevents_late_finish_and_expiry_recovers ... ok
+test transient_retries_are_bounded_delayed_and_permanent_errors_stay_failed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.14s
+
+     Running tests/members.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/members-0cb349ea8546208c)
+
+running 4 tests
+test unsupported_profile_fields_are_rejected_instead_of_silently_discarded ... ok
+test legacy_default_profile_keeps_custom_name_and_inventory_identity ... ok
+test member_profiles_and_selection_survive_restart ... ok
+test member_inventory_and_wrong_member_requests_are_isolated ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/outfits.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/outfits-89fba9b73f8774d4)
+
+running 5 tests
+test existing_version_five_inventory_survives_lookbook_migration_and_reopen ... ok
+test editing_requires_the_version_seen_by_the_caller_and_preserves_conflicting_template ... ok
+test manual_templates_accept_all_categories_but_reject_invalid_structure_atomically ... ok
+test saved_lookbook_keeps_versions_independent_from_clothing_and_clone ... ok
+test collage_uses_immutable_adopted_display_and_retains_version_asset_after_detach ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+     Running tests/product_display.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/product_display-3ad833dcf414951f)
+
+running 6 tests
+test dedicated_image_provider_preserves_adapter_and_rejects_chat_validation ... ok
+test product_job_requires_explicit_upload_and_keeps_old_display ... ok
+test limited_client_requires_explicit_generation_scope_and_member ... ok
+test lost_provider_response_persists_unknown_and_refuses_same_job_after_restart ... ok
+test cancelled_inflight_generation_never_creates_result_or_changes_clothing ... ok
+test real_http_generation_is_preview_until_adopted_and_never_blindly_resubmits ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/providers.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/providers-c57d566babbd0f76)
+
+running 6 tests
+test credentials_can_be_set_replaced_and_removed_without_echo_or_database_persistence ... ignored, OS credential-store smoke test requires an unlocked desktop keychain/Secret Service
+test provider_configuration_rejects_insecure_urls_unknown_image_capability_and_embedded_keys ... ok
+test validation_requires_explicit_declared_capability_before_network ... ok
+test model_configuration_survives_restart_without_a_key_or_blocking_manual_entry ... ok
+test connection_validation_uses_configured_model_and_reports_only_verified_capability ... ok
+test vision_only_configuration_sends_a_builtin_multimodal_image ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/recognition.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recognition-3f5b564870a1022a)
+
+running 7 tests
+test explicit_recognition_records_selected_provider_and_images_without_changing_manual_facts ... ok
+test restart_after_submission_never_posts_again_and_member_scope_precedes_network ... ok
+test batch_failure_leaves_independent_manual_drafts_saveable ... ok
+test truncated_submission_is_durable_unknown_and_cannot_blind_retry ... ok
+test uncertain_model_scores_are_unverified_and_missing_db12_table_is_repaired ... ok
+test actual_http_proposal_requires_review_and_reanalysis_preserves_manual_edits ... ok
+test cancellation_while_http_runs_cannot_publish_proposal ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+     Running tests/wears.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wears-6878870059a7ad1a)
+
+running 8 tests
+test local_days_remain_user_date_across_utc_midnight_and_db_nine_repairs_missing_tables ... ok
+test explicit_actual_wear_counts_events_and_local_days_without_template_side_effects ... ok
+test corrections_and_revocation_append_history_recompute_and_preserve_exact_retry_receipts ... ok
+test two_clients_cannot_both_correct_one_revision_or_reuse_key_for_another_intent ... ok
+test public_history_keeps_template_snapshot_and_refuses_cross_member_and_future_facts ... ok
+test clients_discover_revision_contract_and_cannot_write_with_read_only_scope ... ok
+test revoked_wear_retains_adopted_display_after_current_garment_detaches_it ... ok
+test wear_snapshot_retains_all_associated_pictures_not_only_selected_display ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+   Doc-tests wardrobe_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

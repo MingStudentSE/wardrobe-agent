@@ -156,9 +156,10 @@ impl Application {
             }
             doc["state"] = json!("cancelled");
         } else {
-            if ["product_display", "outfit_flatlay", "virtual_tryon"]
+            if (["product_display", "outfit_flatlay", "virtual_tryon"]
                 .contains(&doc["kind"].as_str().unwrap_or(""))
-                && doc["submitted_at"].is_string()
+                && doc["submitted_at"].is_string())
+                || (doc["kind"] == "recognition" && doc["payload"]["submission"] != "not_submitted")
             {
                 return Err(ApiError::new(
                     "submission_already_sent",

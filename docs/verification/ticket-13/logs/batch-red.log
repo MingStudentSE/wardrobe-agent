@@ -1,0 +1,24 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-implementation/ticket-13/crates/wardrobe-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.03s
+     Running tests/recognition.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recognition-85ea57061d914daf)
+
+running 3 tests
+test batch_failure_leaves_independent_manual_drafts_saveable ... FAILED
+test explicit_recognition_records_selected_provider_and_images_without_changing_manual_facts ... ok
+test actual_http_proposal_requires_review_and_reanalysis_preserves_manual_edits ... ok
+
+failures:
+
+---- batch_failure_leaves_independent_manual_drafts_saveable stdout ----
+
+thread 'batch_failure_leaves_independent_manual_drafts_saveable' (3071330) panicked at crates/wardrobe-core/tests/recognition.rs:24:909:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "invalid_input", message: "识别包含不支持的字段" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    batch_failure_leaves_independent_manual_drafts_saveable
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p wardrobe-core --test recognition`
