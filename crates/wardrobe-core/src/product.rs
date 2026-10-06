@@ -74,6 +74,12 @@ impl Application {
             {
                 let tx = self.begin_write()?;
                 let mut doc = self.job_get(input)?;
+                if doc["state"] != "running"
+                    || doc["lease_expires"].as_i64().unwrap_or(0)
+                        > chrono::Utc::now().timestamp_millis()
+                {
+                    return Ok(doc);
+                }
                 doc["state"] = json!("waiting_input");
                 doc["lease_token"] = Value::Null;
                 doc["error"] = json!({"code":"provider_outcome_unknown","message":"请求已提交且结果未知；供应商无查询接口，请检查供应商记录，不能重发此任务","retryable":false});

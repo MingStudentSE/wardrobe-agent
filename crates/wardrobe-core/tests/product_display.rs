@@ -143,6 +143,7 @@ fn real_http_generation_is_preview_until_adopted_and_never_blindly_resubmits() {
     )
     .unwrap();
     let p=app.execute("provider.save",json!({"name":"Seedream","endpoint":endpoint,"model":"doubao-seedream-5-0-flash-260915","adapter":"ark_seedream","capabilities":["image_generation"],"authentication":"none"})).unwrap();
+    let wear=app.execute("wear.record",json!({"member_id":"default","operation_key":"before-generation","local_date":"2020-01-01","timezone":"UTC","clothing_ids":[clothing["id"]]})).unwrap();
     let job=app.execute("product.generate",json!({"member_id":"default","clothing_id":clothing["id"],"asset_id":asset["id"],"provider_id":p["id"],"operation_key":"one","upload_original":true})).unwrap();
     let done = app
         .execute(
@@ -166,6 +167,31 @@ fn real_http_generation_is_preview_until_adopted_and_never_blindly_resubmits() {
             .code,
         "submission_already_sent"
     );
+    let concurrent = app
+        .execute(
+            "images.rotate",
+            json!({"member_id":"default","asset_id":asset["id"],"degrees":90}),
+        )
+        .unwrap();
+    app.execute(
+        "assets.adopt",
+        json!({"member_id":"default","asset_id":concurrent["id"],"clothing_id":clothing["id"]}),
+    )
+    .unwrap();
+    assert_eq!(
+        app.execute(
+            "product.adopt",
+            json!({"member_id":"default","id":job["id"]})
+        )
+        .unwrap_err()
+        .code,
+        "display_changed"
+    );
+    app.execute(
+        "images.main",
+        json!({"member_id":"default","asset_id":asset["id"],"clothing_id":clothing["id"]}),
+    )
+    .unwrap();
     let adopted = app
         .execute(
             "product.adopt",
@@ -183,6 +209,22 @@ fn real_http_generation_is_preview_until_adopted_and_never_blindly_resubmits() {
         .unwrap();
     assert_eq!(c["name"], "Blue shirt");
     assert_eq!(c["display_asset_id"], preview["id"]);
+    let historical = app
+        .execute("wear.get", json!({"member_id":"default","id":wear["id"]}))
+        .unwrap();
+    assert_eq!(historical, wear);
+    assert_eq!(
+        historical["items"][0]["snapshot"]["display_asset_id"],
+        asset["id"]
+    );
+    assert_eq!(
+        app.execute(
+            "assets.get",
+            json!({"member_id":"default","id":asset["id"]})
+        )
+        .unwrap()["state"],
+        "adopted"
+    );
 }
 fn setup(
     endpoint: &str,
