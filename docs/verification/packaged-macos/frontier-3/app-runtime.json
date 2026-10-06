@@ -1,0 +1,15 @@
+{
+  "cli": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/apps/desktop/src-tauri/target/release/bundle/macos/\u7535\u5b50\u8863\u6a71.app/Contents/MacOS/wardrobe-cli",
+  "capabilities": 3,
+  "authorization": "limited operation and member grant; stdin token",
+  "unauthenticated_cli": "denied",
+  "unauthenticated_mcp": "denied",
+  "heic_dimensions": [
+    64,
+    32
+  ],
+  "restart": "passed",
+  "mcp": "passed",
+  "developer_loader_environment": "removed",
+  "gui_clean_install": "pending"
+}
