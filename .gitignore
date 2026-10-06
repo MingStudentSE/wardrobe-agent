@@ -21,3 +21,11 @@ coverage/
 
 # Local editor files
 .idea/
+/target/
+/apps/desktop/node_modules/
+/apps/desktop/dist/
+/apps/desktop/src-tauri/target/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.DS_Store
