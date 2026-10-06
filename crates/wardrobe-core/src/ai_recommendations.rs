@@ -49,12 +49,10 @@ impl Application {
         let cold = context["temperature_c"].as_f64().is_some_and(|t| t <= 15.0);
         Ok((cold, context))
     }
-    pub(super) fn ai_recommendation(&self, mut input: Value) -> Result<Value, ApiError> {
+    pub(super) fn ai_enqueue(&self, mut input: Value) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
         input["member_id"] = json!(member);
         let key = string(&input, "operation_key")?;
-        let original = input.to_string();
-        if let Some((request,doc))=self.connection.query_row("SELECT request,document FROM recommendation_intents WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?{if request!=original{return Err(ApiError::new("idempotency_conflict","同一标识不能改变推荐约束"));}return serde_json::from_str(&doc).map_err(|_|ApiError::new("storage_error","推荐意图损坏"));}
         // Validate caller controls before any garment facts leave the local application.
         crate::recommendations::generate_fields(&input)?;
         if key.is_empty()
@@ -68,6 +66,104 @@ impl Application {
         {
             return Err(ApiError::new("invalid_input", "推荐标识、数量或时区不可用"));
         }
+        string(&input, "provider_id")?;
+        let original = input.to_string();
+        let cached=self.connection.query_row("SELECT request,document FROM recommendation_intents WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?;
+        let intent_id = if let Some((request, doc)) = cached {
+            if request != original {
+                return Err(ApiError::new(
+                    "idempotency_conflict",
+                    "同一标识不能改变推荐约束",
+                ));
+            }
+            let doc: Value = serde_json::from_str(&doc)
+                .map_err(|_| ApiError::new("storage_error", "推荐意图损坏"))?;
+            doc["id"].clone()
+        } else {
+            Value::Null
+        };
+        // No weather, catalog, credential or provider HTTP precedes this durable receipt.
+        let job = self.job_enqueue(&member, "text_recommendation", key, input.clone())?;
+        let mut receipt = text_receipt(&job);
+        if intent_id.is_string() {
+            receipt["intent_id"] = intent_id;
+        }
+        Ok(receipt)
+    }
+    pub(super) fn ai_worker(&self, input: Value) -> Result<Value, ApiError> {
+        if input
+            .as_object()
+            .is_none_or(|m| m.keys().any(|k| !["member_id", "id"].contains(&k.as_str())))
+        {
+            return Err(ApiError::new("invalid_input", "worker只接受成员与任务ID"));
+        }
+        let member = self.member(&input)?;
+        let id = string(&input, "id")?;
+        let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
+        if job["kind"] != "text_recommendation" {
+            return Err(ApiError::new("invalid_input", "不是文本推荐任务"));
+        }
+        if job["result"]["intent_id"].is_string()
+            || ["succeeded", "failed", "cancelled", "waiting_input"]
+                .contains(&job["state"].as_str().unwrap_or(""))
+        {
+            return Ok(job);
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        if job["state"] == "running" && job["lease_expires"].as_i64().unwrap_or(0) > now {
+            return Ok(job);
+        }
+        if job["submitted_at"].is_string()
+            && !["rate_limited", "invalid_output"]
+                .contains(&job["last_outcome"].as_str().unwrap_or(""))
+        {
+            let tx = self.begin_write()?;
+            job = self.job_get(json!({"member_id":member,"id":id}))?;
+            if job["state"] == "running"
+                && job["lease_expires"].as_i64().unwrap_or(0)
+                    > chrono::Utc::now().timestamp_millis()
+            {
+                return Ok(job);
+            }
+            if ["succeeded", "failed", "cancelled", "waiting_input"]
+                .contains(&job["state"].as_str().unwrap_or(""))
+                || job["result"]["intent_id"].is_string()
+                || ["rate_limited", "invalid_output"]
+                    .contains(&job["last_outcome"].as_str().unwrap_or(""))
+            {
+                return Ok(job);
+            }
+            job["state"] = json!("waiting_input");
+            job["lease_token"] = Value::Null;
+            job["lease_expires"] = json!(0);
+            job["error"] = json!({"code":"provider_outcome_unknown","message":"结果未知，无法查询；请核对供应商或显式选择离线规则","retryable":false});
+            crate::jobs::save(&tx, &job)?;
+            tx.commit()?;
+            return Ok(job);
+        }
+        if job["next_due"].as_i64().unwrap_or(0) > now {
+            return Ok(job);
+        }
+        let claimed = self.job_claim(&member, id, 300)?;
+        let lease = claimed["lease_token"].as_str().unwrap();
+        match self.ai_recommendation(claimed["payload"].clone(), &claimed){
+            Ok(doc)=>self.job_finish(&member,id,lease,if doc["generation"]["provider_outcome"]=="unknown"{"waiting_input"}else{"succeeded"},json!({"intent_id":doc["id"]}),if doc["generation"]["provider_outcome"]=="unknown"{json!({"code":"provider_outcome_unknown","message":"请求结果未知；已提供离线建议，不盲重发","retryable":false})}else{Value::Null}),
+            Err(error)=>{
+                if error.code=="rate_limit_deferred" {return self.job_get(json!({"member_id":member,"id":id}));}
+                let finish=self.job_finish(&member,id,lease,"failed",Value::Null,json!({"code":error.code,"message":error.message,"retryable":false}));
+                if error.code=="lease_lost" {return self.job_get(json!({"member_id":member,"id":id}));}
+                finish
+            }
+        }
+    }
+    fn ai_recommendation(&self, mut input: Value, claimed: &Value) -> Result<Value, ApiError> {
+        let member = self.member(&input)?;
+        input["member_id"] = json!(member);
+        let key = string(&input, "operation_key")?;
+        let original = input.to_string();
+        if let Some((request,doc))=self.connection.query_row("SELECT request,document FROM recommendation_intents WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?{if request!=original{return Err(ApiError::new("idempotency_conflict","同一标识不能改变推荐约束"));}return serde_json::from_str(&doc).map_err(|_|ApiError::new("storage_error","推荐意图损坏"));}
+        let job_id = claimed["id"].as_str().unwrap().to_owned();
+        let lease = claimed["lease_token"].as_str().unwrap().to_owned();
         let provider_id = string(&input, "provider_id")?.to_owned();
         let weather = self.recommendation_weather_for(&member, input.get("weather"))?;
         let mut catalog = vec![];
@@ -106,7 +202,7 @@ impl Application {
                 json!({"member_id":member,"id":string(&input,"source_intent")?}),
             )?;
         }
-        let mut meta = json!({"source":"rule_fallback","provider_id":provider_id,"attempts":0,"failure_codes":[]});
+        let mut meta = json!({"source":"rule_fallback","provider_id":provider_id,"attempts":0,"failure_codes":[],"job_id":job_id,"_lease_token":lease});
         let mut candidate_input = input.clone();
         candidate_input["limit"] = json!(5);
         let candidate = self.recommendation_build(
@@ -174,34 +270,10 @@ impl Application {
                 Some(&weather),
             );
         }
-        let job = self.job_enqueue(&member, "text_recommendation", key, input.clone())?;
-        if job["submitted_at"].is_string() {
-            if job["state"] == "running"
-                && job["lease_expires"].as_i64().unwrap_or(0)
-                    <= chrono::Utc::now().timestamp_millis()
-            {
-                let tx = self.begin_write()?;
-                let mut current = self.job_get(json!({"member_id":member,"id":job["id"]}))?;
-                if current["state"] == "running"
-                    && current["lease_expires"].as_i64().unwrap_or(0)
-                        <= chrono::Utc::now().timestamp_millis()
-                {
-                    current["state"] = json!("waiting_input");
-                    current["lease_token"] = Value::Null;
-                    current["lease_expires"] = json!(0);
-                    current["error"] = json!({"code":"provider_outcome_unknown","retryable":false});
-                    crate::jobs::save(&tx, &current)?;
-                }
-                tx.commit()?;
-            }
-            return Err(ApiError::new("generation_waiting_input",&format!("任务{}已提交或正在处理，结果未确认；同一操作不会盲重发。可检查供应商记录，或显式选择离线规则",job["id"].as_str().unwrap())));
-        }
-        let job_id = job["id"].as_str().unwrap().to_owned();
-        let claimed = self.job_claim(&member, &job_id, 300)?;
-        let lease = claimed["lease_token"].as_str().unwrap().to_owned();
-        meta["job_id"] = json!(job_id);
-        meta["_lease_token"] = json!(lease);
-        for attempt in 1..=2 {
+        let first_attempt = claimed["output_attempt"].as_u64().unwrap_or(1)
+            + u64::from(claimed["last_outcome"] == "invalid_output");
+        meta["attempts"] = claimed["output_attempt"].clone();
+        for attempt in first_attempt..=2 {
             meta["attempts"] = json!(attempt);
             match self.text_recommendation_request(
                 &provider_id,
@@ -214,6 +286,10 @@ impl Application {
                 Ok(draft) => {
                     let mut success = meta.clone();
                     success["source"] = json!("text_model");
+                    let receipt = self.job_get(json!({"member_id":member,"id":job_id}))?;
+                    success["provider_requests"] = receipt["submission_count"].clone();
+                    success["rate_retries"] = json!(receipt["rate_retries"].as_u64().unwrap_or(0));
+                    success["usage"] = receipt["usage"].clone();
                     match self.recommendation_with_generation(
                         "recommendation.generate",
                         input.clone(),
@@ -221,17 +297,7 @@ impl Application {
                         Some(&success),
                         Some(&weather),
                     ) {
-                        Ok(doc) => {
-                            self.job_finish(
-                                &member,
-                                &job_id,
-                                &lease,
-                                "succeeded",
-                                json!({"intent_id":doc["id"]}),
-                                Value::Null,
-                            )?;
-                            return Ok(doc);
-                        }
+                        Ok(doc) => return Ok(doc),
                         Err(error) if error.code == "model_invalid_output" => {
                             self.text_outcome(&member, &job_id, &lease, "invalid_output")?;
                             prompt["retry_feedback"]=json!("Previous result failed current inventory/body coverage/fixed/excluded/role/recent checks. Recheck all constraints including cold-weather outerwear.");
@@ -240,25 +306,24 @@ impl Application {
                                 .unwrap()
                                 .push(json!(error.code));
                         }
-                        Err(error) => {
-                            let _finished = self.job_finish(
-                                &member,
-                                &job_id,
-                                &lease,
-                                "waiting_input",
-                                Value::Null,
-                                json!({"code":error.code,"retryable":false}),
-                            );
-                            return Err(error);
-                        }
+                        Err(error) => return Err(error),
                     }
                 }
                 Err(error) => {
+                    if [
+                        "rate_limit_deferred",
+                        "lease_lost",
+                        "submission_already_sent",
+                    ]
+                    .contains(&error.code.as_str())
+                    {
+                        return Err(error);
+                    }
                     let invalid = error.code == "model_invalid_output";
                     if invalid {
                         self.text_outcome(&member, &job_id, &lease, "invalid_output")?;
                     }
-                    if error.code == "provider_network" {
+                    if ["provider_network", "provider_response"].contains(&error.code.as_str()) {
                         meta["provider_outcome"] = json!("unknown");
                     }
                     meta["failure_codes"]
@@ -271,28 +336,16 @@ impl Application {
                 }
             }
         }
+        let receipt = self.job_get(json!({"member_id":member,"id":job_id}))?;
+        meta["provider_requests"] = receipt["submission_count"].clone();
+        meta["rate_retries"] = json!(receipt["rate_retries"].as_u64().unwrap_or(0));
+        meta["usage"] = receipt["usage"].clone();
         let result = self.recommendation_with_generation(
             "recommendation.generate",
             input,
             None,
             Some(&meta),
             Some(&weather),
-        )?;
-        self.job_finish(
-            &member,
-            &job_id,
-            &lease,
-            if meta["provider_outcome"] == "unknown" {
-                "waiting_input"
-            } else {
-                "succeeded"
-            },
-            json!({"intent_id":result["id"]}),
-            if meta["provider_outcome"] == "unknown" {
-                json!({"code":"provider_outcome_unknown","retryable":false})
-            } else {
-                Value::Null
-            },
         )?;
         Ok(result)
     }
@@ -361,16 +414,56 @@ impl Application {
                 .map_err(|_| ApiError::new("credential_missing", "文本模型凭据不可用"))?;
             request = request.bearer_auth(key);
         }
-        self.text_submitted(member, job, lease, attempt)?;
-        let response = request
-            .send()
-            .map_err(|_| ApiError::new("provider_network", "模型连接失败，已回退规则推荐"))?;
-        if !response.status().is_success() {
-            return Err(ApiError::new(
-                "provider_error",
-                "模型服务返回错误，已回退规则推荐",
-            ));
-        }
+        let response = loop {
+            self.text_submitted(member, job, lease, attempt)?;
+            let response = request
+                .try_clone()
+                .ok_or_else(|| ApiError::new("provider_error", "无法建立模型请求"))?
+                .send()
+                .map_err(|_| {
+                    ApiError::new("provider_network", "模型连接失败；结果未知，不盲重发")
+                })?;
+            if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                let delay = retry_after_ms(
+                    response
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|v| v.to_str().ok()),
+                    chrono::Utc::now(),
+                );
+                if !self.text_rate_limited(member, job, lease, delay)? {
+                    return Err(ApiError::new(
+                        "provider_rate_limit",
+                        "供应商限流，已达到最多两次自动重试",
+                    ));
+                }
+                if delay > 30_000 {
+                    self.text_defer_rate_limit(member, job, lease)?;
+                    return Err(ApiError::new(
+                        "rate_limit_deferred",
+                        "限流已按Retry-After排队，可到期运行worker",
+                    ));
+                }
+                loop {
+                    let current = self.job_get(json!({"member_id":member,"id":job}))?;
+                    text_lease(&current, lease)?;
+                    let remaining = current["next_due"].as_i64().unwrap_or(0)
+                        - chrono::Utc::now().timestamp_millis();
+                    if remaining <= 0 {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(remaining.min(50) as u64));
+                }
+                continue;
+            }
+            if !response.status().is_success() {
+                return Err(ApiError::new(
+                    "provider_error",
+                    "模型服务返回错误，已回退规则推荐",
+                ));
+            }
+            break response;
+        };
         let mut bytes = vec![];
         response
             .take(1048577)
@@ -381,6 +474,7 @@ impl Application {
         }
         let response: Value = serde_json::from_slice(&bytes)
             .map_err(|_| ApiError::new("provider_response", "模型响应不是JSON"))?;
+        self.text_usage(member, job, lease, &response)?;
         let content = response["choices"][0]["message"]["content"]
             .as_str()
             .ok_or_else(|| ApiError::new("model_invalid_output", "模型缺少文本"))?;
@@ -397,20 +491,85 @@ impl Application {
         let tx = self.begin_write()?;
         let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
         text_lease(&job, lease)?;
-        if job["submitted_at"].is_string()
-            && !(attempt == 2
-                && job["submission_count"] == 1
-                && job["last_outcome"] == "invalid_output")
-        {
-            return Err(ApiError::new(
-                "submission_already_sent",
-                "结果未知，不能盲重发",
-            ));
+        if job["submitted_at"].is_string() {
+            let invalid = job["last_outcome"] == "invalid_output"
+                && attempt == job["output_attempt"].as_u64().unwrap_or(1) + 1
+                && attempt <= 2;
+            let limited = job["last_outcome"] == "rate_limited"
+                && attempt == job["output_attempt"].as_u64().unwrap_or(1)
+                && job["rate_retries"].as_u64().unwrap_or(0) < 2
+                && job["next_due"].as_i64().unwrap_or(0) <= chrono::Utc::now().timestamp_millis();
+            if !invalid && !limited {
+                return Err(ApiError::new(
+                    "submission_already_sent",
+                    "结果未知或重试预算已耗尽，不能盲重发",
+                ));
+            }
+            if limited {
+                job["rate_retries"] = json!(job["rate_retries"].as_u64().unwrap_or(0) + 1);
+            }
         }
         job["submitted_at"] = json!(chrono::Utc::now().to_rfc3339());
-        job["submission_count"] = json!(attempt);
+        job["submission_count"] = json!(job["submission_count"].as_u64().unwrap_or(0) + 1);
+        job["output_attempt"] = json!(attempt);
+        job["next_due"] = json!(0);
         job["last_outcome"] = json!("unknown");
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
+        crate::jobs::save(&tx, &job)?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn text_usage(
+        &self,
+        member: &str,
+        id: &str,
+        lease: &str,
+        response: &Value,
+    ) -> Result<(), ApiError> {
+        let tx = self.begin_write()?;
+        let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
+        text_lease(&job, lease)?;
+        for key in ["prompt_tokens", "completion_tokens", "total_tokens"] {
+            if let Some(n) = response["usage"][key].as_u64() {
+                if !job["usage"].is_object() {
+                    job["usage"] = json!({});
+                }
+                job["usage"][key] =
+                    json!(job["usage"][key].as_u64().unwrap_or(0).saturating_add(n));
+            }
+        }
+        if response["id"].as_str().is_some_and(|v| v.len() <= 200) {
+            job["provider_request_id"] = response["id"].clone();
+        }
+        crate::jobs::save(&tx, &job)?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn text_rate_limited(
+        &self,
+        member: &str,
+        id: &str,
+        lease: &str,
+        delay: i64,
+    ) -> Result<bool, ApiError> {
+        let tx = self.begin_write()?;
+        let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
+        text_lease(&job, lease)?;
+        job["last_outcome"] = json!("rate_limited");
+        job["next_due"] = json!(chrono::Utc::now().timestamp_millis().saturating_add(delay));
+        job["error"] = json!({"code":"provider_rate_limit","message":"供应商限流，遵守Retry-After后重试","retryable":true});
+        let retry = job["rate_retries"].as_u64().unwrap_or(0) < 2;
+        crate::jobs::save(&tx, &job)?;
+        tx.commit()?;
+        Ok(retry)
+    }
+    fn text_defer_rate_limit(&self, member: &str, id: &str, lease: &str) -> Result<(), ApiError> {
+        let tx = self.begin_write()?;
+        let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
+        text_lease(&job, lease)?;
+        job["state"] = json!("queued");
+        job["lease_token"] = Value::Null;
+        job["lease_expires"] = json!(0);
         crate::jobs::save(&tx, &job)?;
         tx.commit()?;
         Ok(())
@@ -430,6 +589,25 @@ impl Application {
         tx.commit()?;
         Ok(())
     }
+}
+
+fn retry_after_ms(header: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> i64 {
+    if let Some(value) = header {
+        if let Ok(seconds) = value.trim().parse::<u64>() {
+            return seconds.saturating_mul(1000).min(i64::MAX as u64) as i64;
+        }
+        if let Ok(date) = chrono::DateTime::parse_from_rfc2822(value) {
+            return date
+                .timestamp_millis()
+                .saturating_sub(now.timestamp_millis())
+                .max(0);
+        }
+    }
+    1000
+}
+
+fn text_receipt(job: &Value) -> Value {
+    json!({"schema_version":1,"member_id":job["member_id"],"job_id":job["id"],"state":job["state"],"progress":job["progress"],"intent_id":job["result"]["intent_id"],"next_due":job["next_due"],"error":job["error"]})
 }
 
 pub(super) fn text_lease(job: &Value, lease: &str) -> Result<(), ApiError> {
@@ -501,8 +679,8 @@ mod publication_boundary {
         );
         // The provider ID does not exist: reaching network/provider lookup would fail this call.
         assert_eq!(
-            app.execute("recommendation.generate", input).unwrap(),
-            published
+            app.execute("recommendation.generate", input).unwrap()["intent_id"],
+            published["id"]
         );
         assert!(published["generation"].get("_lease_token").is_none());
     }

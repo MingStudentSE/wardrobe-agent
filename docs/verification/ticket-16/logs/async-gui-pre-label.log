@@ -1,0 +1,16 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/weather-ai.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5187 --strictPort
+[WebServer] (node:40861) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 3 tests using 1 worker
+
+(node:40863) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/weather-ai.spec.ts:2:1 › 配置真实HTTP天气缓存，文本网络失败仍可规则与手工推荐且不记穿着 (2.0s)
+  ✓  2 tests/weather-ai.spec.ts:11:1 › 真实本机文本模型从五个规则候选选择合法组合，自动天气与保存不记穿着 (19.9s)
+  ✓  3 tests/weather-ai.spec.ts:17:1 › AI立即显示持久任务并轮询，用户取消后不采用真实HTTP迟到响应 (950ms)
+
+  3 passed (24.0s)
