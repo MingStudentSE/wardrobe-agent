@@ -50,7 +50,8 @@ impl Application {
             params![clothing.to_string(), clothing_id, member],
         )?;
         let references:u64=tx.query_row("SELECT count(*) FROM clothing WHERE member_id=?1 AND EXISTS (SELECT 1 FROM json_each(document,'$.asset_ids') WHERE value=?2)",params![member,asset_id],|r|r.get(0))?;
-        if references == 0 {
+        let outfit_references:u64=tx.query_row("SELECT count(*) FROM outfit_versions JOIN outfits ON outfits.id=outfit_versions.outfit_id WHERE outfits.member_id=?1 AND EXISTS (SELECT 1 FROM json_each(outfit_versions.document,'$.items') WHERE json_extract(value,'$.snapshot.display_asset_id')=?2)",params![member,asset_id],|r|r.get(0))?;
+        if references == 0 && outfit_references == 0 {
             asset["state"] = json!("preview");
             asset["display"]["state"] = json!("preview");
             asset["display"]["sync_scope"] = json!("local_only");

@@ -2,6 +2,7 @@ mod assets;
 mod authorization;
 mod clothing;
 mod members;
+mod outfits;
 mod providers;
 
 use rusqlite::{params, Connection};
@@ -10,7 +11,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 5;
+pub const DATABASE_SCHEMA_VERSION: u32 = 8;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -101,6 +102,8 @@ impl Application {
         )?;
         assets::migrate(&tx)?;
         tx.execute_batch("CREATE TABLE IF NOT EXISTS clients(id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, document TEXT NOT NULL); PRAGMA user_version=5;")?;
+        outfits::migrate(&tx)?;
+        tx.execute_batch("PRAGMA user_version=8;")?;
         tx.commit()?;
         Ok(Self {
             connection,
@@ -175,6 +178,7 @@ impl Application {
             }
             "clothing.get" => self.clothing_get(input),
             "clothing.list" => self.clothing_list(input),
+            op if op.starts_with("outfit.") => self.outfit_execute(op, input),
             "assets.import" => self.asset_import(input),
             "assets.get" => self.asset_get(input),
             "assets.preview" => self.asset_preview(input),
@@ -199,6 +203,7 @@ pub fn operations() -> Value {
     descriptors.extend(providers::descriptors());
     descriptors.extend(authorization::descriptors());
     descriptors.extend(assets::descriptors());
+    descriptors.extend(outfits::descriptors());
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );
