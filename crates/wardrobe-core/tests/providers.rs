@@ -95,7 +95,10 @@ fn connection_validation_uses_configured_model_and_reports_only_verified_capabil
     let app = Application::open(&dir.path().join("db")).unwrap();
     let p=app.execute("provider.save",json!({"name":"fixture","endpoint":endpoint,"model":"fixture-model","capabilities":["text","vision"],"authentication":"none"})).unwrap();
     let verified = app
-        .execute("provider.validate", json!({"id":p["id"]}))
+        .execute(
+            "provider.validate",
+            json!({"id":p["id"],"capability":"text"}),
+        )
         .unwrap();
     assert_eq!(verified["verified_capabilities"], json!(["text"]));
     assert_eq!(verified["usage"]["total_tokens"], 2);
@@ -133,4 +136,82 @@ fn provider_configuration_rejects_insecure_urls_unknown_image_capability_and_emb
         }
         assert_eq!(app.execute("provider.save", input).unwrap_err().code, code);
     }
+}
+
+#[test]
+fn validation_requires_explicit_declared_capability_before_network() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let p = app.execute("provider.save", json!({"name":"vision","endpoint":"http://127.0.0.1:1/v1","model":"v","capabilities":["vision"],"authentication":"none"})).unwrap();
+    assert_eq!(
+        app.execute("provider.validate", json!({"id":p["id"]}))
+            .unwrap_err()
+            .code,
+        "invalid_input"
+    );
+    assert_eq!(
+        app.execute(
+            "provider.validate",
+            json!({"id":p["id"],"capability":"text"})
+        )
+        .unwrap_err()
+        .code,
+        "unsupported_capability"
+    );
+}
+#[test]
+fn vision_only_configuration_sends_a_builtin_multimodal_image() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut bytes = Vec::new();
+        let mut chunk = [0; 4096];
+        loop {
+            let n = stream.read(&mut chunk).unwrap();
+            assert!(n > 0);
+            bytes.extend_from_slice(&chunk[..n]);
+            if let Some(split) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&bytes[..split]);
+                let length: usize = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.to_lowercase()
+                            .strip_prefix("content-length: ")
+                            .map(|v| v.parse().unwrap())
+                    })
+                    .unwrap();
+                if bytes.len() >= split + 4 + length {
+                    let body: serde_json::Value =
+                        serde_json::from_slice(&bytes[split + 4..split + 4 + length]).unwrap();
+                    assert_eq!(body["model"], "vision-fixture");
+                    assert_eq!(body["messages"][0]["content"][1]["type"], "image_url");
+                    use base64::Engine;
+                    let url = body["messages"][0]["content"][1]["image_url"]["url"]
+                        .as_str()
+                        .unwrap();
+                    let image = base64::engine::general_purpose::STANDARD
+                        .decode(url.strip_prefix("data:image/png;base64,").unwrap())
+                        .unwrap();
+                    let image = image::load_from_memory(&image).unwrap();
+                    assert_eq!((image.width(), image.height()), (64, 64));
+                    break;
+                }
+            }
+        }
+        let body = r#"{"choices":[{"message":{"content":"A colored square"}}]}"#;
+        write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let p=app.execute("provider.save",json!({"name":"vision","endpoint":endpoint,"model":"vision-fixture","capabilities":["vision"],"authentication":"none"})).unwrap();
+    let result = app
+        .execute(
+            "provider.validate",
+            json!({"id":p["id"],"capability":"vision"}),
+        )
+        .unwrap();
+    assert_eq!(result["verified_capabilities"], json!(["vision"]));
+    server.join().unwrap();
 }

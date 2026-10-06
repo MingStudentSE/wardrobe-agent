@@ -346,3 +346,97 @@ fn mcp_initialized_full_authorization_is_reused_for_multiple_writes_without_reau
         2
     );
 }
+
+#[test]
+fn authorized_cli_and_mcp_validate_only_explicit_vision_capability() {
+    use std::io::Read;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = Vec::new();
+            let mut buffer = [0; 4096];
+            loop {
+                let n = stream.read(&mut buffer).unwrap();
+                assert!(n > 0);
+                bytes.extend_from_slice(&buffer[..n]);
+                if let Some(split) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&bytes[..split]);
+                    let length: usize = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.to_lowercase()
+                                .strip_prefix("content-length: ")
+                                .map(|n| n.parse().unwrap())
+                        })
+                        .unwrap();
+                    if bytes.len() >= split + 4 + length {
+                        let body: Value =
+                            serde_json::from_slice(&bytes[split + 4..split + 4 + length]).unwrap();
+                        assert!(body["messages"][0]["content"][1]["image_url"]["url"]
+                            .as_str()
+                            .unwrap()
+                            .starts_with("data:image/png;base64,"));
+                        break;
+                    }
+                }
+            }
+            let body = r#"{"choices":[{"message":{"content":"blue square"}}]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    cli(&path, "space.default", json!({}));
+    let p = cli(
+        &path,
+        "provider.save",
+        json!({"name":"vision","endpoint":endpoint,"model":"fixture","capabilities":["vision"],"authentication":"none"}),
+    );
+    let grant = cli(
+        &path,
+        "client.authorize",
+        json!({"name":"vision-validator","mode":"limited","operations":["provider.validate"],"member_ids":["default"],"expires_at":null}),
+    );
+    let token = grant["result"]["token"].as_str().unwrap();
+    let input = json!({"id":p["result"]["id"],"capability":"vision"});
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args([
+            "--db",
+            path.to_str().unwrap(),
+            "provider.validate",
+            "--client-stdin",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    write!(
+        child.stdin.take().unwrap(),
+        "{}",
+        json!({"token":token,"input":input})
+    )
+    .unwrap();
+    let result: Value = serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+    assert_eq!(result["result"]["verified_capabilities"], json!(["vision"]));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":"provider.validate","arguments":input}})).unwrap();
+    let response: Value =
+        serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+    let result: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(result["verified_capabilities"], json!(["vision"]));
+    server.join().unwrap();
+}
