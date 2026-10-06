@@ -90,6 +90,7 @@ impl Application {
             }
             tx.execute_batch("PRAGMA user_version=2;")?;
         }
+        tx.execute_batch("CREATE INDEX IF NOT EXISTS clothing_member_status_id ON clothing(member_id,json_extract(document,'$.status'),id);")?;
         members::migrate(&tx)?;
         tx.execute_batch("PRAGMA user_version=3;")?;
         tx.commit()?;
@@ -138,15 +139,20 @@ impl Application {
             }
         }
         match operation {
-            "capabilities" => {
-                Ok(json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES}))
-            }
+            "capabilities" => Ok(
+                json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES,"taxonomy":clothing::taxonomy()}),
+            ),
             "space.default" => self.default_space(),
             "member.list" => self.member_list(),
             "member.create" => self.member_create(input),
             "member.update" => self.member_update(input),
             "member.select" => self.member_select(input),
             "clothing.create" => self.clothing_create(input),
+            "clothing.history" => self.clothing_history(input),
+            "clothing.update" => self.clothing_update(input),
+            "clothing.archive" | "clothing.activate" | "clothing.delete" | "clothing.restore" => {
+                self.clothing_lifecycle(operation, input)
+            }
             "clothing.get" => self.clothing_get(input),
             "clothing.list" => self.clothing_list(input),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
