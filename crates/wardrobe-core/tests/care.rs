@@ -352,7 +352,7 @@ fn revoked_care_snapshot_keeps_adopted_asset_after_detach_delete_and_restart() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        13
+        wardrobe_core::DATABASE_SCHEMA_VERSION
     );
     for table in [
         "recognition_suggestions",
