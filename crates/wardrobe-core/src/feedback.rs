@@ -73,6 +73,14 @@ impl Application {
         let request = json!({"operation":op,"input":input}).to_string();
         let tx = self.begin_write()?;
         if let Some((old,result))=tx.query_row("SELECT request,result FROM feedback_receipts WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?{if old!=request{return Err(ApiError::new("idempotency_conflict","同操作标识不能改变反馈"));}return parse(result);}
+        let root = string(&input, "root_id")?;
+        let parents: u64 = tx.query_row("SELECT count(*) FROM feedback_events WHERE member_id=?1 AND root_id=?2 AND revision=(SELECT max(revision) FROM feedback_events WHERE member_id=?1 AND root_id=?2)", params![member, root], |row| row.get(0))?;
+        if parents > 1 {
+            return Err(ApiError::new(
+                "version_conflict",
+                "反馈有并发修订，请先选择要保留的分支",
+            ));
+        }
         let old:Option<String>=tx.query_row("SELECT document FROM feedback_events WHERE member_id=?1 AND root_id=?2 ORDER BY revision DESC LIMIT 1",params![member,string(&input,"root_id")?],|r|r.get(0)).optional()?;
         let mut doc = parse(old.ok_or_else(|| ApiError::new("not_found", "反馈不存在"))?)?;
         if input["expected_revision"]
@@ -229,7 +237,7 @@ impl Application {
                 .map(|v| v.as_u64().ok_or_else(|| invalid("历史游标须为修订整数")))
                 .transpose()?
                 .unwrap_or(0);
-            let mut statement=self.connection.prepare("SELECT document FROM feedback_events WHERE member_id=?1 AND root_id=?2 AND revision>?3 ORDER BY revision LIMIT ?4")?;
+            let mut statement=self.connection.prepare("SELECT document FROM feedback_events WHERE member_id=?1 AND root_id=?2 AND revision>?3 ORDER BY revision,id LIMIT ?4")?;
             let mut items = vec![];
             for row in statement.query_map(params![member, root, cursor, limit + 1], |r| {
                 r.get::<_, String>(0)

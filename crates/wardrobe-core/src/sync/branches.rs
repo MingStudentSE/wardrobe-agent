@@ -3,11 +3,21 @@ use super::*;
 /// Only the latest numeric revision participates in review; prior branches remain immutable.
 pub(super) fn conflicts(db: &rusqlite::Connection, member: &str) -> Result<Vec<Value>, ApiError> {
     let mut result = vec![];
-    for table in ["wear_events", "care_events", "outfit_versions"] {
+    for table in [
+        "wear_events",
+        "care_events",
+        "feedback_events",
+        "outfit_versions",
+    ] {
         let sql = if table == "outfit_versions" {
             "SELECT v.outfit_id,v.document FROM outfit_versions v JOIN outfits o ON o.id=v.outfit_id WHERE o.member_id=?1 AND v.version=(SELECT max(version) FROM outfit_versions WHERE outfit_id=v.outfit_id) ORDER BY v.outfit_id,v.document".to_owned()
         } else {
-            format!("SELECT e.root_event_id,e.document FROM {table} e WHERE e.member_id=?1 AND e.revision=(SELECT max(revision) FROM {table} WHERE root_event_id=e.root_event_id) ORDER BY e.root_event_id,e.document")
+            let root = if table == "feedback_events" {
+                "root_id"
+            } else {
+                "root_event_id"
+            };
+            format!("SELECT e.{root},e.document FROM {table} e WHERE e.member_id=?1 AND e.revision=(SELECT max(revision) FROM {table} WHERE {root}=e.{root}) ORDER BY e.{root},e.document")
         };
         let mut statement = db.prepare(&sql)?;
         let rows = statement
@@ -96,15 +106,20 @@ pub(super) fn resolve(
             )?;
         }
     } else {
+        let root = if table == "feedback_events" {
+            "root_id"
+        } else {
+            "root_event_id"
+        };
         let max: u64 = tx.query_row(
-            &format!("SELECT max(revision) FROM {table} WHERE root_event_id=?1 AND member_id=?2"),
+            &format!("SELECT max(revision) FROM {table} WHERE {root}=?1 AND member_id=?2"),
             params![entity, member],
             |r| r.get(0),
         )?;
         doc["supersedes_event_id"] = doc["id"].clone();
         doc["id"] = json!(uuid::Uuid::now_v7().to_string());
         doc["revision"] = json!(max + 1);
-        if doc["kind"] != "revocation" {
+        if table != "feedback_events" && doc["kind"] != "revocation" {
             doc["kind"] = json!("correction");
         }
         doc["created_at"] = now;

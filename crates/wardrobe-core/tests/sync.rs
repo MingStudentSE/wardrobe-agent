@@ -1379,6 +1379,69 @@ fn new_paired_installation_receives_original_remote_histories_on_a_new_target() 
         expected_feedback,
         "all accepted explicit feedback revisions must be portable"
     );
+    let branch_input = json!({"member_id":member,"operation_key":"portable concurrent feedback root","intent_id":feedback_intent["id"],"proposal_index":0,"reaction":"like"});
+    let branch_root = origin.execute("feedback.record", branch_input).unwrap();
+    drain(&origin);
+    drain(&owner);
+    let origin_branch = origin.execute("feedback.correct", json!({"member_id":member,"operation_key":"origin concurrent feedback correction","root_id":branch_root["root_id"],"expected_revision":1,"reaction":"dislike"})).unwrap();
+    let relay_branch = owner.execute("feedback.correct", json!({"member_id":member,"operation_key":"relay concurrent feedback correction","root_id":branch_root["root_id"],"expected_revision":1,"reaction":"skip"})).unwrap();
+    drain(&origin);
+    drain(&owner);
+    let conflicts = owner
+        .execute("sync.conflicts", json!({"member_id":member}))
+        .unwrap();
+    let conflict = conflicts["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| {
+            item["entity_type"] == "feedback_events" && item["entity_id"] == branch_root["root_id"]
+        })
+        .expect("concurrent feedback revisions require explicit branch review");
+    let unsafe_revision = owner.execute("feedback.correct", json!({"member_id":member,"operation_key":"must review divergent feedback first","root_id":branch_root["root_id"],"expected_revision":2,"reaction":"like"}));
+    assert_eq!(
+        unsafe_revision
+            .expect_err("domain correction cannot silently select one concurrent parent")
+            .code,
+        "version_conflict"
+    );
+    let selected = conflict["variants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|variant| variant["document"] == origin_branch)
+        .unwrap();
+    let choice = owner.execute("sync.resolve", json!({"member_id":member,"operation_key":"select original feedback branch","entity_type":"feedback_events","entity_id":branch_root["root_id"],"field":"branch","expected_token":conflict["token"],"branch_id":selected["branch_id"]})).unwrap();
+    assert_eq!(choice["document"]["revision"], 3);
+    assert_eq!(choice["document"]["reaction"], "dislike");
+    assert!(choice["document"].get("kind").is_none());
+    drain(&owner);
+    drain(&origin);
+    let expected_branch_history = owner
+        .execute(
+            "feedback.history",
+            json!({"member_id":member,"root_id":branch_root["root_id"]}),
+        )
+        .unwrap()["items"]
+        .clone();
+    assert_eq!(expected_branch_history.as_array().unwrap().len(), 4);
+    assert!(expected_branch_history
+        .as_array()
+        .unwrap()
+        .contains(&origin_branch));
+    assert!(expected_branch_history
+        .as_array()
+        .unwrap()
+        .contains(&relay_branch));
+    assert_eq!(
+        origin
+            .execute(
+                "feedback.history",
+                json!({"member_id":member,"root_id":branch_root["root_id"]})
+            )
+            .unwrap()["items"],
+        expected_branch_history
+    );
     pair(
         &owner,
         &newcomer,
@@ -1394,6 +1457,16 @@ fn new_paired_installation_receives_original_remote_histories_on_a_new_target() 
     drain(&owner);
     drain(&newcomer);
     assert_eq!(newcomer.execute("clothing.get",json!({"member_id":member,"id":garment["id"]})).expect("a fresh paired installation needs the received original stream, not only a snapshot with an unseen remote causal base")["name"],"current edited remote shirt");
+    assert_eq!(
+        newcomer
+            .execute(
+                "feedback.history",
+                json!({"member_id":member,"root_id":branch_root["root_id"]})
+            )
+            .unwrap()["items"],
+        expected_branch_history,
+        "third installation preserves both original branches and selected new revision"
+    );
     assert_eq!(
         newcomer
             .execute(
