@@ -9,3 +9,6 @@
 - **分页游标（cursor）**：单品 UUIDv7 排序位置；结果的 next_cursor 为 null 表示末页。
 - **当前成员（Selected Member）**：持久 workspace 记录的 GUI 选择；CLI/MCP 仍须明确 member_id，不将缺失参数隐式补为当前成员。
 - **默认成员别名（default）**：旧 CLI 输入兼容标识，通过共用成员解析器映射为 UUIDv7；输出与持久单品均使用 canonical UUID。
+- **模型配置（Provider Configuration）**：本机保存的模型端点、模型名、声明能力和认证方式；配置不包含实际凭据。
+- **安全凭据（Credential）**：由操作系统安全存储保存的供应商密钥；业务 API 只暴露是否已配置。
+- **已验证能力（Verified Capability）**：真实请求验证成功的能力；与用户按供应商文档选择的声明能力分开，文本连接成功不能证明视觉、生成或试穿成功。

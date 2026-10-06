@@ -24,7 +24,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
       - if: startsWith(matrix.os, 'ubuntu')
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev libdbus-1-dev dbus-x11 gnome-keyring
       - name: Cache native HEIC decoder
         uses: actions/cache@v4
         with:
@@ -43,6 +43,14 @@ jobs:
         shell: pwsh
         run: ./scripts/bootstrap-media-windows.ps1 -MediaRoot "$env:RUNNER_TEMP/wardrobe-media"
       - run: cargo test --workspace
+      - name: Verify native credential store (macOS and Windows)
+        if: runner.os != 'Linux'
+        run: cargo test -p wardrobe-core --test providers credentials_can_be_set_replaced_and_removed_without_echo_or_database_persistence -- --ignored
+      - name: Verify Secret Service credential store (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          dbus-run-session -- bash -c 'printf "%s" "disposable-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets >/dev/null; cargo test -p wardrobe-core --test providers credentials_can_be_set_replaced_and_removed_without_echo_or_database_persistence -- --ignored'
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: npm ci
