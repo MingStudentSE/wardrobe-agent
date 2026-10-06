@@ -25,3 +25,8 @@ GitHub check-run112458992926 与112458973838 的 annotations 实际返回：近�
 ## cf55e48 离线推荐联合源码
 
 自动run37526840740已completed/failure，五jobs steps=[]。首个macOS14检查实际annotation为付款失败或支出上限不足，另有macOSarm64容量提示；任何源构建步骤均未执行，不能计为平台通过。重复run37526835746 cancelled。没有手动retry；功能独立156Rust/9OS/去重45GUI不替代本源码平台发行验收。
+
+
+## d813dba 天气与 AI 推荐联合源码
+
+自动 run37534122770 已 completed/failure，Windows、macOS14、macOS15Intel、Ubuntu22.04/24.04 五 jobs 全部实际 steps=[]。Windows check112510626750 annotation 实际仍为账户付款失败或支出上限不足；未启动源码构建步骤。重复 run37534117399 cancelled。独立171Rust/9OS/48GUI不替代当前源码跨平台发行；未手动retry。
