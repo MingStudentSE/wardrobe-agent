@@ -4,7 +4,7 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS insights_preferences(member_id TEXT PRIMARY KEY REFERENCES members(id), stale_days INTEGER NOT NULL CHECK(stale_days BETWEEN 1 AND 36500));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS insights_preferences(member_id TEXT PRIMARY KEY REFERENCES members(id), document TEXT NOT NULL);")?;
     Ok(())
 }
 #[derive(Default)]
@@ -41,19 +41,19 @@ fn distribution(counts: BTreeMap<String, u64>, unknown: u64, denominator: usize)
     result
 }
 impl Application {
-    fn insights_days(&self, member: &str) -> Result<u64, ApiError> {
-        Ok(self
+    fn insights_preferences(&self, member: &str) -> Result<Value, ApiError> {
+        let stored = self
             .connection
             .query_row(
-                "SELECT stale_days FROM insights_preferences WHERE member_id=?1",
+                "SELECT document FROM insights_preferences WHERE member_id=?1",
                 [member],
-                |r| r.get::<_, u64>(0),
+                |r| r.get::<_, String>(0),
             )
-            .optional()?
-            .unwrap_or(90))
+            .optional()?;
+        stored.map(|s| serde_json::from_str(&s).map_err(|_| ApiError::new("storage_error", "洞察偏好损坏"))).unwrap_or_else(|| Ok(json!({"schema_version":1,"id":null,"member_id":member,"stale_days":90,"revision":0,"created_at":null,"updated_at":null})))
     }
     pub(super) fn insights_configure(&self, input: Value) -> Result<Value, ApiError> {
-        fields(&input, &["member_id", "stale_days"])?;
+        fields(&input, &["member_id", "stale_days", "expected_revision"])?;
         let member = self.member(&input)?;
         let value = input.get("stale_days").ok_or_else(invalid)?;
         let days = if value.is_null() {
@@ -64,16 +64,42 @@ impl Application {
                 .filter(|n| *n >= 1 && *n <= 36500)
                 .ok_or_else(invalid)?
         };
+        let expected = input["expected_revision"]
+            .as_u64()
+            .filter(|n| *n < u64::MAX)
+            .ok_or_else(invalid)?;
         let tx = self.begin_write()?;
-        tx.execute("INSERT INTO insights_preferences VALUES(?1,?2) ON CONFLICT(member_id) DO UPDATE SET stale_days=excluded.stale_days",params![member,days])?;
+        let previous = self.insights_preferences(&member)?;
+        if previous["revision"] != expected {
+            return Err(ApiError::new(
+                "version_conflict",
+                "洞察偏好已修改，请重新读取后保存",
+            ));
+        }
+        let now = Utc::now().to_rfc3339();
+        let id = previous["id"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        let doc = json!({"schema_version":1,"id":id,"member_id":member,"stale_days":days,"revision":expected+1,"created_at":previous["created_at"].as_str().unwrap_or(&now),"updated_at":now});
+        tx.execute("INSERT INTO insights_preferences VALUES(?1,?2) ON CONFLICT(member_id) DO UPDATE SET document=excluded.document",params![member,doc.to_string()])?;
+        tx.execute(
+            "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'insights.configure',?2)",
+            params![id, doc.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
+            params![id, doc.to_string()],
+        )?;
         tx.commit()?;
-        Ok(json!({"schema_version":1,"member_id":member,"stale_days":days}))
+        Ok(doc)
     }
     pub(super) fn insights_summary(&self, input: Value) -> Result<Value, ApiError> {
         fields(&input, &["member_id", "as_of_date", "timezone"])?;
         let _snapshot = self.connection.unchecked_transaction()?;
         let member = self.member(&input)?;
-        let stale_days = self.insights_days(&member)?;
+        let preferences = self.insights_preferences(&member)?;
+        let stale_days = preferences["stale_days"].as_u64().ok_or_else(invalid)?;
         let zone: chrono_tz::Tz = string(&input, "timezone")?.parse().map_err(|_| invalid())?;
         let date = string(&input, "as_of_date")?;
         let as_of = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| invalid())?;
@@ -178,13 +204,13 @@ impl Application {
             .map(|c| json!({"clothing_id":c["id"],"name":c["name"]}))
             .collect();
         Ok(
-            json!({"schema_version":1,"member_id":member,"as_of_date":date,"timezone":zone.to_string(),"stale_days":stale_days,"inventory":{"scope":"active_and_archived","total":inventory.len(),"by_status":statuses,"category_denominator":inventory.len(),"color_denominator":inventory.len(),"categories":distribution(categories,0,inventory.len()),"colors":distribution(colors,unknown,inventory.len())},"effective_event_count":event_count,"frequency":frequency,"stale":stale,"never_worn":never,"combinations":combinations.into_iter().map(|(ids,(count,days))|json!({"names":ids.iter().map(|id|counts[id].snapshot["name"].clone()).collect::<Vec<_>>(),"clothing_ids":ids,"wearCount":count,"wearDays":days.len()})).collect::<Vec<_>>(),"rules":{"frequency_scope":"effective_wear_history_including_deleted","wear_days":"distinct_saved_local_date","combination":"unordered_exact_clothing_id_set","last_worn":"occurred_at_converted_to_query_timezone","stale_boundary":"days_since_worn_greater_than_or_equal_threshold","inventory":"current_active_and_archived_even_for_past_as_of"}}),
+            json!({"schema_version":1,"member_id":member,"as_of_date":date,"timezone":zone.to_string(),"preferences":preferences,"stale_days":stale_days,"inventory":{"scope":"active_and_archived","total":inventory.len(),"by_status":statuses,"category_denominator":inventory.len(),"color_denominator":inventory.len(),"categories":distribution(categories,0,inventory.len()),"colors":distribution(colors,unknown,inventory.len())},"effective_event_count":event_count,"frequency":frequency,"stale":stale,"never_worn":never,"combinations":combinations.into_iter().map(|(ids,(count,days))|json!({"names":ids.iter().map(|id|counts[id].snapshot["name"].clone()).collect::<Vec<_>>(),"clothing_ids":ids,"wearCount":count,"wearDays":days.len()})).collect::<Vec<_>>(),"rules":{"frequency_scope":"effective_wear_history_including_deleted","wear_days":"distinct_saved_local_date","combination":"unordered_exact_clothing_id_set","last_worn":"occurred_at_converted_to_query_timezone","stale_boundary":"days_since_worn_greater_than_or_equal_threshold","inventory":"current_active_and_archived_even_for_past_as_of"}}),
         )
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
     vec![
-        json!({"name":"insights.summary","description":"按有效实际穿着重算衣橱数量、分布、次数与当地天数；不从搭配推断穿过","inputSchema":{"type":"object","required":["member_id","as_of_date","timezone"],"properties":{"member_id":{"type":"string"},"as_of_date":{"type":"string"},"timezone":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id","inventory","frequency","stale","stale_days","never_worn","combinations","rules"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"inventory":{"type":"object"},"frequency":{"type":"array"},"stale":{"type":"array"},"stale_days":{"type":"integer"},"never_worn":{"type":"array"},"combinations":{"type":"array"},"rules":{"type":"object"}}}}),
-        json!({"name":"insights.configure","description":"按成员保存久未穿阈值；null重置90天，不保存派生统计","inputSchema":{"type":"object","required":["member_id","stale_days"],"properties":{"member_id":{"type":"string"},"stale_days":{"type":["integer","null"],"minimum":1,"maximum":36500}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id","stale_days"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"stale_days":{"type":"integer","minimum":1,"maximum":36500}}}}),
+        json!({"name":"insights.summary","description":"按有效实际穿着重算衣橱数量、分布、次数与当地天数；不从搭配推断穿过","inputSchema":{"type":"object","required":["member_id","as_of_date","timezone"],"properties":{"member_id":{"type":"string"},"as_of_date":{"type":"string"},"timezone":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id","inventory","frequency","stale","stale_days","never_worn","combinations","rules","preferences"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"inventory":{"type":"object"},"frequency":{"type":"array"},"stale":{"type":"array"},"stale_days":{"type":"integer"},"never_worn":{"type":"array"},"combinations":{"type":"array"},"rules":{"type":"object"},"preferences":{"type":"object"}}}}),
+        json!({"name":"insights.configure","description":"按成员保存久未穿阈值；null重置90天，不保存派生统计","inputSchema":{"type":"object","required":["member_id","stale_days","expected_revision"],"properties":{"member_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":0},"stale_days":{"type":["integer","null"],"minimum":1,"maximum":36500}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","id","member_id","stale_days","revision","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"revision":{"type":"integer","minimum":1},"created_at":{"type":"string"},"updated_at":{"type":"string"},"member_id":{"type":"string"},"stale_days":{"type":"integer","minimum":1,"maximum":36500}}}}),
     ]
 }

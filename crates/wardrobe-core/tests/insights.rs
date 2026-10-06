@@ -1,6 +1,91 @@
 use serde_json::json;
 use wardrobe_core::Application;
 #[test]
+fn highest_database_version_repairs_missing_preferences_and_retains_wear_and_inventory() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("db");
+    let a = Application::open(&p).unwrap();
+    let item = a
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"迁移衣物","category":"top"}),
+        )
+        .unwrap();
+    a.execute("wear.record",json!({"member_id":"default","operation_key":"migration","local_date":"2020-01-01","timezone":"UTC","clothing_ids":[item["id"]]})).unwrap();
+    drop(a);
+    let fixture = rusqlite::Connection::open(&p).unwrap();
+    fixture
+        .execute_batch("DROP TABLE insights_preferences; PRAGMA user_version=14;")
+        .unwrap();
+    drop(fixture);
+    let a = Application::open(&p).unwrap();
+    let query = json!({"member_id":"default","as_of_date":"2020-04-01","timezone":"UTC"});
+    let result = a.execute("insights.summary", query).unwrap();
+    assert_eq!(result["inventory"]["total"], 1);
+    assert_eq!(result["frequency"][0]["wearCount"], 1);
+    assert_eq!(result["stale_days"], 90);
+    assert_eq!(
+        a.execute(
+            "insights.configure",
+            json!({"member_id":"default","stale_days":30,"expected_revision":0})
+        )
+        .unwrap()["revision"],
+        1
+    );
+    let db = rusqlite::Connection::open(&p).unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
+            .unwrap(),
+        wardrobe_core::DATABASE_SCHEMA_VERSION
+    );
+}
+#[test]
+fn member_insight_preferences_have_stable_identity_and_compare_and_swap_revision() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("db");
+    let a = Application::open(&p).unwrap();
+    let b = Application::open(&p).unwrap();
+    let first = a
+        .execute(
+            "insights.configure",
+            json!({"member_id":"default","stale_days":91,"expected_revision":0}),
+        )
+        .unwrap();
+    assert_eq!(first["revision"], 1);
+    assert_eq!(first["schema_version"], 1);
+    assert!(uuid::Uuid::parse_str(first["id"].as_str().unwrap()).is_ok());
+    assert_eq!(first["created_at"], first["updated_at"]);
+    assert_eq!(
+        b.execute(
+            "insights.configure",
+            json!({"member_id":"default","stale_days":89,"expected_revision":0})
+        )
+        .unwrap_err()
+        .code,
+        "version_conflict"
+    );
+    let second = b
+        .execute(
+            "insights.configure",
+            json!({"member_id":"default","stale_days":null,"expected_revision":1}),
+        )
+        .unwrap();
+    assert_eq!(second["revision"], 2);
+    assert_eq!(second["id"], first["id"]);
+    assert_eq!(second["created_at"], first["created_at"]);
+    assert_eq!(second["stale_days"], 90);
+    drop(a);
+    drop(b);
+    let c = Application::open(&p).unwrap();
+    let actual = c
+        .execute(
+            "insights.summary",
+            json!({"member_id":"default","as_of_date":"2020-01-01","timezone":"UTC"}),
+        )
+        .unwrap();
+    assert_eq!(actual["preferences"], second);
+}
+#[test]
 fn inventory_multicolor_and_actual_frequency_match_hand_calculation() {
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("db")).unwrap();
@@ -118,7 +203,7 @@ fn stale_boundaries_preferences_and_combinations_recompute_after_correction_and_
     assert_eq!(before["combinations"].as_array().unwrap().len(), 3);
     app.execute(
         "insights.configure",
-        json!({"member_id":"default","stale_days":89}),
+        json!({"member_id":"default","stale_days":89,"expected_revision":0}),
     )
     .unwrap();
     drop(app);
@@ -142,7 +227,7 @@ fn stale_boundaries_preferences_and_combinations_recompute_after_correction_and_
     assert_eq!(
         app.execute(
             "insights.configure",
-            json!({"member_id":"default","stale_days":null})
+            json!({"member_id":"default","stale_days":null,"expected_revision":1})
         )
         .unwrap()["stale_days"],
         90
@@ -199,7 +284,7 @@ fn empty_denominators_member_preferences_authorization_and_timezone_cutoff_are_e
     }
     app.execute(
         "insights.configure",
-        json!({"member_id":"default","stale_days":2}),
+        json!({"member_id":"default","stale_days":2,"expected_revision":0}),
     )
     .unwrap();
     assert_eq!(
