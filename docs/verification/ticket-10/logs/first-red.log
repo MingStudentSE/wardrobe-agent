@@ -1,0 +1,24 @@
+   Compiling libheif-sys v5.3.1+1.23.1
+   Compiling libheif-rs v3.0.0
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-10/crates/wardrobe-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.18s
+     Running tests/care.rs (target/debug/deps/care-932fb77820f3f46a)
+
+running 1 test
+test positive_optional_threshold_and_manual_dirty_are_separate_from_lifecycle ... FAILED
+
+failures:
+
+---- positive_optional_threshold_and_manual_dirty_are_separate_from_lifecycle stdout ----
+
+thread 'positive_optional_threshold_and_manual_dirty_are_separate_from_lifecycle' (3228835) panicked at crates/wardrobe-core/tests/care.rs:5:205:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "unsupported_operation", message: "此操作尚不可用" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    positive_optional_threshold_and_manual_dirty_are_separate_from_lifecycle
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p wardrobe-core --test care`
