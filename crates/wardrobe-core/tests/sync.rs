@@ -19,7 +19,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
     let owner = Application::open(&ap).unwrap();
     let peer = Application::open(&bp).unwrap();
     let _a = Cleanup(ap.clone());
-    let _b = Cleanup(bp);
+    let _b = Cleanup(bp.clone());
     let existing = owner
         .execute(
             "clothing.create",
@@ -687,6 +687,53 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
             .iter()
             .all(|v| v["entity_id"] != disposable["id"] || v["field"] != "lifecycle"));
     }
+    let delayed_member = owner
+        .execute("member.create", json!({"name":"out of order member"}))
+        .unwrap();
+    let delayed=owner.execute("clothing.create",json!({"member_id":delayed_member["member_id"],"name":"fact before its member","category":"top"})).unwrap();
+    owner.execute("sync.run", json!({})).unwrap();
+    let read =
+        rusqlite::Connection::open_with_flags(&ap, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let operation: String = read
+        .query_row(
+            "SELECT op_id FROM sync_journal WHERE entity_type='members' AND entity_id=?1",
+            [delayed_member["member_id"].as_str().unwrap()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    drop(read);
+    let marker = remote
+        .path()
+        .join(format!("{space}/changes/{operation}.commit"));
+    let parked = ap.parent().unwrap().join("delayed-member-marker");
+    std::fs::rename(&marker, &parked).unwrap();
+    peer.execute("sync.run", json!({})).unwrap();
+    let state = peer.execute("sync.status", json!({})).unwrap();
+    assert!(
+        state["pending"].as_u64().is_some_and(|n| n > 0),
+        "out of order dependencies must be durably staged"
+    );
+    drop(peer);
+    let peer = Application::open(&bp).unwrap();
+    assert_eq!(
+        peer.execute("sync.status", json!({})).unwrap()["pending"],
+        state["pending"]
+    );
+    std::fs::rename(&parked, &marker).unwrap();
+    peer.execute("sync.run", json!({})).unwrap();
+    assert_eq!(
+        peer.execute("sync.status", json!({})).unwrap()["pending"],
+        0
+    );
+    assert_eq!(
+        peer.execute(
+            "clothing.get",
+            json!({"member_id":delayed_member["member_id"],"id":delayed["id"]})
+        )
+        .unwrap()["name"],
+        "fact before its member"
+    );
 }
 
 #[test]
