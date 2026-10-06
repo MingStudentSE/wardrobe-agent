@@ -61,7 +61,7 @@
 2. **计划与读取**：LLM 调用只读工具；库存与统计由查询提供，不靠模型记忆猜测。
 3. **候选与约束**：确定性引擎处理可用性、温度、场合、层次、必选/排除、近期重复；模型从候选组织多套方案。
 4. **校验**：结构化输出验证、实际 ID 存在、所属成员、类别覆盖、同部位冲突与必选要求；非法输出重试有限次后规则回退。
-5. **展示与落地**：展示衣物/理由/替代项；用户可保存/改穿/生成图/记录实际穿着。读、写、上传、付费生成分别有明确策略。
+5. **展示与落地**：展示衣物/理由/替代项；用户可保存/改穿/生成图/记录实际穿着。全部业务操作能力均提供，API 调用消耗用户配置的模型额度，产品不设付费生成。具体执行边界见 [Beta 开发规格](05-Beta开发规格.md)。
 6. **记账与学习**：保存领域事件和操作来源；画像可重新计算。工具重试使用 idempotency key。
 
 ## 6. 首版工具集合
@@ -89,7 +89,7 @@ sync.status / run / conflicts.list / conflicts.resolve
 backup.export / restore_preview
 ```
 
-这是内部逻辑名称；MCP 导出时使用兼容 SDK 的稳定工具名（如 `wardrobe_items_search`），不强制沿用聊天中带点名称。所有工具有 input/output schema、member_id、分页、类型化错误；长任务立即返回 job_id。写工具按客户端 granted scopes 执行。永久清理、自动照片上传与费用消费不默认开放给外部 Agent。
+这是内部逻辑名称；MCP 导出时使用兼容 SDK 的稳定工具名（如 `wardrobe_items_search`），不强制沿用聊天中带点名称。所有工具有 input/output schema、member_id、分页、类型化错误；长任务立即返回 job_id。写工具按客户端 granted scopes 执行。用户可授予外部 Agent 完整业务 scopes，包括图片上传与生成；范围内按指令执行，不设付费权限。永久清理和覆盖恢复使用明确的专门动作；成员校验和同步图片白名单不能绕过。
 
 Resources：`wardrobe://profiles/{id}/items`、`wardrobe://items/{id}`、`wardrobe://outfits/{id}`、`wardrobe://history/{month}`、`wardrobe://analytics`、`wardrobe://preferences`；大列表分页，媒体按范围请求，不一次倾倒全部照片。
 
