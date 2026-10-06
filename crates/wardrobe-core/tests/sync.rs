@@ -1057,6 +1057,24 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
     let processed = owner.execute("sync.process", json!({"id":job_id})).unwrap();
     assert_eq!(processed["state"], "queued");
     let first = processed["result"].clone();
+    let mut index_heads = Vec::new();
+    fn collect_heads(path: &std::path::Path, heads: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(path).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                collect_heads(&entry.path(), heads);
+            } else if entry.file_name() == "head.index" {
+                heads.push(entry.path());
+            }
+        }
+    }
+    collect_heads(remote.path(), &mut index_heads);
+    assert_eq!(
+        index_heads.len(),
+        1,
+        "bounded publication must durably advertise its authenticated publisher index head"
+    );
+
     assert!(
         first["sent"].as_u64().unwrap() <= 256,
         "one run must not materialize an unbounded journal"
@@ -1071,6 +1089,25 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
         if processed["state"] == "succeeded" {
             break;
         }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let changes = index_heads[0].ancestors().nth(5).unwrap().join("changes");
+        let prior = std::fs::metadata(&changes).unwrap().permissions();
+        // Direct known-object reads remain possible; directory enumeration does not.
+        // An authenticated publisher index must make old random-name scans unnecessary.
+        std::fs::set_permissions(&changes, std::fs::Permissions::from_mode(0o111)).unwrap();
+        let indexed_receive = peer.sync_batch();
+        std::fs::set_permissions(&changes, prior).unwrap();
+        let indexed_receive = indexed_receive
+            .expect("a peer must receive indexed changes without enumerating their directory");
+        assert!(
+            indexed_receive["received"].as_u64().unwrap() > 0
+                || indexed_receive["pending"].as_u64().unwrap() > 0
+        );
+        assert_eq!(indexed_receive["sent"], 0);
     }
     for _ in 0..10 {
         let r = peer.sync_batch().unwrap();

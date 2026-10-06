@@ -2,6 +2,7 @@
 mod assets;
 mod branches;
 mod conflicts;
+mod index;
 mod pending;
 mod schema;
 pub mod storage;
@@ -175,7 +176,7 @@ fn error(code: &str) -> ApiError {
 }
 pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     repair_immutable(tx)?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_bootstrap_ids(op_id TEXT PRIMARY KEY); CREATE TABLE IF NOT EXISTS sync_publications(target_id TEXT NOT NULL,op_id TEXT NOT NULL,PRIMARY KEY(target_id,op_id)); CREATE TABLE IF NOT EXISTS sync_pending(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,document TEXT NOT NULL,reason TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_quarantine(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,code TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_reassert(op_id TEXT PRIMARY KEY,fields TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_resolution_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_index_read(target_id TEXT NOT NULL,epoch INTEGER NOT NULL,publisher TEXT NOT NULL,next_page INTEGER NOT NULL,observed_head INTEGER NOT NULL,previous_digest TEXT,PRIMARY KEY(target_id,epoch,publisher)); CREATE TABLE IF NOT EXISTS sync_index_batches(target_id TEXT NOT NULL,epoch INTEGER NOT NULL,page INTEGER NOT NULL,document TEXT NOT NULL,published INTEGER NOT NULL,PRIMARY KEY(target_id,epoch,page)); CREATE TABLE IF NOT EXISTS sync_index_entries(target_id TEXT NOT NULL,epoch INTEGER NOT NULL,op_id TEXT NOT NULL,page INTEGER NOT NULL,PRIMARY KEY(target_id,epoch,op_id)); CREATE TABLE IF NOT EXISTS sync_bootstrap_ids(op_id TEXT PRIMARY KEY); CREATE TABLE IF NOT EXISTS sync_publications(target_id TEXT NOT NULL,op_id TEXT NOT NULL,PRIMARY KEY(target_id,op_id)); CREATE TABLE IF NOT EXISTS sync_pending(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,document TEXT NOT NULL,reason TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_quarantine(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,code TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_reassert(op_id TEXT PRIMARY KEY,fields TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_resolution_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
     for table in TABLES {
         for kind in ["INSERT", "UPDATE"] {
             let key = entity_key(table, "NEW");
@@ -649,15 +650,25 @@ impl Application {
                 sent += 1;
             }
         }
+        self.sync_publish_index(&storage, &identity, &target_key, &prefix)?;
+        let (indexed_objects, indexed_more) =
+            self.sync_index_objects(&storage, &identity, &target_key, &prefix)?;
         let mut received = 0;
         let mut quarantined = 0;
         let mut incoming_count = 0usize;
-        let mut incoming_more = false;
+        let mut incoming_more = indexed_more;
         'incoming: loop {
             let initial = received;
             let mut cursor = None;
             loop {
-                let page = storage.list(&prefix, cursor.as_deref(), 64)?;
+                let page = if let Some(items) = &indexed_objects {
+                    storage::Page {
+                        items: items.clone(),
+                        cursor: None,
+                    }
+                } else {
+                    storage.list(&prefix, cursor.as_deref(), 64)?
+                };
                 for object in page.items {
                     if !object.key.ends_with(".commit") {
                         continue;
@@ -739,7 +750,7 @@ impl Application {
         received += replayed;
         quarantined += replay_quarantined;
         let missing_assets = self.sync_fetch_assets(&storage)?;
-        let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0)", [&target_key], |r| r.get(0))?;
+        let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0 OR NOT EXISTS(SELECT 1 FROM sync_index_entries e WHERE e.target_id=?1 AND e.epoch=?2 AND e.op_id=j.op_id))", params![target_key, identity["epoch"].as_u64().ok_or_else(||error("sync_invalid"))?], |r| r.get(0))?;
         Ok(
             json!({"schema_version":1,"sent":sent,"received":received,"pending":pending,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":has_more || incoming_more || (pending > 0 && replayed + replay_quarantined == (256 - incoming_count) as u64 && incoming_count < 256)}),
         )
