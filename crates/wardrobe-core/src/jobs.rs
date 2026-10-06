@@ -156,7 +156,8 @@ impl Application {
             }
             doc["state"] = json!("cancelled");
         } else {
-            if ["product_display", "outfit_flatlay"].contains(&doc["kind"].as_str().unwrap_or(""))
+            if ["product_display", "outfit_flatlay", "virtual_tryon"]
+                .contains(&doc["kind"].as_str().unwrap_or(""))
                 && doc["submitted_at"].is_string()
             {
                 return Err(ApiError::new(

@@ -10,6 +10,7 @@ mod members;
 mod outfits;
 mod product;
 mod providers;
+mod tryon;
 mod wears;
 
 use rusqlite::{params, Connection};
@@ -191,6 +192,13 @@ impl Application {
             "provider.credential.set"
             | "provider.credential.remove"
             | "provider.credential.status" => self.provider_credential(operation, input),
+            "tryon.person.import" => self.tryon_person_import(input),
+            "tryon.process" => self.tryon_process(input),
+            "tryon.save" => self.tryon_save(input),
+            "tryon.preview" => self.tryon_preview(input),
+            "tryon.person.preview" => self.tryon_person_preview(input),
+            "tryon.compare" => self.tryon_compare(input),
+            "tryon.generate" => self.tryon_generate(input),
             "flatlay.generate" => self.flatlay_generate(input),
             "flatlay.process" => self.flatlay_process(input),
             "flatlay.save" => self.flatlay_save(input),
@@ -250,6 +258,7 @@ pub fn operations() -> Value {
     descriptors.extend(providers::descriptors());
     descriptors.extend(product::descriptors());
     descriptors.extend(flatlay::descriptors());
+    descriptors.extend(tryon::descriptors());
     descriptors.extend(authorization::descriptors());
     descriptors.extend(assets::descriptors());
     descriptors.extend(outfits::descriptors());
