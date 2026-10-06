@@ -1,0 +1,24 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-17/crates/wardrobe-core)
+error[E0277]: the trait bound `Array<u8, UInt<UInt<UInt<UInt<_, B0>, B0>, B0>, B0>>: LowerHex` is not satisfied
+   --> crates/wardrobe-core/src/feedback.rs:419:100
+    |
+419 | ...er,"operation_key":format!("feedback:{:x}",Sha256::digest(key.as_bytes())),"clothing_ids":actual});
+    |                                         ----  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `LowerHex` is not implemented for `Array<u8, UInt<UInt<UInt<UInt<UInt<_, B0>, B0>, B0>, B0>, B0>>`
+    |                                         |
+    |                                         required by this formatting parameter
+    |
+    = help: the following other types implement trait `LowerHex`:
+              &T
+              &mut T
+              ArrayBase<S, D>
+              ArrayRef<A, D>
+              Braced
+              Either<L, R>
+              GenericArray<u8, T>
+              Hyphenated
+            and 86 others
+    = note: the full name for the type has been written to '/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/wardrobe_core-87f0a8409b49cfd6.long-type-5683327480352940499.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `wardrobe-core` (lib) due to 1 previous error

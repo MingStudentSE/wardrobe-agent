@@ -1,0 +1,17 @@
+{
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "node": "v26.0.0",
+  "source_branch": "codex/ticket-17",
+  "root_ancestor": "90b8a18ec8ecda1d8fcff1f37c5bbf17ce235e6a",
+  "environment_file": "/tmp/wardrobe-implementation/ticket16-env.sh",
+  "cargo_target": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target",
+  "jobs": 2,
+  "incremental": 0,
+  "debug": 0,
+  "native_media_prefix": "/tmp/wardrobe-media-native/install",
+  "test_data": "temporary public synthetic only",
+  "user_credentials_read": false
+}

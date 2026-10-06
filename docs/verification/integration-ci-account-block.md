@@ -30,3 +30,8 @@ GitHub check-run112458992926 与112458973838 的 annotations 实际返回：近�
 ## d813dba 天气与 AI 推荐联合源码
 
 自动 run37534122770 已 completed/failure，Windows、macOS14、macOS15Intel、Ubuntu22.04/24.04 五 jobs 全部实际 steps=[]。Windows check112510626750 annotation 实际仍为账户付款失败或支出上限不足；未启动源码构建步骤。重复 run37534117399 cancelled。独立171Rust/9OS/48GUI不替代当前源码跨平台发行；未手动retry。
+
+
+## 18b7b191 显式反馈联合源码
+
+自动 run37537612838 已 completed/failure；Windows、macOS14、macOS15Intel、Ubuntu22.04/24.04 五 jobs 实际 steps=[]。Windows check112522547841 annotation 实际仍为账户付款失败或支出上限不足，未启动 runner。重复 run37537607953 cancelled。独立180Rust/9OS/51GUI不能替代当前源码跨平台发行；没有手动retry。

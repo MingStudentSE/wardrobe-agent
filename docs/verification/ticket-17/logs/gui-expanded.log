@@ -1,0 +1,64 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/feedback.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5189 --strictPort
+[WebServer] (node:51655) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 3 tests using 1 worker
+
+(node:51657) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/feedback.spec.ts:2:1 › 推荐意见评分与历史持久，Try Another保持约束和七宽度 (1.0s)
+  ✘  2 tests/feedback.spec.ts:14:1 › 实际穿了与改穿必须UI确认，响应丢失重试只记一次穿着 (30.0s)
+(node:51993) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  3 tests/feedback.spec.ts:30:1 › UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着 (644ms)
+
+
+  1) tests/feedback.spec.ts:14:1 › 实际穿了与改穿必须UI确认，响应丢失重试只记一次穿着 ──────────────────────────────────────
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.selectOption: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for locator('#recommendations').locator('.recommendation-feedback').getByLabel('实际穿着选择', { exact: true })
+
+
+      23 |  await feedback.getByRole('button',{name:'记录实际穿着反馈',exact:true}).click();await expect(panel.getByRole('alert')).toContainText('响应丢失');expect((await call('wear.list')).items.length).toBe(before+1);
+      24 |  await feedback.getByRole('button',{name:'记录实际穿着反馈',exact:true}).click();await expect(feedback.getByRole('status')).toContainText('实际穿着已保存');expect((await call('wear.list')).items.length).toBe(before+1);expect(submitted).toBe(2);
+    > 25 |  await feedback.getByLabel('实际穿着选择',{exact:true}).selectOption('changed');const selected=await feedback.locator('fieldset input[type=checkbox]:checked').count();expect(selected).toBeGreaterThan(0);
+         |                                                   ^
+      26 |  const history=(await call('feedback.list')).items.find((f:any)=>f.reaction==='actual_wore');const oldTop=history.proposal.items.find((i:any)=>i.role==='top');await feedback.locator('fieldset').getByLabel(oldTop.name,{exact:true}).uncheck();await feedback.locator('fieldset').getByLabel('明确改穿上衣',{exact:true}).check();
+      27 |  await expect(feedback.getByRole('button',{name:'记录实际穿着反馈',exact:true})).toBeDisabled();await feedback.getByLabel('确认这些衣物在所填当地日期实际穿过',{exact:true}).check();await feedback.getByRole('button',{name:'记录实际穿着反馈',exact:true}).click();await expect(feedback.getByRole('status')).toContainText('实际穿着已保存');
+      28 |  const worn=(await call('wear.list')).items;expect(worn.length).toBe(before+2);const changed=(await call('feedback.list')).items.find((f:any)=>f.reaction==='changed');const event=worn.find((w:any)=>w.id===changed.wear_event_id);expect(event.local_date).toBe('2020-01-01');expect(event.timezone).toBe('Pacific/Honolulu');expect(event.items.some((i:any)=>i.clothing_id===alternative.id)).toBe(true);expect(event.items.some((i:any)=>i.clothing_id===oldTop.clothing_id)).toBe(false);
+        at /private/tmp/wardrobe-ticket-17/apps/desktop/tests/feedback.spec.ts:25:51
+
+    Error Context: test-results/feedback-实际穿了与改穿必须UI确认，响应丢失重试只记一次穿着/error-context.md
+
+  2) tests/feedback.spec.ts:30:1 › UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着 ──────────────────────────────────────
+
+    Error: locator.uncheck: Error: strict mode violation: locator('#recommendations').locator('.recommendation-feedback').locator('details').filter({ has: getByRole('button', { name: '确认当天排除', exact: true }) }).getByRole('checkbox') resolved to 3 elements:
+        1) <input type="checkbox"/> aka getByRole('checkbox', { name: '当天固定上衣', exact: true })
+        2) <input type="checkbox"/> aka getByRole('checkbox', { name: '反馈裤子' })
+        3) <input type="checkbox"/> aka getByRole('checkbox', { name: '反馈鞋' })
+
+    Call log:
+      - waiting for locator('#recommendations').locator('.recommendation-feedback').locator('details').filter({ has: getByRole('button', { name: '确认当天排除', exact: true }) }).getByRole('checkbox')
+
+
+      32 |  const call=async(operation:string,input:object={})=>{const r=await page.request.post('/__wardrobe_dev_api',{data:{operation,input:{member_id:'default',...input}}});const b=await r.json();if(b.error)throw new Error(b.error.message);return b.result;};
+      33 |  await call('clothing.create',{name:'当天固定上衣',category:'top'});await panel.getByRole('button',{name:'刷新推荐库存',exact:true}).click();await panel.getByText('选择固定、排除与库存优先',{exact:true}).click();await panel.getByLabel('搜索推荐库存',{exact:true}).fill('当天固定上衣');await panel.getByLabel('固定 当天固定上衣',{exact:true}).check();await panel.getByRole('button',{name:'生成离线搭配',exact:true}).click();const feedback=panel.locator('.recommendation-feedback');const before=(await call('wear.list')).items.length;
+    > 34 |  await feedback.getByText('当天排除所选单品',{exact:true}).click();const day=feedback.locator('details').filter({has:page.getByRole('button',{name:'确认当天排除',exact:true})});await day.getByRole('checkbox').uncheck();
+         |                                                                                                                                                                                                    ^
+      35 |  await day.getByLabel('当天固定上衣',{exact:true}).check();await day.getByRole('button',{name:'确认当天排除',exact:true}).click();await expect(feedback.getByRole('status')).toContainText('反馈已保存');
+      36 |  await panel.getByRole('button',{name:'生成离线搭配',exact:true}).click();await expect(panel.getByRole('alert')).toContainText('当天排除');expect((await call('wear.list')).items.length).toBe(before);
+      37 |  const history=panel.locator('.feedback-history');await history.getByRole('button',{name:/查看或更正反馈/}).first().click();await history.getByLabel('更正舒适评分',{exact:true}).selectOption('2');await history.getByRole('button',{name:'保存反馈更正',exact:true}).click();await expect(history).toContainText('舒适 2');await history.getByLabel('撤销反馈原因',{exact:true}).fill('不再排除');await history.getByRole('button',{name:'撤销此反馈',exact:true}).click();await history.getByLabel('包含已撤销反馈',{exact:true}).check();await expect(history).toContainText('已撤销');expect((await call('wear.list')).items.length).toBe(before);
+        at /private/tmp/wardrobe-ticket-17/apps/desktop/tests/feedback.spec.ts:34:196
+
+    Error Context: test-results/feedback-UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着/error-context.md
+
+  2 failed
+    tests/feedback.spec.ts:14:1 › 实际穿了与改穿必须UI确认，响应丢失重试只记一次穿着 ───────────────────────────────────────
+    tests/feedback.spec.ts:30:1 › UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着 ───────────────────────────────────────
+  1 passed (33.3s)

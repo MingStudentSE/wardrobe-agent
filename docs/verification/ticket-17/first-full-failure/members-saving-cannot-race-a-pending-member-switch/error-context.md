@@ -1,0 +1,791 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: members.spec.ts >> saving cannot race a pending member switch
+- Location: tests/members.spec.ts:29:1
+
+# Error details
+
+```
+Error: expect(locator).toHaveCount(expected) failed
+
+Locator:  getByRole('article')
+Expected: 24
+Received: 26
+Timeout:  5000ms
+
+Call log:
+  - Expect "toHaveCount" getByRole('article') with timeout 5000ms
+  - waiting for getByRole('article')
+    5 × locator resolved to 1 element
+      - unexpected value "1"
+    9 × locator resolved to 26 elements
+      - unexpected value "26"
+
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - paragraph [ref=e5]: 衣橱 / WARDROBE
+    - paragraph [ref=e6]: 本地空间
+    - heading "我的衣橱" [level=1] [ref=e7]
+    - region "成员档案" [ref=e8]:
+      - generic [ref=e9]:
+        - text: 当前成员
+        - combobox "当前成员" [ref=e10]:
+          - option "我" [selected]
+          - option "洗护隔离成员"
+          - option "搭配图独立验收成员"
+          - option "批量验收 durable batch drafts merg"
+          - option "批量验收 cancelled perfile queue s"
+          - option "洞察手算验收"
+          - option "洞察空态验收"
+          - option "洞察延迟加载"
+          - option "家人"
+      - group [ref=e11]:
+        - generic "管理成员档案" [ref=e12] [cursor=pointer]
+    - link "单品" [ref=e13] [cursor=pointer]:
+      - /url: "#collection"
+    - link "搭配" [ref=e14] [cursor=pointer]:
+      - /url: "#lookbook"
+    - link "穿着" [ref=e15] [cursor=pointer]:
+      - /url: "#wears"
+    - link "洗护" [ref=e16] [cursor=pointer]:
+      - /url: "#care"
+    - link "推荐" [ref=e17] [cursor=pointer]:
+      - /url: "#recommendations"
+    - link "洞察" [ref=e18] [cursor=pointer]:
+      - /url: "#insights"
+    - paragraph [ref=e19]: 整理已有衣物。手工录入随时可用。
+  - main [ref=e20]:
+    - generic [ref=e21]:
+      - generic [ref=e22]:
+        - heading "衣物，慢慢整理。" [level=2] [ref=e23]
+        - paragraph [ref=e24]: 衣橱、归档与回收站，保留每件衣物的事实。
+      - link "录入单品" [ref=e25] [cursor=pointer]:
+        - /url: "#entry"
+    - generic [ref=e26]:
+      - region "衣物列表" [ref=e27]:
+        - generic [ref=e28]:
+          - generic [ref=e29]:
+            - text: 搜索衣物
+            - textbox "搜索衣物" [ref=e30]:
+              - /placeholder: 名称、品牌、标签…
+          - button "搜索" [ref=e31] [cursor=pointer]
+          - generic [ref=e32]:
+            - text: 生命周期
+            - combobox "生命周期" [ref=e33]:
+              - option "衣橱" [selected]
+              - option "归档"
+              - option "回收站"
+          - generic [ref=e34]:
+            - text: 筛选类别
+            - combobox "筛选类别" [ref=e35]:
+              - option "全部类别" [selected]
+              - option "上装"
+              - option "下装"
+              - option "外套"
+              - option "连衣裙"
+              - option "连体"
+              - option "鞋"
+              - option "包"
+              - option "配饰"
+              - option "内衣"
+              - option "运动服"
+              - option "其他"
+          - generic [ref=e36]:
+            - text: 筛选季节
+            - combobox "筛选季节" [ref=e37]:
+              - option "全部季节" [selected]
+              - option "春"
+              - option "夏"
+              - option "秋"
+              - option "冬"
+          - generic [ref=e38]:
+            - text: 收藏筛选
+            - combobox "收藏筛选" [ref=e39]:
+              - option "全部" [selected]
+              - option "已收藏"
+              - option "未收藏"
+          - generic [ref=e40]:
+            - text: 颜色筛选
+            - combobox "颜色筛选" [ref=e41]:
+              - option "全部颜色" [selected]
+              - option "白"
+              - option "黑"
+              - option "灰"
+              - option "米色"
+              - option "棕"
+              - option "红"
+              - option "橙"
+              - option "黄"
+              - option "绿"
+              - option "蓝"
+              - option "紫"
+              - option "粉"
+              - option "银"
+              - option "金"
+              - option "多色"
+              - option "其他"
+          - generic [ref=e42]:
+            - text: 标签筛选
+            - textbox "标签筛选" [ref=e43]
+          - generic [ref=e44]:
+            - text: 排序
+            - combobox "排序" [ref=e45]:
+              - option "录入顺序" [selected]
+              - option "最近录入"
+              - option "名称"
+              - option "最近修改"
+              - option "价格从低到高"
+              - option "价格从高到低"
+          - group [ref=e46]:
+            - generic "更多组合筛选" [ref=e47] [cursor=pointer]
+            - option "全部小类" [selected]
+            - option "衬衫"
+            - option "T 恤"
+            - option "针织衫"
+            - option "卫衣"
+            - option "长裤"
+            - option "牛仔裤"
+            - option "半裙"
+            - option "短裤"
+            - option "大衣"
+            - option "夹克"
+            - option "西装外套"
+            - option "连衣裙"
+            - option "连体衣"
+            - option "运动鞋"
+            - option "靴"
+            - option "凉鞋"
+            - option "正装鞋"
+            - option "手提包"
+            - option "背包"
+            - option "首饰"
+            - option "帽"
+            - option "围巾"
+            - option "腰带"
+            - option "内衣"
+            - option "运动服"
+            - option "其他"
+          - paragraph [ref=e48]: 价格按币种分组，未知价格排最后。
+        - generic [ref=e49]:
+          - article [ref=e50]:
+            - img "图片引用验收" [ref=e52]
+            - heading "图片引用验收" [level=3] [ref=e53]
+            - paragraph [ref=e54]: 季节未设置
+            - paragraph [ref=e55]: 价格未知
+            - button "查看详情" [ref=e56] [cursor=pointer]
+          - article [ref=e57]:
+            - generic "暂无图片" [ref=e58]: 上装
+            - heading "分页单品 2" [level=3] [ref=e60]
+            - paragraph [ref=e61]: 季节未设置
+            - paragraph [ref=e62]: 价格未知
+            - button "查看详情" [ref=e63] [cursor=pointer]
+          - article [ref=e64]:
+            - generic "暂无图片" [ref=e65]: 上装
+            - heading "分页单品 3" [level=3] [ref=e67]
+            - paragraph [ref=e68]: 季节未设置
+            - paragraph [ref=e69]: 价格未知
+            - button "查看详情" [ref=e70] [cursor=pointer]
+          - article [ref=e71]:
+            - generic "暂无图片" [ref=e72]: 上装
+            - heading "分页单品 4" [level=3] [ref=e74]
+            - paragraph [ref=e75]: 季节未设置
+            - paragraph [ref=e76]: 价格未知
+            - button "查看详情" [ref=e77] [cursor=pointer]
+          - article [ref=e78]:
+            - generic "暂无图片" [ref=e79]: 上装
+            - heading "分页单品 5" [level=3] [ref=e81]
+            - paragraph [ref=e82]: 季节未设置
+            - paragraph [ref=e83]: 价格未知
+            - button "查看详情" [ref=e84] [cursor=pointer]
+          - article [ref=e85]:
+            - generic "暂无图片" [ref=e86]: 上装
+            - heading "分页单品 6" [level=3] [ref=e88]
+            - paragraph [ref=e89]: 季节未设置
+            - paragraph [ref=e90]: 价格未知
+            - button "查看详情" [ref=e91] [cursor=pointer]
+          - article [ref=e92]:
+            - generic "暂无图片" [ref=e93]: 上装
+            - heading "分页单品 7" [level=3] [ref=e95]
+            - paragraph [ref=e96]: 季节未设置
+            - paragraph [ref=e97]: 价格未知
+            - button "查看详情" [ref=e98] [cursor=pointer]
+          - article [ref=e99]:
+            - generic "暂无图片" [ref=e100]: 上装
+            - heading "分页单品 8" [level=3] [ref=e102]
+            - paragraph [ref=e103]: 季节未设置
+            - paragraph [ref=e104]: 价格未知
+            - button "查看详情" [ref=e105] [cursor=pointer]
+          - article [ref=e106]:
+            - generic "暂无图片" [ref=e107]: 上装
+            - heading "分页单品 9" [level=3] [ref=e109]
+            - paragraph [ref=e110]: 季节未设置
+            - paragraph [ref=e111]: 价格未知
+            - button "查看详情" [ref=e112] [cursor=pointer]
+          - article [ref=e113]:
+            - generic "暂无图片" [ref=e114]: 上装
+            - heading "分页单品 10" [level=3] [ref=e116]
+            - paragraph [ref=e117]: 季节未设置
+            - paragraph [ref=e118]: 价格未知
+            - button "查看详情" [ref=e119] [cursor=pointer]
+          - article [ref=e120]:
+            - generic "暂无图片" [ref=e121]: 上装
+            - heading "分页单品 11" [level=3] [ref=e123]
+            - paragraph [ref=e124]: 季节未设置
+            - paragraph [ref=e125]: 价格未知
+            - button "查看详情" [ref=e126] [cursor=pointer]
+          - article [ref=e127]:
+            - generic "暂无图片" [ref=e128]: 上装
+            - heading "分页单品 12" [level=3] [ref=e130]
+            - paragraph [ref=e131]: 季节未设置
+            - paragraph [ref=e132]: 价格未知
+            - button "查看详情" [ref=e133] [cursor=pointer]
+          - article [ref=e134]:
+            - generic "暂无图片" [ref=e135]: 上装
+            - heading "分页单品 13" [level=3] [ref=e137]
+            - paragraph [ref=e138]: 季节未设置
+            - paragraph [ref=e139]: 价格未知
+            - button "查看详情" [ref=e140] [cursor=pointer]
+          - article [ref=e141]:
+            - generic "暂无图片" [ref=e142]: 上装
+            - heading "分页单品 14" [level=3] [ref=e144]
+            - paragraph [ref=e145]: 季节未设置
+            - paragraph [ref=e146]: 价格未知
+            - button "查看详情" [ref=e147] [cursor=pointer]
+          - article [ref=e148]:
+            - generic "暂无图片" [ref=e149]: 上装
+            - heading "分页单品 15" [level=3] [ref=e151]
+            - paragraph [ref=e152]: 季节未设置
+            - paragraph [ref=e153]: 价格未知
+            - button "查看详情" [ref=e154] [cursor=pointer]
+          - article [ref=e155]:
+            - generic "暂无图片" [ref=e156]: 上装
+            - heading "分页单品 16" [level=3] [ref=e158]
+            - paragraph [ref=e159]: 季节未设置
+            - paragraph [ref=e160]: 价格未知
+            - button "查看详情" [ref=e161] [cursor=pointer]
+          - article [ref=e162]:
+            - generic "暂无图片" [ref=e163]: 上装
+            - heading "分页单品 17" [level=3] [ref=e165]
+            - paragraph [ref=e166]: 季节未设置
+            - paragraph [ref=e167]: 价格未知
+            - button "查看详情" [ref=e168] [cursor=pointer]
+          - article [ref=e169]:
+            - generic "暂无图片" [ref=e170]: 上装
+            - heading "分页单品 18" [level=3] [ref=e172]
+            - paragraph [ref=e173]: 季节未设置
+            - paragraph [ref=e174]: 价格未知
+            - button "查看详情" [ref=e175] [cursor=pointer]
+          - article [ref=e176]:
+            - generic "暂无图片" [ref=e177]: 上装
+            - heading "分页单品 19" [level=3] [ref=e179]
+            - paragraph [ref=e180]: 季节未设置
+            - paragraph [ref=e181]: 价格未知
+            - button "查看详情" [ref=e182] [cursor=pointer]
+          - article [ref=e183]:
+            - generic "暂无图片" [ref=e184]: 上装
+            - heading "分页单品 20" [level=3] [ref=e186]
+            - paragraph [ref=e187]: 季节未设置
+            - paragraph [ref=e188]: 价格未知
+            - button "查看详情" [ref=e189] [cursor=pointer]
+          - article [ref=e190]:
+            - generic "暂无图片" [ref=e191]: 上装
+            - heading "分页单品 21" [level=3] [ref=e193]
+            - paragraph [ref=e194]: 季节未设置
+            - paragraph [ref=e195]: 价格未知
+            - button "查看详情" [ref=e196] [cursor=pointer]
+          - article [ref=e197]:
+            - generic "暂无图片" [ref=e198]: 上装
+            - heading "分页单品 22" [level=3] [ref=e200]
+            - paragraph [ref=e201]: 季节未设置
+            - paragraph [ref=e202]: 价格未知
+            - button "查看详情" [ref=e203] [cursor=pointer]
+          - article [ref=e204]:
+            - generic "暂无图片" [ref=e205]: 上装
+            - heading "分页单品 23" [level=3] [ref=e207]
+            - paragraph [ref=e208]: 季节未设置
+            - paragraph [ref=e209]: 价格未知
+            - button "查看详情" [ref=e210] [cursor=pointer]
+          - article [ref=e211]:
+            - generic "暂无图片" [ref=e212]: 上装
+            - heading "分页单品 24" [level=3] [ref=e214]
+            - paragraph [ref=e215]: 季节未设置
+            - paragraph [ref=e216]: 价格未知
+            - button "查看详情" [ref=e217] [cursor=pointer]
+        - button "加载更多" [ref=e218] [cursor=pointer]
+      - region "录入单品" [ref=e219]:
+        - heading "添一件单品" [level=2] [ref=e220]
+        - generic [ref=e221]:
+          - generic [ref=e222]:
+            - text: 名称
+            - textbox "名称" [ref=e223]:
+              - /placeholder: 例如：白色棉衬衫
+          - generic [ref=e224]:
+            - text: 类别
+            - combobox "类别" [ref=e225]:
+              - option "上装" [selected]
+              - option "下装"
+              - option "外套"
+              - option "连衣裙"
+              - option "连体"
+              - option "鞋"
+              - option "包"
+              - option "配饰"
+              - option "内衣"
+              - option "运动服"
+              - option "其他"
+          - group "适用季节 可留空" [ref=e226]:
+            - generic [ref=e228]:
+              - generic [ref=e229] [cursor=pointer]:
+                - checkbox "春" [ref=e230]
+                - text: 春
+              - generic [ref=e231] [cursor=pointer]:
+                - checkbox "夏" [ref=e232]
+                - text: 夏
+              - generic [ref=e233] [cursor=pointer]:
+                - checkbox "秋" [ref=e234]
+                - text: 秋
+              - generic [ref=e235] [cursor=pointer]:
+                - checkbox "冬" [ref=e236]
+                - text: 冬
+          - generic [ref=e237]:
+            - checkbox "收藏" [ref=e238]
+            - text: 收藏
+          - group [ref=e239]:
+            - generic "属性与购买信息" [ref=e240] [cursor=pointer]
+            - option "未设置" [selected]
+            - option "衬衫"
+            - option "T 恤"
+            - option "针织衫"
+            - option "卫衣"
+          - generic [ref=e241]:
+            - generic [ref=e242]:
+              - text: 购入价格
+              - spinbutton "购入价格" [ref=e243]
+            - generic [ref=e244]:
+              - text: 币种
+              - textbox "币种" [ref=e245]: CNY
+          - paragraph [ref=e246]: 未知信息可留空。价格按币种最小单位保存。
+          - button "保存单品" [ref=e247] [cursor=pointer]
+    - generic [ref=e248]:
+      - generic [ref=e249]:
+        - generic [ref=e250]:
+          - heading "搭配 Lookbook" [level=2] [ref=e251]
+          - paragraph [ref=e252]: 保存组合与角色层次。本地拼贴无需模型配置；保存不会记为穿过。今天穿采用保存版本。
+        - button "新建搭配" [ref=e253] [cursor=pointer]
+      - generic [ref=e254]:
+        - generic [ref=e255]:
+          - generic [ref=e256]:
+            - text: 搭配状态
+            - combobox "搭配状态" [ref=e257]:
+              - option "搭配" [selected]
+              - option "回收站"
+          - list
+          - paragraph [ref=e258]: 尚无搭配，选一件单品也可以开始。
+        - generic [ref=e259]:
+          - generic [ref=e260]:
+            - text: 搭配名称
+            - textbox "搭配名称" [ref=e261]
+          - group "选择衣物" [ref=e262]:
+            - generic [ref=e264]:
+              - text: 搜索搭配单品
+              - textbox "搜索搭配单品" [ref=e265]
+            - button "搜索衣物" [ref=e266] [cursor=pointer]
+            - generic [ref=e267]:
+              - text: 选择搭配单品
+              - combobox "选择搭配单品" [ref=e268]:
+                - option "请选择单品" [selected]
+                - option "图片引用验收 · 上装"
+                - option "分页单品 2 · 上装"
+                - option "分页单品 3 · 上装"
+                - option "分页单品 4 · 上装"
+                - option "分页单品 5 · 上装"
+                - option "分页单品 6 · 上装"
+                - option "分页单品 7 · 上装"
+                - option "分页单品 8 · 上装"
+                - option "分页单品 9 · 上装"
+                - option "分页单品 10 · 上装"
+                - option "分页单品 11 · 上装"
+                - option "分页单品 12 · 上装"
+                - option "分页单品 13 · 上装"
+                - option "分页单品 14 · 上装"
+                - option "分页单品 15 · 上装"
+                - option "分页单品 16 · 上装"
+                - option "分页单品 17 · 上装"
+                - option "分页单品 18 · 上装"
+                - option "分页单品 19 · 上装"
+                - option "分页单品 20 · 上装"
+                - option "分页单品 21 · 上装"
+                - option "分页单品 22 · 上装"
+                - option "分页单品 23 · 上装"
+                - option "分页单品 24 · 上装"
+                - option "分页单品 25 · 上装"
+                - option "反馈裤子 · 下装"
+                - option "反馈鞋 · 鞋"
+                - option "明确改穿上衣 · 上装"
+                - option "当天固定上衣 · 上装"
+            - button "加入搭配" [disabled] [ref=e269]
+            - list
+          - button "保存搭配" [disabled] [ref=e270]
+    - generic [ref=e271]:
+      - generic [ref=e272]:
+        - generic [ref=e273]:
+          - heading "实际穿着" [level=2] [ref=e274]
+          - paragraph [ref=e275]: 每次确认记一次。同日换装可记多次；次数与当地天数分别计算。
+        - button "补记或同日换装" [ref=e276] [cursor=pointer]
+      - generic [ref=e277]:
+        - generic [ref=e278]:
+          - heading "确认一场实际穿着" [level=3] [ref=e279]
+          - group "日期与真实衣物" [ref=e280]:
+            - generic [ref=e282]:
+              - text: 穿着日期
+              - textbox "穿着日期" [ref=e283]: 2026-10-07
+            - generic [ref=e284]:
+              - text: 穿着时区
+              - textbox "穿着时区" [ref=e285]: Asia/Shanghai
+            - generic [ref=e286]:
+              - text: 当地时间（可留空）
+              - textbox "当地时间（可留空）" [ref=e287]
+            - paragraph [ref=e288]: 时间未知可留空，按当地日期记录，不推断同日先后。
+            - generic [ref=e289]:
+              - text: 选择实际单品
+              - combobox "选择实际单品" [ref=e290]:
+                - option "请选择单品" [selected]
+                - option "图片引用验收"
+                - option "分页单品 2"
+                - option "分页单品 3"
+                - option "分页单品 4"
+                - option "分页单品 5"
+                - option "分页单品 6"
+                - option "分页单品 7"
+                - option "分页单品 8"
+                - option "分页单品 9"
+                - option "分页单品 10"
+                - option "分页单品 11"
+                - option "分页单品 12"
+                - option "分页单品 13"
+                - option "分页单品 14"
+                - option "分页单品 15"
+                - option "分页单品 16"
+                - option "分页单品 17"
+                - option "分页单品 18"
+                - option "分页单品 19"
+                - option "分页单品 20"
+                - option "分页单品 21"
+                - option "分页单品 22"
+                - option "分页单品 23"
+                - option "分页单品 24"
+                - option "分页单品 25"
+                - option "反馈裤子"
+                - option "反馈鞋"
+                - option "明确改穿上衣"
+                - option "当天固定上衣"
+            - button "加入实际穿着" [disabled] [ref=e291]
+            - generic [ref=e292]:
+              - text: 穿着备注
+              - textbox "穿着备注" [ref=e293]
+          - button "确认实际穿过" [disabled] [ref=e294]
+        - generic [ref=e295]:
+          - heading "有效穿着次数与天数" [level=3] [ref=e296]
+          - list [ref=e297]:
+            - listitem [ref=e298]: 分页单品 2 · 1 次 / 1 天
+            - listitem [ref=e299]: 反馈裤子 · 2 次 / 1 天
+            - listitem [ref=e300]: 反馈鞋 · 2 次 / 1 天
+            - listitem [ref=e301]: 明确改穿上衣 · 1 次 / 1 天
+          - generic [ref=e302]:
+            - checkbox "显示已撤销" [ref=e303]
+            - text: 显示已撤销
+          - article [ref=e304]:
+            - heading "2020-01-01 · Pacific/Honolulu" [level=3] [ref=e305]
+            - paragraph [ref=e306]: 反馈裤子、反馈鞋、明确改穿上衣 · 有效 · 修订 1
+            - generic [ref=e307]:
+              - button "实际改穿 / 更正" [ref=e308] [cursor=pointer]
+              - button "撤销这次穿着" [ref=e309] [cursor=pointer]
+              - button "查看追加历史" [ref=e310] [cursor=pointer]
+          - article [ref=e311]:
+            - heading "2020-01-01 · Pacific/Honolulu" [level=3] [ref=e312]
+            - paragraph [ref=e313]: 分页单品 2、反馈裤子、反馈鞋 · 有效 · 修订 1
+            - generic [ref=e314]:
+              - button "实际改穿 / 更正" [ref=e315] [cursor=pointer]
+              - button "撤销这次穿着" [ref=e316] [cursor=pointer]
+              - button "查看追加历史" [ref=e317] [cursor=pointer]
+    - group [ref=e319]:
+      - generic "衣橱洞察" [ref=e320] [cursor=pointer]
+    - generic [ref=e321]:
+      - generic [ref=e322]:
+        - generic [ref=e323]:
+          - heading "从已有衣物，选一套。" [level=2] [ref=e324]
+          - paragraph [ref=e325]: 离线规则生成真实组合。推荐与保存不会记为穿着。
+        - button "刷新推荐库存" [ref=e326] [cursor=pointer]
+      - group [ref=e327]:
+        - generic "天气地点与缓存" [ref=e328] [cursor=pointer]
+      - generic [ref=e329]:
+        - generic [ref=e330]:
+          - generic [ref=e331]:
+            - text: 推荐来源
+            - combobox "推荐来源" [ref=e332]:
+              - option "离线规则" [selected]
+              - option "文本模型组织候选"
+          - generic [ref=e333]:
+            - text: 推荐数量
+            - combobox "推荐数量" [ref=e334]:
+              - option "1"
+              - option "2"
+              - option "3" [selected]
+              - option "4"
+              - option "5"
+          - generic [ref=e335]:
+            - text: 搭配目标
+            - combobox "搭配目标" [ref=e336]:
+              - option "平衡选择" [selected]
+              - option "少穿优先"
+              - option "收藏优先"
+          - generic [ref=e337]:
+            - text: 搭配场合
+            - combobox "搭配场合" [ref=e338]:
+              - option "日常" [selected]
+              - option "工作"
+              - option "正式"
+              - option "运动"
+          - generic [ref=e339]:
+            - text: 推荐时区
+            - textbox "推荐时区" [ref=e340]: Asia/Shanghai
+          - generic [ref=e341]:
+            - text: 天气参考
+            - combobox "天气参考" [ref=e342]:
+              - option "关闭天气" [selected]
+              - option "手动温度"
+              - option "配置地点天气缓存"
+        - generic [ref=e343]:
+          - checkbox "尽量避开最近七个本地自然日实际穿过的整套组合" [checked] [ref=e344]
+          - text: 尽量避开最近七个本地自然日实际穿过的整套组合
+        - paragraph [ref=e345]: 固定与排除是硬条件。待洗、归档和回收站单品自动排除；固定不可用时会说明冲突。场合依据已记录标签排序，不猜测风格。
+        - group [ref=e346]:
+          - generic "选择固定、排除与库存优先" [ref=e347] [cursor=pointer]
+        - button "生成离线搭配" [ref=e348] [cursor=pointer]
+      - generic [ref=e350]:
+        - heading "反馈历史" [level=3] [ref=e351]
+        - generic [ref=e352]:
+          - checkbox "包含已撤销反馈" [ref=e353]
+          - text: 包含已撤销反馈
+        - button "刷新反馈历史" [ref=e354] [cursor=pointer]
+        - list [ref=e355]:
+          - listitem [ref=e356]:
+            - paragraph [ref=e357]: 实际改穿 · 10/7/2026, 5:42:13 AM · 修订 1
+            - paragraph [ref=e358]: 分页单品 2 / 反馈裤子 / 反馈鞋
+            - paragraph [ref=e359]: 总体 未评分 · 舒适 未评分 · 风格 未评分
+            - paragraph [ref=e360]: 明确穿着记录 01a1132a-c81d-7092-a2d4-8d4f68323dc5；反馈撤销不会撤销穿着，请到穿着历史更正。
+            - button "查看或更正反馈 7afe7a" [ref=e361] [cursor=pointer]
+          - listitem [ref=e362]:
+            - paragraph [ref=e363]: 实际穿了 · 10/7/2026, 5:42:12 AM · 修订 1
+            - paragraph [ref=e364]: 分页单品 2 / 反馈裤子 / 反馈鞋
+            - paragraph [ref=e365]: 总体 未评分 · 舒适 未评分 · 风格 未评分
+            - paragraph [ref=e366]: 明确穿着记录 01a1132a-c6fd-7762-8a69-ee953d92a439；反馈撤销不会撤销穿着，请到穿着历史更正。
+            - button "查看或更正反馈 48c9f8" [ref=e367] [cursor=pointer]
+          - listitem [ref=e368]:
+            - paragraph [ref=e369]: 跳过 · 10/7/2026, 5:42:12 AM · 修订 1
+            - paragraph [ref=e370]: 回收站验收单品 / 反馈裤子 / 反馈鞋
+            - paragraph [ref=e371]: 总体 未评分 · 舒适 未评分 · 风格 未评分
+            - button "查看或更正反馈 2fdaa7" [ref=e372] [cursor=pointer]
+          - listitem [ref=e373]:
+            - paragraph [ref=e374]: 不喜欢 · 10/7/2026, 5:42:11 AM · 修订 1
+            - paragraph [ref=e375]: 回收站验收单品 / 反馈裤子 / 反馈鞋
+            - paragraph [ref=e376]: 总体 5 · 舒适 未评分 · 风格 4
+            - button "查看或更正反馈 6b7edd" [ref=e377] [cursor=pointer]
+          - listitem [ref=e378]:
+            - paragraph [ref=e379]: 喜欢 · 10/7/2026, 5:42:11 AM · 修订 1
+            - paragraph [ref=e380]: 回收站验收单品 / 反馈裤子 / 反馈鞋
+            - paragraph [ref=e381]: 总体 5 · 舒适 未评分 · 风格 4
+            - button "查看或更正反馈 66c311" [ref=e382] [cursor=pointer]
+      - heading "本地推荐记录" [level=3] [ref=e383]
+      - list [ref=e384]:
+        - listitem [ref=e385]:
+          - generic [ref=e386]: 10/7/2026, 5:42:14 AM · 1 套
+          - button "查看推荐 60b8a5" [ref=e387] [cursor=pointer]
+        - listitem [ref=e388]:
+          - generic [ref=e389]: 10/7/2026, 5:42:13 AM · 1 套
+          - button "查看推荐 a95e26" [ref=e390] [cursor=pointer]
+        - listitem [ref=e391]:
+          - generic [ref=e392]: 10/7/2026, 5:42:12 AM · 3 套
+          - button "查看推荐 f84d87" [ref=e393] [cursor=pointer]
+        - listitem [ref=e394]:
+          - generic [ref=e395]: 10/7/2026, 5:42:12 AM · 1 套
+          - button "查看推荐 7f1666" [ref=e396] [cursor=pointer]
+        - listitem [ref=e397]:
+          - generic [ref=e398]: 10/7/2026, 5:42:11 AM · 3 套
+          - button "查看推荐 a36631" [ref=e399] [cursor=pointer]
+    - generic [ref=e400]:
+      - generic [ref=e401]:
+        - generic [ref=e402]:
+          - heading "洗护" [level=2] [ref=e403]
+          - paragraph [ref=e404]: 待洗独立于生命周期。清洗或干洗重新计次，维护保留计数。
+        - button "刷新洗护" [ref=e405] [cursor=pointer]
+      - generic [ref=e406]:
+        - generic [ref=e407]:
+          - heading "待洗列表" [level=3] [ref=e408]
+          - list [ref=e409]:
+            - listitem [ref=e410]:
+              - strong [ref=e411]: 分页单品 17
+              - paragraph [ref=e412]: 手动标记 · 0 次 / 阈值 2 · 衣橱
+              - button "处理洗护" [ref=e413] [cursor=pointer]
+          - paragraph [ref=e414]: 可查询提醒与推荐排除原因；本页面不自动发送通知。
+        - generic [ref=e415]:
+          - generic [ref=e416]:
+            - text: 选择洗护单品
+            - combobox "选择洗护单品" [ref=e417]:
+              - option "选择单品" [selected]
+              - option "图片引用验收"
+              - option "分页单品 2"
+              - option "分页单品 3"
+              - option "分页单品 4"
+              - option "分页单品 5"
+              - option "分页单品 6"
+              - option "分页单品 7"
+              - option "分页单品 8"
+              - option "分页单品 9"
+              - option "分页单品 10"
+              - option "分页单品 11"
+              - option "分页单品 12"
+              - option "分页单品 13"
+              - option "分页单品 14"
+              - option "分页单品 15"
+              - option "分页单品 16"
+              - option "分页单品 17"
+              - option "分页单品 18"
+              - option "分页单品 19"
+              - option "分页单品 20"
+              - option "分页单品 21"
+              - option "分页单品 22"
+              - option "分页单品 23"
+              - option "分页单品 24"
+              - option "分页单品 25"
+              - option "大额价格验收"
+              - option "反馈裤子"
+              - option "反馈鞋"
+              - option "明确改穿上衣"
+              - option "当天固定上衣"
+              - option "归并来源验收"
+              - option "归并目标验收"
+          - generic [ref=e418]:
+            - heading "记录实际洗护" [level=3] [ref=e419]
+            - generic [ref=e420]:
+              - text: 洗护类型
+              - combobox "洗护类型" [ref=e421]:
+                - option "清洗" [selected]
+                - option "干洗"
+                - option "维护"
+                - option "标记待洗"
+                - option "解除手动待洗"
+            - generic [ref=e422]:
+              - generic [ref=e423]:
+                - text: 洗护日期
+                - textbox "洗护日期" [ref=e424]: 2026-10-07
+              - generic [ref=e425]:
+                - text: 洗护时刻（可不填）
+                - textbox "洗护时刻（可不填）" [ref=e426]
+              - generic [ref=e427]:
+                - text: 洗护时区
+                - textbox "洗护时区" [ref=e428]: Asia/Shanghai
+            - paragraph [ref=e429]: 时刻不填只表示日期，以当地中午排序。同刻先穿着再洗护，其余按事件标识；仅知日期的同日先后不确定，可更正时刻。清洗/干洗解除此前手动待洗，维护不解除。
+            - generic [ref=e430]:
+              - text: 洗护备注
+              - textbox "洗护备注" [ref=e431]
+            - button "确认记录洗护" [disabled] [ref=e432]
+      - heading "洗护历史" [level=3] [ref=e433]
+      - list [ref=e434]:
+        - listitem [ref=e435]:
+          - strong [ref=e436]: 分页单品 16 · 清洗
+          - paragraph [ref=e437]: 2020-01-02 时刻未设 · Asia/Shanghai · 修订 1
+          - generic [ref=e438]:
+            - button "更正洗护" [ref=e439] [cursor=pointer]
+            - button "撤销洗护" [ref=e440] [cursor=pointer]
+            - button "查看洗护修订" [ref=e441] [cursor=pointer]
+        - listitem [ref=e442]:
+          - strong [ref=e443]: 分页单品 17 · 标记待洗
+          - paragraph [ref=e444]: 2020-01-01 时刻未设 · UTC · 修订 1
+          - generic [ref=e445]:
+            - button "更正洗护" [ref=e446] [cursor=pointer]
+            - button "撤销洗护" [ref=e447] [cursor=pointer]
+            - button "查看洗护修订" [ref=e448] [cursor=pointer]
+        - listitem [ref=e449]:
+          - strong [ref=e450]: 分页单品 17 · 干洗
+          - paragraph [ref=e451]: 2019-12-31 时刻未设 · UTC · 修订 3 · 已撤销
+          - button "查看洗护修订" [ref=e453] [cursor=pointer]
+    - region "批量录入" [ref=e454]:
+      - generic [ref=e455]:
+        - generic [ref=e456]:
+          - heading "批量录入" [level=2] [ref=e457]
+          - paragraph [ref=e458]: 每文件一个草稿，可归并多图。原图保留在本设备，每批最多 100 个文件。取消保留原图，已入库单品不受影响。
+        - button "选择批量图片" [ref=e459] [cursor=pointer]
+    - region "模型设置" [ref=e460]:
+      - group [ref=e461]:
+        - generic "模型设置" [ref=e462] [cursor=pointer]
+        - option "添加模型" [selected]
+        - option "Flatlay协议验收"
+        - option "文本与视觉兼容接口" [selected]
+        - option "Seedream 专用图片接口"
+        - option "API key" [selected]
+        - option "无认证（本地模型）"
+    - region "客户端授权" [ref=e463]:
+      - group [ref=e464]:
+        - generic "客户端授权" [ref=e465] [cursor=pointer]
+        - option "限定操作" [selected]
+        - option "完整业务授权"
+    - region "加密空间设置" [ref=e466]:
+      - group [ref=e467]:
+        - generic "加密空间与设备" [ref=e468] [cursor=pointer]
+```
+
+# Test source
+
+```ts
+  1  | import {test,expect} from '@playwright/test';
+  2  | test('create edit switch and reload an independent member wardrobe',async({page})=>{
+  3  |  await page.goto('/');
+  4  |  await page.getByText('管理成员档案',{exact:true}).click();
+  5  |  await page.getByLabel('新成员名称').fill('妹妹');
+  6  |  await page.getByRole('button',{name:'创建成员',exact:true}).click();
+  7  |  await expect(page.getByRole('combobox',{name:/^当前成员/})).toHaveValue(/.+/);
+  8  |  await page.getByLabel('成员名称',{exact:true}).fill('家人');
+  9  |  await page.getByRole('button',{name:'保存成员名称'}).click();
+  10 |  await expect(page.getByRole('combobox',{name:/^当前成员/}).getByRole('option',{name:'家人'})).toBeAttached();
+  11 |  await expect(page.getByRole('article')).toHaveCount(0);
+  12 |  await page.getByLabel('名称',{exact:true}).fill('独立成员的衣服');
+  13 |  await page.getByRole('button',{name:'保存单品'}).click();
+  14 |  await expect(page.getByRole('article')).toHaveCount(1);
+  15 |  await page.reload();await expect(page.getByRole('article')).toHaveCount(1);
+  16 |  await page.getByRole('combobox',{name:/^当前成员/}).selectOption({label:'我'});
+  17 |  await expect(page.getByRole('article')).toHaveCount(24);
+  18 | });
+  19 | test('member controls stay usable at every required viewport',async({page})=>{
+  20 |  await page.goto('/');await expect(page.getByRole('combobox',{name:/^当前成员/})).toBeEnabled();
+  21 |  for(const width of [320,375,414,768,1024,1280,1440]){
+  22 |   await page.setViewportSize({width,height:900});
+  23 |   await expect(page.getByRole('combobox',{name:/^当前成员/})).toBeVisible();
+  24 |   const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth);
+  25 |   expect(overflow,`horizontal overflow at ${width}`).toBe(false);
+  26 |  }
+  27 |  await page.getByText('管理成员档案',{exact:true}).focus();await page.keyboard.press('Enter');await expect(page.getByLabel('新成员名称')).toBeVisible();
+  28 | });
+  29 | test('saving cannot race a pending member switch',async({page})=>{
+  30 |  await page.goto('/');await expect(page.getByRole('combobox',{name:/^当前成员/})).toBeEnabled();
+  31 |  await page.route('**/__wardrobe_dev_api',async route=>{if(route.request().postDataJSON().operation==='member.select')await new Promise(resolve=>setTimeout(resolve,700));await route.continue();});
+  32 |  await page.getByRole('combobox',{name:/^当前成员/}).selectOption({label:'家人'});
+  33 |  await expect(page.getByRole('button',{name:'保存单品'})).toBeDisabled();
+  34 |  await expect(page.getByRole('article')).toHaveCount(1);
+  35 |  await page.getByRole('combobox',{name:/^当前成员/}).selectOption({label:'我'});
+> 36 |  await expect(page.getByRole('article')).toHaveCount(24);
+     |                                          ^ Error: expect(locator).toHaveCount(expected) failed
+  37 | });
+  38 | 
+```
