@@ -7,7 +7,7 @@ import {execFileSync} from 'node:child_process';
 const port=process.env.WARDROBE_TEST_PORT??'5174';
 const dataDir=mkdtempSync(join(tmpdir(),'wardrobe-pagination-'));
 const cli=fileURLToPath(new URL('../../target/debug/wardrobe-cli'+(process.platform==='win32'?'.exe':''),import.meta.url));
-const run=(command:string,input:object={})=>execFileSync(cli,[command,JSON.stringify(input)],{env:{...process.env,WARDROBE_DATA_DIR:dataDir}});
+const run=(command:string,input:object={})=>execFileSync(cli,['--trusted-local',command,JSON.stringify(input)],{env:{...process.env,WARDROBE_DATA_DIR:dataDir}});
 run('space.default');
 for(let i=1;i<=25;i++)run('clothing.create',{member_id:'default',name:`分页单品 ${i}`,category:'top'});
 export default defineConfig({testDir:'./tests',workers:1,use:{baseURL:`http://127.0.0.1:${port}`,launchOptions:{channel:'chrome'}},webServer:{command:`npm run dev -- --port ${port} --strictPort`,url:`http://127.0.0.1:${port}`,reuseExistingServer:false,env:{WARDROBE_DATA_DIR:dataDir}}});

@@ -138,6 +138,16 @@ impl Application {
         )
     }
     pub(crate) fn provider_save(&self, input: Value) -> Result<Value, ApiError> {
+        self.provider_save_with_policy(input, true)
+    }
+    pub(super) fn provider_save_from_client(&self, input: Value) -> Result<Value, ApiError> {
+        self.provider_save_with_policy(input, false)
+    }
+    fn provider_save_with_policy(
+        &self,
+        input: Value,
+        allow_credential_changes: bool,
+    ) -> Result<Value, ApiError> {
         fields(
             &input,
             &[
@@ -202,6 +212,12 @@ impl Application {
             p["authentication"] == "bearer"
                 && (p["endpoint"] != endpoint || authentication == "none")
         }) {
+            if !allow_credential_changes {
+                return Err(ApiError::new(
+                    "scope_denied",
+                    "更换已有凭据的模型绑定需使用可信本机设置",
+                ));
+            }
             match credential_entry_for(existing.as_ref().unwrap())?.delete_credential() {
                 Ok(()) | Err(keyring::Error::NoEntry) => {}
                 Err(_) => return Err(credential_error()),

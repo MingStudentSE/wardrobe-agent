@@ -16,7 +16,7 @@ test('image controls remain accessible at all specified widths',async({page})=>{
 });
 test('pending native picker blocks member switching and simultaneous save',async({page})=>{
  await page.addInitScript(()=>{(window as any).__pickedFiles=[];});await page.route('**/*plugin-dialog*',route=>route.fulfill({contentType:'text/javascript',body:'export async function open(){await new Promise(resolve=>setTimeout(resolve,1000));return window.__pickedFiles;}'}));
- await page.goto('/');await page.getByRole('article').first().getByRole('button',{name:'查看详情'}).click();await page.getByRole('button',{name:'选择本地图片'}).click();await expect(page.getByLabel('当前成员')).toBeDisabled();await expect(page.getByRole('button',{name:'保存修改'})).toBeDisabled();await expect(page.getByRole('button',{name:'选择本地图片'})).toBeEnabled();await expect(page.getByLabel('当前成员')).toBeEnabled();
+ await page.goto('/');await page.getByRole('article').first().getByRole('button',{name:'查看详情'}).click();await page.getByRole('button',{name:'选择本地图片'}).click();await expect(page.getByRole('combobox',{name:/^当前成员/})).toBeDisabled();await expect(page.getByRole('button',{name:'保存修改'})).toBeDisabled();await expect(page.getByRole('button',{name:'选择本地图片'})).toBeEnabled();await expect(page.getByRole('combobox',{name:/^当前成员/})).toBeEnabled();
 });
 
 test('a failed image stays separate from valid previews and can be retried',async({page})=>{

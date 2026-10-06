@@ -17,5 +17,6 @@ base64 = "0.23.1"
 webp = "0.3.1"
 libheif-rs = { version = "=3.0.0", default-features = false, features = ["v1_23"] }
 libheif-sys = { version = "=5.3.1", default-features = false, features = ["v1_23"] }
+getrandom = "0.4"
 [dev-dependencies]
 tempfile = "3"
