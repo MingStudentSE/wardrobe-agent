@@ -15,3 +15,8 @@ GitHub check-run112458992926 与112458973838 的 annotations 实际返回：近�
 ## 52b4ae3 洗护与洞察联合源码
 
 2026-10-07 推送实际业务批次后，自动构建 run37523675603 已 completed/failure：macOS14、macOS15Intel、Ubuntu22.04/24.04、Windows 五个 jobs 全部 steps=[]。实际检查112475158686 annotation 仍为付款失败或支出上限不足、要求检查 Billing & plans；没有编译步骤、不是源码测试失败，也不证明新代码跨平台通过。并发重复 run37523669774 cancelled。本机独立139Rust/40GUI只能证明对应本机功能范围；未手动反复retry账户阻断。
+
+
+## c0c1737 加密白名单包联合源码
+
+自动run37525369115已completed/failure，五jobs实际steps=[]；check112480900247实际annotation仍为账户付款失败或支出上限不足、未启动任何runner步骤。重复run37525362835 cancelled。第一次jobs读取504为观测API暂时失败，随后相同run重读成功，不因此重启workflow。独立本机140Rust/9真实OS/42GUI不能证明当前五平台发行；未手动retry。
