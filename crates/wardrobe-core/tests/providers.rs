@@ -30,9 +30,9 @@ fn credentials_can_be_set_replaced_and_removed_without_echo_or_database_persiste
     struct Cleanup(String);
     impl Drop for Cleanup {
         fn drop(&mut self) {
-            let _ = keyring::Entry::new("wardrobe-agent.provider", &self.0)
-                .unwrap()
-                .delete_credential();
+            if let Ok(entry) = keyring::Entry::new("wardrobe-agent.provider", &self.0) {
+                let _ = entry.delete_credential();
+            }
         }
     }
     use sha2::{Digest, Sha256};
