@@ -1,6 +1,7 @@
 mod assets;
 mod clothing;
 mod members;
+mod providers;
 
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -94,6 +95,9 @@ impl Application {
         }
         tx.execute_batch("CREATE INDEX IF NOT EXISTS clothing_member_status_id ON clothing(member_id,json_extract(document,'$.status'),id);")?;
         members::migrate(&tx)?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS providers(id TEXT PRIMARY KEY, document TEXT NOT NULL);",
+        )?;
         assets::migrate(&tx)?;
         tx.execute_batch("PRAGMA user_version=4;")?;
         tx.commit()?;
@@ -153,6 +157,12 @@ impl Application {
             "member.create" => self.member_create(input),
             "member.update" => self.member_update(input),
             "member.select" => self.member_select(input),
+            "provider.credential.set"
+            | "provider.credential.remove"
+            | "provider.credential.status" => self.provider_credential(operation, input),
+            "provider.validate" => self.provider_validate(input),
+            "provider.save" => self.provider_save(input),
+            "provider.list" => self.provider_list(input),
             "clothing.create" => self.clothing_create(input),
             "clothing.history" => self.clothing_history(input),
             "clothing.update" => self.clothing_update(input),
@@ -181,6 +191,7 @@ fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
 pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
     descriptors.extend(clothing::descriptors());
+    descriptors.extend(providers::descriptors());
     descriptors.extend(assets::descriptors());
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
