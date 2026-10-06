@@ -419,6 +419,9 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
                 write_object(&staging.join(name), data)?;
             }
             write_object(&staging.join("package.json"), &header_bytes)?;
+            // Windows File::open(directory) is not a directory handle; all
+            // object files are flushed above and publish uses atomic rename.
+            #[cfg(unix)]
             fs::File::open(&staging)
                 .map_err(io)?
                 .sync_all()
