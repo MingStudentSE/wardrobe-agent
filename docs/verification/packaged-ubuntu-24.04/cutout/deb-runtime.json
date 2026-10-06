@@ -1,0 +1,15 @@
+{
+  "cli": "/home/runner/work/_temp/deb-extracted/usr/bin/wardrobe-cli",
+  "capabilities": 3,
+  "authorization": "limited operation and member grant; stdin token",
+  "unauthenticated_cli": "denied",
+  "unauthenticated_mcp": "denied",
+  "heic_dimensions": [
+    64,
+    32
+  ],
+  "restart": "passed",
+  "mcp": "passed",
+  "developer_loader_environment": "removed",
+  "gui_clean_install": "pending"
+}
