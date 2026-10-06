@@ -764,3 +764,116 @@ fn authorized_cli_mcp_share_actual_wear_retries_corrections_and_immutable_histor
     );
     assert_eq!(history["items"], json!([event, corrected]));
 }
+#[test]
+fn cli_mcp_real_multimage_flatlay_preview_and_local_save_keep_template_and_wear() {
+    use std::io::Read;
+    let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/api/v3", server.local_addr().unwrap());
+    let thread = std::thread::spawn(move || {
+        for index in 0..2 {
+            let (mut stream, _) = server.accept().unwrap();
+            let mut bytes = vec![];
+            let mut buf = [0; 8192];
+            loop {
+                let n = stream.read(&mut buf).unwrap();
+                assert!(n > 0);
+                bytes.extend_from_slice(&buf[..n]);
+                if let Some(i) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&bytes[..i]);
+                    let len = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if bytes.len() >= i + 4 + len {
+                        if index == 1 {
+                            let body: Value = serde_json::from_slice(&bytes[i + 4..]).unwrap();
+                            assert_eq!(body["image"].as_array().unwrap().len(), 2);
+                        }
+                        break;
+                    }
+                }
+            }
+            let value = if index == 0 {
+                json!({"data":[{"id":"doubao-seedream-5-0-flash-260915"}]})
+            } else {
+                use base64::Engine;
+                json!({"data":[{"b64_json":base64::engine::general_purpose::STANDARD.encode(include_bytes!("../../wardrobe-core/tests/fixtures/generated-colors.png"))}]})
+            };
+            let body = value.to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("db");
+    cli(&db, "space.default", json!({}));
+    let source = dir.path().join("garment.png");
+    std::fs::write(
+        &source,
+        include_bytes!("../../wardrobe-core/tests/fixtures/generated-colors.png"),
+    )
+    .unwrap();
+    let mut items = vec![];
+    for name in ["shirt", "pants"] {
+        let c = cli(
+            &db,
+            "clothing.create",
+            json!({"member_id":"default","name":name,"category":"top"}),
+        )["result"]
+            .clone();
+        let a = cli(
+            &db,
+            "assets.import",
+            json!({"member_id":"default","path":source}),
+        )["result"]
+            .clone();
+        cli(
+            &db,
+            "assets.adopt",
+            json!({"member_id":"default","asset_id":a["id"],"clothing_id":c["id"]}),
+        );
+        items.push(json!({"clothing_id":c["id"],"role":name,"layer":0}));
+    }
+    let outfit = cli(
+        &db,
+        "outfit.create",
+        json!({"member_id":"default","name":"Real CLI flatlay","items":items}),
+    )["result"]
+        .clone();
+    let provider=cli(&db,"provider.save",json!({"name":"Seedream","endpoint":endpoint,"model":"doubao-seedream-5-0-flash-260915","adapter":"ark_seedream","capabilities":["image_generation"],"authentication":"none"}))["result"].clone();
+    let job=cli(&db,"flatlay.generate",json!({"member_id":"default","outfit_id":outfit["id"],"version":1,"provider_id":provider["id"],"operation_key":"flatlay-cli","upload_images":true}))["result"].clone();
+    assert_eq!(job["kind"], "outfit_flatlay");
+    let token = client_token(&db);
+    let mcp = |operation: &str| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", db.to_str().unwrap(), "mcp"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":operation,"arguments":{"member_id":"default","id":job["id"]}}})).unwrap();
+        let result: Value =
+            serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+        serde_json::from_str::<Value>(result["result"]["content"][0]["text"].as_str().unwrap())
+            .unwrap()
+    };
+    assert_eq!(mcp("flatlay.process")["state"], "waiting_input");
+    thread.join().unwrap();
+    assert_eq!(mcp("flatlay.preview")["sync_scope"], "local_only");
+    assert_eq!(mcp("flatlay.save")["state"], "succeeded");
+    assert_eq!(
+        cli(
+            &db,
+            "outfit.get",
+            json!({"member_id":"default","id":outfit["id"]})
+        )["result"],
+        outfit
+    );
+    assert_eq!(
+        cli(&db, "wear.list", json!({"member_id":"default"}))["result"]["items"],
+        json!([])
+    );
+}
