@@ -1,4 +1,5 @@
 mod assets;
+mod authorization;
 mod clothing;
 mod members;
 mod providers;
@@ -9,7 +10,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 4;
+pub const DATABASE_SCHEMA_VERSION: u32 = 5;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -99,7 +100,7 @@ impl Application {
             "CREATE TABLE IF NOT EXISTS providers(id TEXT PRIMARY KEY, document TEXT NOT NULL);",
         )?;
         assets::migrate(&tx)?;
-        tx.execute_batch("PRAGMA user_version=4;")?;
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS clients(id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, document TEXT NOT NULL); PRAGMA user_version=5;")?;
         tx.commit()?;
         Ok(Self {
             connection,
@@ -152,6 +153,9 @@ impl Application {
             "capabilities" => Ok(
                 json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES,"taxonomy":clothing::taxonomy()}),
             ),
+            "client.list" => self.client_list(input),
+            "client.revoke" => self.client_revoke(input),
+            "client.authorize" => self.client_authorize(input),
             "space.default" => self.default_space(),
             "member.list" => self.member_list(),
             "member.create" => self.member_create(input),
@@ -192,6 +196,7 @@ pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
     descriptors.extend(clothing::descriptors());
     descriptors.extend(providers::descriptors());
+    descriptors.extend(authorization::descriptors());
     descriptors.extend(assets::descriptors());
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}

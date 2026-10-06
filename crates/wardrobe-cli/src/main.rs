@@ -19,10 +19,11 @@ fn main() {
         }
     };
     if args.iter().any(|a| a == "mcp") {
+        let mut client_token = None;
         for line in io::stdin().lock().lines() {
             match line {
                 Ok(line) => {
-                    if let Some(response) = mcp(&app, &line) {
+                    if let Some(response) = mcp(&app, &line, &mut client_token) {
                         println!("{response}");
                     }
                 }
@@ -34,7 +35,11 @@ fn main() {
     let positional: Vec<&str> = args
         .iter()
         .enumerate()
-        .filter(|(i, a)| a.as_str() != "--db" && (*i == 0 || args[*i - 1] != "--db"))
+        .filter(|(i, a)| {
+            a.as_str() != "--trusted-local"
+                && a.as_str() != "--db"
+                && (*i == 0 || args[*i - 1] != "--db")
+        })
         .map(|(_, a)| a.as_str())
         .collect();
     let command = positional.first().copied().unwrap_or("capabilities");
@@ -45,7 +50,10 @@ fn main() {
                 .into(),
         });
     }
-    let stdin_input = if positional.get(1) == Some(&"--input-stdin") {
+    let stdin_input = if matches!(
+        positional.get(1),
+        Some(&"--input-stdin" | &"--client-stdin")
+    ) {
         let mut body = String::new();
         if io::stdin()
             .take(1_048_577)
@@ -70,7 +78,19 @@ fn main() {
         None => Ok(json!({})),
     };
     match input {
-        Ok(input) => match app.execute(command, input) {
+        Ok(input) => match if args.iter().any(|a| a == "--trusted-local") {
+            app.execute(command, input)
+        } else if positional.get(1) == Some(&"--client-stdin") {
+            app.execute_as_client(
+                input["token"].as_str().unwrap_or(""),
+                command,
+                input.get("input").cloned().unwrap_or(json!({})),
+            )
+        } else if command == "capabilities" {
+            app.execute(command, input)
+        } else {
+            app.execute_as_client("", command, input)
+        } {
             Ok(result) => println!("{}", json!({"result":result})),
             Err(e) => fail(e),
         },
@@ -84,7 +104,7 @@ fn fail(error: ApiError) {
     println!("{}", json!({"error":error}));
     std::process::exit(2);
 }
-fn mcp(app: &Application, line: &str) -> Option<Value> {
+fn mcp(app: &Application, line: &str, client_token: &mut Option<String>) -> Option<Value> {
     let request: Value = match serde_json::from_str(line) {
         Ok(v) => v,
         Err(_) => {
@@ -96,10 +116,29 @@ fn mcp(app: &Application, line: &str) -> Option<Value> {
     let id = request.get("id")?.clone();
     let result = match request["method"].as_str().unwrap_or("") {
         "initialize" => {
+            if let Some(token) = request["params"]["authorization_token"].as_str() {
+                if let Err(error) = app.execute_as_client(token, "capabilities", json!({})) {
+                    return Some(
+                        json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":error.message,"data":{"code":error.code}}}),
+                    );
+                }
+                *client_token = Some(token.to_string());
+            }
             json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{},"resources":{}},"serverInfo":{"name":"wardrobe-agent","version":"0.1.0"}})
         }
         "ping" => json!({}),
-        "tools/list" => json!({"tools":wardrobe_core::operations()}),
+        "tools/list" => match app.execute_as_client(
+            client_token.as_deref().unwrap_or(""),
+            "capabilities",
+            json!({}),
+        ) {
+            Ok(v) => json!({"tools":v["operations"]}),
+            Err(e) => {
+                return Some(
+                    json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":e.message,"data":{"code":e.code}}}),
+                )
+            }
+        },
         "resources/list" => {
             json!({"resources":[{"uri":"wardrobe://capabilities","name":"Application capabilities","mimeType":"application/json"}]})
         }
@@ -109,9 +148,26 @@ fn mcp(app: &Application, line: &str) -> Option<Value> {
                     json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,"message":"Unknown resource"}}),
                 );
             }
-            json!({"contents":[{"uri":"wardrobe://capabilities","mimeType":"application/json","text":app.execute("capabilities",json!({})).unwrap().to_string()}]})
+            match app.execute_as_client(
+                client_token.as_deref().unwrap_or(""),
+                "capabilities",
+                json!({}),
+            ) {
+                Ok(v) => {
+                    json!({"contents":[{"uri":"wardrobe://capabilities","mimeType":"application/json","text":v.to_string()}]})
+                }
+                Err(e) => {
+                    return Some(
+                        json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":e.message,"data":{"code":e.code}}}),
+                    )
+                }
+            }
         }
-        "tools/call" => match app.execute(
+        "tools/call" => match app.execute_as_client(
+            request["params"]["authorization_token"]
+                .as_str()
+                .or(client_token.as_deref())
+                .unwrap_or(""),
             request["params"]["name"].as_str().unwrap_or(""),
             request["params"]
                 .get("arguments")

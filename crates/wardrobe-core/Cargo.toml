@@ -16,5 +16,6 @@ sha2 = "0.11.0"
 base64 = "0.23.1"
 webp = "0.3.1"
 libheif-rs = { version = "3.0.0", default-features = false, features = ["v1_19"] }
+getrandom = "0.4"
 [dev-dependencies]
 tempfile = "3"

@@ -21,7 +21,7 @@ args=parser.parse_args()
 args.output_dir.mkdir(parents=True,exist_ok=True)
 database=args.output_dir/'review.sqlite'
 def api(operation,data=None):
-    run=subprocess.run([str(args.cli.resolve()),'--db',str(database.resolve()),operation,json.dumps(data or {})],capture_output=True,text=True,check=False)
+    run=subprocess.run([str(args.cli.resolve()),'--trusted-local','--db',str(database.resolve()),operation,json.dumps(data or {})],capture_output=True,text=True,check=False)
     try:return json.loads(run.stdout)
     except json.JSONDecodeError:return {'error':{'code':'entrypoint_failed','message':run.stderr[:500]}}
 api('space.default')

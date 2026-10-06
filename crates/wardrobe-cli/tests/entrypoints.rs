@@ -6,6 +6,7 @@ use std::{
 fn cli(path: &std::path::Path, operation: &str, input: Value) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
         .args([
+            "--trusted-local",
             "--db",
             path.to_str().unwrap(),
             operation,
@@ -39,7 +40,7 @@ fn cli_imported_image_is_available_through_mcp_without_gui() {
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"assets.get","arguments":{"member_id":"default","id":imported["result"]["id"]}}});
+    let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":client_token(&path),"name":"assets.get","arguments":{"member_id":"default","id":imported["result"]["id"]}}});
     writeln!(mcp.stdin.take().unwrap(), "{request}").unwrap();
     let output = mcp.wait_with_output().unwrap();
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -63,7 +64,7 @@ fn cli_and_mcp_use_same_persisted_application_without_gui() {
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"clothing.get","arguments":{"member_id":"default","id":created["result"]["id"]}}});
+    let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":client_token(&path),"name":"clothing.get","arguments":{"member_id":"default","id":created["result"]["id"]}}});
     writeln!(mcp.stdin.take().unwrap(), "{request}").unwrap();
     let output = mcp.wait_with_output().unwrap();
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -109,7 +110,7 @@ fn mcp_edits_and_restores_same_clothing_as_cli_filters_without_gui() {
         let mut arguments = patch;
         arguments["member_id"] = json!("default");
         arguments["id"] = item["id"].clone();
-        writeln!(stdin,"{}",json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":operation,"arguments":arguments}})).unwrap();
+        writeln!(stdin,"{}",json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"authorization_token":client_token(&path),"name":operation,"arguments":arguments}})).unwrap();
     }
     drop(stdin);
     let output = mcp.wait_with_output().unwrap();
@@ -140,7 +141,7 @@ fn cli_member_profiles_and_mcp_inventory_share_member_scope() {
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"clothing.get","arguments":{"member_id":b["result"]["member_id"],"id":created["result"]["id"]}}});
+    let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":client_token(&path),"name":"clothing.get","arguments":{"member_id":b["result"]["member_id"],"id":created["result"]["id"]}}});
     writeln!(mcp.stdin.take().unwrap(), "{request}").unwrap();
     let output = mcp.wait_with_output().unwrap();
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -160,8 +161,10 @@ fn stdin_configuration_and_mcp_discovery_share_provider_contract_without_gui() {
     let path = dir.path().join("db");
     let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
         .args([
+            "--trusted-local",
             "--db",
             path.to_str().unwrap(),
+            "--trusted-local",
             "provider.save",
             "--input-stdin",
         ])
@@ -179,7 +182,7 @@ fn stdin_configuration_and_mcp_discovery_share_provider_contract_without_gui() {
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"provider.list","arguments":{}}})).unwrap();
+    writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":client_token(&path),"name":"provider.list","arguments":{}}})).unwrap();
     let output = child.wait_with_output().unwrap();
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     let list: Value =
@@ -197,3 +200,101 @@ fn credential_command_requires_stdin_to_keep_secret_out_of_process_arguments() {
     assert_eq!(result["error"]["code"], "secret_requires_stdin");
     assert!(!result.to_string().contains("disposable-placeholder"));
 }
+#[test]
+fn unauthenticated_external_cli_cannot_read_inventory() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args([
+            "--db",
+            dir.path().join("db").to_str().unwrap(),
+            "clothing.list",
+            r#"{"member_id":"default"}"#,
+        ])
+        .output()
+        .unwrap();
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["error"]["code"], "unauthorized");
+}
+
+fn client_token(path: &std::path::Path) -> String {
+    let app = wardrobe_core::Application::open(path).unwrap();
+    let result=app.execute("client.authorize",json!({"name":"测试客户端","mode":"full","operations":[],"member_ids":null,"expires_at":null})).unwrap();
+    result["token"].as_str().unwrap().to_string()
+}
+#[test]
+fn external_cli_and_mcp_enforce_same_operation_and_member_grant() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let app = wardrobe_core::Application::open(&path).unwrap();
+    let a = app.execute("space.default", json!({})).unwrap();
+    let b = app
+        .execute("member.create", json!({"name":"另一个成员"}))
+        .unwrap();
+    let grant=app.execute("client.authorize",json!({"name":"限定测试客户端","mode":"limited","operations":["clothing.list"],"member_ids":[a["member_id"]],"expires_at":null})).unwrap();
+    let token = grant["token"].as_str().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args([
+            "--db",
+            path.to_str().unwrap(),
+            "clothing.create",
+            "--client-stdin",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    write!(
+        child.stdin.take().unwrap(),
+        "{}",
+        json!({"token":token,"input":{"member_id":a["member_id"],"name":"不能写","category":"top"}})
+    )
+    .unwrap();
+    let output = child.wait_with_output().unwrap();
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "scope_denied");
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(token));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for (id, params) in [
+        (
+            1,
+            json!({"name":"clothing.list","arguments":{"member_id":a["member_id"]}}),
+        ),
+        (
+            2,
+            json!({"authorization_token":token,"name":"clothing.list","arguments":{"member_id":b["member_id"]}}),
+        ),
+        (
+            3,
+            json!({"authorization_token":token,"name":"clothing.list","arguments":{"member_id":a["member_id"]}}),
+        ),
+    ] {
+        writeln!(
+            stdin,
+            "{}",
+            json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":params})
+        )
+        .unwrap();
+    }
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    let body = String::from_utf8(output.stdout).unwrap();
+    assert!(!body.contains(token));
+    let results: Vec<Value> = body
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let error = |i: usize| -> Value {
+        serde_json::from_str(results[i]["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+    };
+    assert_eq!(error(0)["error"]["code"], "unauthorized");
+    assert_eq!(error(1)["error"]["code"], "member_denied");
+    assert_eq!(results[2]["result"]["isError"], false);
+}
+#[test]
+fn mcp_initialized_full_authorization_is_reused_for_multiple_writes_without_reauthorization(){let dir=tempfile::tempdir().unwrap();let path=dir.path().join("db");cli(&path,"space.default",json!({}));let token=client_token(&path);let mut child=Command::new(env!("CARGO_BIN_EXE_wardrobe-cli")).args(["--db",path.to_str().unwrap(),"mcp"]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();let mut stdin=child.stdin.take().unwrap();writeln!(stdin,"{}",json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"authorization_token":token}})).unwrap();for id in [2,3]{writeln!(stdin,"{}",json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"clothing.create","arguments":{"member_id":"default","name":format!("授权后写入{id}"),"category":"top"}}})).unwrap();}writeln!(stdin,"{}",json!({"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}})).unwrap();drop(stdin);let output=child.wait_with_output().unwrap();let body=String::from_utf8(output.stdout).unwrap();assert!(!body.contains(&token));let responses:Vec<Value>=body.lines().map(|line|serde_json::from_str(line).unwrap()).collect();assert_eq!(responses.len(),4);assert_eq!(responses[1]["result"]["isError"],false);assert_eq!(responses[2]["result"]["isError"],false);let tools=responses[3]["result"]["tools"].as_array().unwrap();assert!(tools.iter().any(|tool|tool["name"]=="assets.import"));assert!(!tools.iter().any(|tool|tool["name"]=="client.authorize"));assert_eq!(cli(&path,"clothing.list",json!({"member_id":"default"}))["result"]["items"].as_array().unwrap().len(),2);}
