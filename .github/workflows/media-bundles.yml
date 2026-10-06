@@ -1,0 +1,115 @@
+name: Packaged media runtime
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/beta-integration]
+    paths:
+      - .github/workflows/media-bundles.yml
+      - scripts/prepare-media-distribution.py
+      - scripts/verify-packaged-cli.py
+      - scripts/bootstrap-media-*.sh
+      - scripts/bootstrap-media-*.ps1
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential pkg-config cmake patchelf libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev libdbus-1-dev
+          if [[ "${{ matrix.os }}" == ubuntu-24.04 ]]; then sudo apt-get install -y libfuse2t64; else sudo apt-get install -y libfuse2; fi
+      - if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          bash scripts/bootstrap-media-unix.sh "$RUNNER_TEMP/wardrobe-media"
+          echo "PKG_CONFIG_PATH=$RUNNER_TEMP/wardrobe-media/install/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/wardrobe-media/install/lib" >> "$GITHUB_ENV"
+          echo 'RUSTFLAGS=-C link-arg=-Wl,-rpath,$ORIGIN/lib:$ORIGIN/../lib/wardrobe-agent' >> "$GITHUB_ENV"
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/bootstrap-media-windows.ps1 -MediaRoot "$env:RUNNER_TEMP/wardrobe-media"
+      - run: cargo build --release -p wardrobe-cli
+      - name: Stage Linux runtime and CLI
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python3 scripts/prepare-media-distribution.py "$RUNNER_TEMP/wardrobe-media/install" target/release/wardrobe-cli "$RUNNER_TEMP/distribution" --target x86_64-unknown-linux-gnu
+      - name: Stage Windows runtime, app-local CRT and CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vs=& "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -property installationPath
+          $crt=Get-ChildItem "$vs/VC/Redist/MSVC/*/x64/Microsoft.VC*.CRT" -Directory | Sort-Object FullName | Select-Object -Last 1
+          if (!$crt) { throw 'MSVC app-local CRT unavailable' }
+          python scripts/prepare-media-distribution.py "$env:VCPKG_ROOT/installed/x64-windows" target/release/wardrobe-cli.exe "$env:RUNNER_TEMP/distribution" --target x86_64-pc-windows-msvc --windows-crt-dir $crt.FullName
+          if ($LASTEXITCODE) { throw 'Staging failed' }
+      - run: npm ci
+        working-directory: apps/desktop
+      - name: Build actual Tauri installers
+        shell: bash
+        working-directory: apps/desktop
+        run: npm run tauri build -- --config "$RUNNER_TEMP/distribution/tauri-media.json"
+      - name: Relocated standalone CLI smoke
+        shell: bash
+        run: |
+          extension=''
+          if [[ "$RUNNER_OS" == Windows ]]; then extension='.exe'; fi
+          python scripts/verify-packaged-cli.py "$RUNNER_TEMP/distribution/portable/wardrobe-cli$extension" crates/wardrobe-core/tests/fixtures/generated-colors.heic --report "$RUNNER_TEMP/distribution/standalone-runtime.json"
+      - name: Inspect and execute extracted Debian and AppImage CLI
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          deb=$(find apps/desktop/src-tauri/target/release/bundle/deb -name '*.deb' -type f -print -quit)
+          test -n "$deb"
+          dpkg-deb --contents "$deb" > "$RUNNER_TEMP/distribution/deb-contents.txt"
+          dpkg-deb --extract "$deb" "$RUNNER_TEMP/deb-extracted"
+          env -u LD_LIBRARY_PATH ldd "$RUNNER_TEMP/deb-extracted/usr/bin/wardrobe-desktop" > "$RUNNER_TEMP/distribution/deb-gui-loader.txt"
+          grep -F "$RUNNER_TEMP/deb-extracted/usr/bin/../lib/wardrobe-agent/libheif.so.1" "$RUNNER_TEMP/distribution/deb-gui-loader.txt"
+          if grep -q 'not found' "$RUNNER_TEMP/distribution/deb-gui-loader.txt"; then exit 1; fi
+          python3 scripts/verify-packaged-cli.py "$RUNNER_TEMP/deb-extracted/usr/bin/wardrobe-cli" crates/wardrobe-core/tests/fixtures/generated-colors.heic --report "$RUNNER_TEMP/distribution/deb-runtime.json"
+          image=$(find apps/desktop/src-tauri/target/release/bundle/appimage -name '*.AppImage' -type f -print -quit)
+          test -n "$image"
+          image=$(realpath "$image")
+          mkdir -p "$RUNNER_TEMP/appimage-extracted"
+          (cd "$RUNNER_TEMP/appimage-extracted" && "$image" --appimage-extract >/dev/null)
+          python3 scripts/verify-packaged-cli.py "$RUNNER_TEMP/appimage-extracted/squashfs-root/usr/bin/wardrobe-cli" crates/wardrobe-core/tests/fixtures/generated-colors.heic --report "$RUNNER_TEMP/distribution/appimage-runtime.json"
+      - name: Install NSIS into isolated directory and execute installed CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer=Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
+          if (!$installer) { throw 'NSIS installer missing' }
+          $install=Join-Path $env:RUNNER_TEMP 'wardrobe-installed'
+          $process=Start-Process $installer.FullName -ArgumentList @('/S',"/D=$install") -Wait -PassThru
+          if ($process.ExitCode) { throw "Installer failed $($process.ExitCode)" }
+          python scripts/verify-packaged-cli.py "$install/wardrobe-cli.exe" crates/wardrobe-core/tests/fixtures/generated-colors.heic --report "$env:RUNNER_TEMP/distribution/nsis-runtime.json"
+          if ($LASTEXITCODE) { throw 'Installed CLI failed' }
+      - name: Archive standalone Linux CLI preserving executable mode
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          tar -czf "$RUNNER_TEMP/distribution/wardrobe-cli-${{ matrix.os }}.tar.gz" -C "$RUNNER_TEMP/distribution/portable" .
+          tar -czf "$RUNNER_TEMP/distribution/installers-${{ matrix.os }}.tar.gz" -C apps/desktop/src-tauri/target/release/bundle .
+      - name: Upload installers, standalone CLI and runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-distribution-${{ matrix.os }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/
+            ${{ runner.temp }}/distribution/portable/
+            ${{ runner.temp }}/distribution/*runtime.json
+            ${{ runner.temp }}/distribution/deb-contents.txt
+            ${{ runner.temp }}/distribution/*loader.txt
+            ${{ runner.temp }}/distribution/*.tar.gz

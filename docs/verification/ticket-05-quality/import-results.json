@@ -1,0 +1,402 @@
+[
+  {
+    "file": "01-98884.jpg",
+    "original": {
+      "bytes": 4314928,
+      "id": "80651b8fa799cd6a20ad963ce3237472944dc1354eba72202f615990a7c2e4ff",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 144132,
+      "height": 1198,
+      "id": "5ea27c607222d490d377a8caed5200c23953fd0bcd7f00acea57ec86c91e95b1",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1600
+    }
+  },
+  {
+    "file": "03-153759.jpg",
+    "original": {
+      "bytes": 5719815,
+      "id": "9b52847dc4ef15627a85c25ce2a539371e226d22e12193c5f9bacad28e11747b",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 387204,
+      "height": 665,
+      "id": "df02f5e348353d34aed899702f58726361a287a684a176aec9b75baf727c45a1",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1600
+    }
+  },
+  {
+    "file": "04-159372.jpg",
+    "original": {
+      "bytes": 1887464,
+      "id": "c53043c30507b94b7b6ebfebebf9fd45733d3cdd67c29cc11c3cf4339a69b4d6",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 213490,
+      "height": 1074,
+      "id": "18d255fff4a8cb94ada85ed6e3a47023993f946b8d55c802ef82e4941b05106a",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1600
+    }
+  },
+  {
+    "file": "05-159371.jpg",
+    "original": {
+      "bytes": 2058731,
+      "id": "90c5d8f78a9c68803d22eb6ba6447580778f8b41845733051d3f86bee0f580b1",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 157874,
+      "height": 1600,
+      "id": "1ad95a215962c1bb04f48d931f0c7ee563e15bf0d0f3df064a55938b786caf9d",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1130
+    }
+  },
+  {
+    "file": "06-171144.jpg",
+    "original": {
+      "bytes": 2221224,
+      "id": "b502b9d6cfe531f7e6c2f5bb6cd96cf4a0fe78bc353927472a5299605a8f2353",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 157262,
+      "height": 875,
+      "id": "0d8f578cb1348fb0788af4e942a4764b2603e340a7ebacca663c395cfd6f9e4b",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1600
+    }
+  },
+  {
+    "file": "07-115730.jpg",
+    "original": {
+      "bytes": 4145218,
+      "id": "582742f5bee2070f6ae21fc444a667d25c537776c4a9da1b6e8e25ce4ae0a263",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 226042,
+      "height": 1440,
+      "id": "c6c20ce60e84c85542a6e97232a4ce9d90e7c63dfe403ccec89549362c101cbb",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1600
+    }
+  },
+  {
+    "file": "09-95625.jpg",
+    "original": {
+      "bytes": 6735960,
+      "id": "24ec42ff3ba3675b4359faacbaa882c7317b13d6b0e8dd1295a4e88e60853695",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 497162,
+      "height": 932,
+      "id": "f6d2081cd0963dd35cfca97f5f28818cb8d3722d366559b1cedb9fd4959e6f04",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1600
+    }
+  },
+  {
+    "file": "10-151451.jpg",
+    "original": {
+      "bytes": 6523403,
+      "id": "8a67cd75b47c7e021997e79aae41885b317925d8ee5c29d66ddcd6434b923ed9",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 366922,
+      "height": 1168,
+      "id": "e1dba27244f9b83c11746bf34e96d32c853b541e047b92ab05e2a32988107942",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1600
+    }
+  },
+  {
+    "file": "11-164421.jpg",
+    "original": {
+      "bytes": 3185987,
+      "id": "0ee01a4d46d41b5239c011444a0481f8393a10e2ffa1e7adaa93112cc541ef84",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 347646,
+      "height": 1600,
+      "id": "7ca87868f62048c90627bd491d5d1092d7b8750ca48aedbaf49a8693067a38d0",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1423
+    }
+  },
+  {
+    "file": "12-159880.jpg",
+    "original": {
+      "bytes": 1765241,
+      "id": "77f79412b5d3dde2b230a19a02d692cb7d27b4bf1e1d1e409b5887385913bcfe",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 204106,
+      "height": 1600,
+      "id": "836b226bd6d86e7227b11f90d85a5202920f19a3e658082fcd56ca2c052e92c5",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1032
+    }
+  },
+  {
+    "file": "14-159002.jpg",
+    "original": {
+      "bytes": 4271861,
+      "id": "46a4d42e39319aa097de7fd175904a1fb6aaa1ed9b007f6cacc7cb009a8a39b7",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 184768,
+      "height": 1600,
+      "id": "fe25546051205499fc5ffeae8d1174d911ffae2b27f2a042e6ccdfabf394314e",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1104
+    }
+  },
+  {
+    "file": "15-164422.jpg",
+    "original": {
+      "bytes": 1508898,
+      "id": "d55bd24391a855beb351a6e02fa5794c7347ef63a5d3d0449502ba9fb6260b70",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 124226,
+      "height": 1600,
+      "id": "13ddb4459ad3d4ecffade15df1a5368b7ac1c8a9e9151aed1fa296b2a28b218a",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 742
+    }
+  },
+  {
+    "file": "16-164423.jpg",
+    "original": {
+      "bytes": 1070592,
+      "id": "b209464832c58e966e478da915a6c7d67d2635f16ec53fe43d9d61dfa4373206",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 53376,
+      "height": 1600,
+      "id": "57d3afee9c82d9ad2f2bf0d870705ed575e008ab8a36d652df1447a8a1b4e21e",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 679
+    }
+  },
+  {
+    "file": "17-164424.jpg",
+    "original": {
+      "bytes": 1401392,
+      "id": "7f8468429fc0caf9a5c2c1d95254aac756eddb5bd06004472078a1709ae6c1e6",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 126316,
+      "height": 1600,
+      "id": "11622a21321ca0a57d96f82cd0ee925b36a76a0687dedeebf224ed894eb43ec0",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 723
+    }
+  },
+  {
+    "file": "18-171076.jpg",
+    "original": {
+      "bytes": 2445685,
+      "id": "1a996db1e7efedff8bef8e2b83a729f566678c40ea6a58ef6e01ac7b28f26e42",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 400374,
+      "height": 1115,
+      "id": "62474ec7320fe71d6dbe75da503a627122435528a20e64966be77c90ba8e1790",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1600
+    }
+  },
+  {
+    "file": "20-165310.jpg",
+    "original": {
+      "bytes": 5463942,
+      "id": "eace967bf83061fc3d18940a5972837c95b2f3ce49365d279f839a947a6d6257",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 261978,
+      "height": 1479,
+      "id": "a9e8495a27d3eeb9eddd87128075ecb8912112cba0ed7779469f792f08e2d720",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1600
+    }
+  },
+  {
+    "file": "23-159373.jpg",
+    "original": {
+      "bytes": 2384441,
+      "id": "de78b8c8eb1e2881d4c7d027727819b3cc896732a682865526ad5f404b957458",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 238914,
+      "height": 1600,
+      "id": "bb0d2131451ba5a6e4cd87b9ed278d927c3365691b0d2b4016c3f8f7cf3418d0",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1043
+    }
+  },
+  {
+    "file": "24-95332.jpg",
+    "original": {
+      "bytes": 3590238,
+      "id": "b89ed63fd1b0d1f26a9a9d137c4ffe516db267da2b52c962fce484416bb1e98d",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 108900,
+      "height": 1600,
+      "id": "ad7729b2167f605f52a97fdcd356e78170d251cbdf9d48596da4bca73aec45a8",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 672
+    }
+  },
+  {
+    "file": "25-95788.jpg",
+    "original": {
+      "bytes": 1630985,
+      "id": "c11b33d9c13ad6100b11dc055b77ed63e38f448c3478b82a31e13946a7f25196",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 249854,
+      "height": 1057,
+      "id": "e461e4be18878cd707aa36623ecf93056ac0f7ae225e2ed5160e3d9bae2d394d",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1600
+    }
+  },
+  {
+    "file": "26-98875.jpg",
+    "original": {
+      "bytes": 4204816,
+      "id": "a6e71a3f93b27f1add50b9f8f0b91bc57cfebf66a27c9e967058a23365b9ae40",
+      "sync_scope": "local_only"
+    },
+    "display": {
+      "bytes": 171932,
+      "height": 1198,
+      "id": "858480897a0825c666001a3d37d28bfae5e126cf78dea91122581a5cb0f92fae",
+      "mime": "image/webp",
+      "quality": 82,
+      "role": "product_display",
+      "soft_threshold_exceeded": false,
+      "state": "preview",
+      "sync_scope": "local_only",
+      "width": 1600
+    }
+  }
+]

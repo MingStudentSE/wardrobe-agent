@@ -181,6 +181,7 @@ impl Application {
             "assets.rebuild_thumbnail" => self.asset_rebuild_thumbnail(input),
             "assets.adopt" => self.asset_adopt(input),
             "assets.reorder" => self.asset_reorder(input),
+            "assets.detach" => self.asset_detach(input),
             "assets.sync_manifest" => self.asset_sync_manifest(input),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
         }
