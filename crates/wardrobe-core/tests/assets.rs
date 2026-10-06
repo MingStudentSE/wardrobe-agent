@@ -229,3 +229,97 @@ fn header_over_sixty_megapixels_is_rejected_before_pixel_decode() {
         "image_dimensions_exceeded"
     );
 }
+#[test]
+fn detaching_an_image_preserves_bytes_and_other_clothing_references() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/generated-colors.png");
+    let asset = app
+        .execute(
+            "assets.import",
+            json!({"member_id":"default","path":source}),
+        )
+        .unwrap();
+    let first = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"衬衫","category":"top"}),
+        )
+        .unwrap();
+    let second = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"外套","category":"outerwear"}),
+        )
+        .unwrap();
+    for item in [&first, &second] {
+        app.execute(
+            "assets.adopt",
+            json!({"member_id":"default","clothing_id":item["id"],"asset_id":asset["id"]}),
+        )
+        .unwrap();
+    }
+    let detached = app
+        .execute(
+            "assets.detach",
+            json!({"member_id":"default","clothing_id":first["id"],"asset_id":asset["id"]}),
+        )
+        .unwrap();
+    assert_eq!(detached["asset_ids"], json!([]));
+    assert!(detached["display_asset_id"].is_null());
+    assert_eq!(
+        app.execute(
+            "clothing.get",
+            json!({"member_id":"default","id":second["id"]})
+        )
+        .unwrap()["display_asset_id"],
+        asset["id"]
+    );
+    assert!(app
+        .execute(
+            "assets.preview",
+            json!({"member_id":"default","id":asset["id"]})
+        )
+        .is_ok());
+    app.execute(
+        "assets.detach",
+        json!({"member_id":"default","clothing_id":second["id"],"asset_id":asset["id"]}),
+    )
+    .unwrap();
+    let original = app
+        .execute(
+            "assets.get",
+            json!({"member_id":"default","id":asset["id"]}),
+        )
+        .unwrap();
+    assert_eq!(original["display"]["sync_scope"], "local_only");
+    assert_eq!(
+        std::fs::read(original["original"]["local_path"].as_str().unwrap()).unwrap(),
+        std::fs::read(source).unwrap()
+    );
+}
+#[test]
+fn image_capabilities_describe_required_references_and_real_preview_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let capabilities = app.execute("capabilities", json!({})).unwrap();
+    let operations = capabilities["operations"].as_array().unwrap();
+    let reorder = operations
+        .iter()
+        .find(|operation| operation["name"] == "assets.reorder")
+        .unwrap();
+    assert!(reorder["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("asset_ids")));
+    let preview = operations
+        .iter()
+        .find(|operation| operation["name"] == "assets.preview")
+        .unwrap();
+    assert!(preview["outputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("data_url")));
+}

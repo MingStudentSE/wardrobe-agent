@@ -22,6 +22,54 @@ pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     Ok(())
 }
 impl Application {
+    pub(super) fn asset_detach(&self, input: Value) -> Result<Value, ApiError> {
+        let tx = self.begin_write()?;
+        let member = self.member(&input)?;
+        let clothing_id = string(&input, "clothing_id")?;
+        let asset_id = string(&input, "asset_id")?;
+        let mut clothing = self.clothing_get(json!({"member_id":member,"id":clothing_id}))?;
+        if clothing["status"] == "deleted" {
+            return Err(ApiError::new("invalid_state", "回收站单品不能编辑图片"));
+        }
+        let mut asset = self.asset_get(json!({"member_id":member,"id":asset_id}))?;
+        let ids = clothing["asset_ids"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if !ids.contains(&json!(asset_id)) {
+            return Err(ApiError::new("not_found", "单品未关联该图片"));
+        }
+        let remaining: Vec<Value> = ids.into_iter().filter(|id| id != asset_id).collect();
+        if clothing["display_asset_id"] == asset_id {
+            clothing["display_asset_id"] = remaining.first().cloned().unwrap_or(Value::Null);
+        }
+        clothing["asset_ids"] = json!(remaining);
+        clothing["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
+        tx.execute(
+            "UPDATE clothing SET document=?1 WHERE id=?2 AND member_id=?3",
+            params![clothing.to_string(), clothing_id, member],
+        )?;
+        let references:u64=tx.query_row("SELECT count(*) FROM clothing WHERE member_id=?1 AND EXISTS (SELECT 1 FROM json_each(document,'$.asset_ids') WHERE value=?2)",params![member,asset_id],|r|r.get(0))?;
+        if references == 0 {
+            asset["state"] = json!("preview");
+            asset["display"]["state"] = json!("preview");
+            asset["display"]["sync_scope"] = json!("local_only");
+            tx.execute(
+                "UPDATE assets SET document=?1 WHERE id=?2 AND member_id=?3",
+                params![asset.to_string(), asset_id, member],
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO audit(entity_id,operation,document) VALUES (?1,'image_detach',?2)",
+            params![clothing_id, clothing.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO outbox(entity_id,document) VALUES (?1,?2)",
+            params![clothing_id, clothing.to_string()],
+        )?;
+        tx.commit()?;
+        Ok(clothing)
+    }
     pub(super) fn asset_reorder(&self, input: Value) -> Result<Value, ApiError> {
         let tx = self.begin_write()?;
         let member = self.member(&input)?;
@@ -50,6 +98,7 @@ impl Application {
             ));
         }
         clothing["asset_ids"] = json!(desired);
+        clothing["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         tx.execute(
             "UPDATE clothing SET document=?1 WHERE id=?2 AND member_id=?3",
             params![clothing.to_string(), id, member],
@@ -226,6 +275,7 @@ impl Application {
         }
         clothing["asset_ids"] = json!(ids);
         clothing["display_asset_id"] = asset["id"].clone();
+        clothing["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         asset["state"] = json!("adopted");
         asset["display"]["state"] = json!("adopted");
         asset["display"]["sync_scope"] = json!("workspace");
@@ -250,7 +300,23 @@ impl Application {
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
-    ["import","get","preview","rebuild_thumbnail","adopt","reorder","sync_manifest"].iter().map(|action|json!({"name":format!("assets.{action}"),"description":"本地图片导入、预览与采用","inputSchema":{"type":"object","required":["member_id"],"properties":{"member_id":{"type":"string"},"path":{"type":"string"},"id":{"type":"string"},"asset_id":{"type":"string"},"clothing_id":{"type":"string"},"variant":{"enum":["display","thumbnail"]}}},"outputSchema":{"type":"object","required":["schema_version"]}})).collect()
+    let display = json!({"type":"object","required":["id","local_path","role","state","sync_scope","width","height","bytes","mime","quality","soft_threshold_exceeded"],"properties":{"id":{"type":"string"},"local_path":{"type":"string"},"role":{"const":"product_display"},"state":{"enum":["preview","adopted"]},"sync_scope":{"enum":["local_only","workspace"]},"width":{"type":"integer"},"height":{"type":"integer"},"bytes":{"type":"integer"},"mime":{"const":"image/webp"},"quality":{"type":"integer"},"soft_threshold_exceeded":{"type":"boolean"}}});
+    let asset = json!({"type":"object","required":["schema_version","id","member_id","state","original","display","thumbnail"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"state":{"enum":["preview","adopted"]},"original":{"type":"object","required":["id","local_path","sync_scope","bytes"],"properties":{"id":{"type":"string"},"local_path":{"type":"string"},"sync_scope":{"const":"local_only"},"bytes":{"type":"integer"}}},"display":display,"thumbnail":{"type":"object","required":["local_path","sync_scope","width","height"],"properties":{"local_path":{"type":"string"},"sync_scope":{"const":"local_only"},"width":{"type":"integer"},"height":{"type":"integer"}}}}});
+    ["import","get","preview","rebuild_thumbnail","adopt","reorder","detach","sync_manifest"].iter().map(|action| {
+        let mut properties=json!({"member_id":{"type":"string"}});
+        let mut required=vec!["member_id"];
+        for field in match *action {"import"=>vec!["path"],"get"|"preview"|"rebuild_thumbnail"=>vec!["id"],"adopt"|"detach"=>vec!["clothing_id","asset_id"],"reorder"=>vec!["clothing_id"],_=>vec![]} {properties[field]=json!({"type":"string"});required.push(field);}
+        if *action=="preview" {properties["variant"]=json!({"type":"string","enum":["display","thumbnail"],"default":"display"});}
+        if *action=="reorder" {required.push("asset_ids");properties["asset_ids"]=json!({"type":"array","maxItems":20,"uniqueItems":true,"items":{"type":"string"}});}
+        let output=match *action {
+            "adopt"|"reorder"|"detach"=>super::clothing::output_schema("clothing.get"),
+            "preview"=>json!({"type":"object","required":["schema_version","id","data_url"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"data_url":{"type":"string"}}}),
+            "sync_manifest"=>json!({"type":"object","required":["schema_version","assets"],"properties":{"schema_version":{"const":1},"assets":{"type":"array","items":{"type":"object","required":["id","blob_hash","role","state","sync_scope","mime","bytes","width","height"],"properties":{"id":{"type":"string"},"blob_hash":{"type":"string"},"role":{"const":"product_display"},"state":{"const":"adopted"},"sync_scope":{"const":"workspace"},"mime":{"const":"image/webp"},"bytes":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"}}}}}}),
+            _=>asset.clone()
+        };
+        let description=match *action {"import"=>"导入本地原图并规范压缩，先预览", "get"=>"读取当前成员的本地图片元数据", "preview"=>"读取压缩展示图或缩略图", "rebuild_thumbnail"=>"从展示图重建本地缩略图", "adopt"=>"保留已有图片并采用指定图片为主图", "reorder"=>"调整现有图片顺序", "detach"=>"移除单品图片关联，保留本地文件和其他引用", _=>"只列出已采用且允许同步的展示图"};
+        json!({"name":format!("assets.{action}"),"description":description,"inputSchema":{"type":"object","required":required,"properties":properties},"outputSchema":output})
+    }).collect()
 }
 
 fn dimensions(width: u32, height: u32) -> Result<(), ApiError> {
