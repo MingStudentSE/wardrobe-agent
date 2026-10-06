@@ -503,3 +503,89 @@ fn highest_database_version_repairs_missing_encryption_tables_without_downgrade(
         wardrobe_core::DATABASE_SCHEMA_VERSION
     );
 }
+
+#[test]
+#[ignore = "requires real OS credential store"]
+fn failed_rotation_is_atomic_and_recovery_keeps_all_historical_epochs() {
+    let owner_dir = tempfile::tempdir().unwrap();
+    let peer_dir = tempfile::tempdir().unwrap();
+    let restored_dir = tempfile::tempdir().unwrap();
+    let owner_path = owner_dir.path().join("wardrobe.sqlite");
+    let peer_path = peer_dir.path().join("wardrobe.sqlite");
+    let restored_path = restored_dir.path().join("wardrobe.sqlite");
+    let owner = Application::open(&owner_path).unwrap();
+    let peer = Application::open(&peer_path).unwrap();
+    let restored = Application::open(&restored_path).unwrap();
+    let _owner_cleanup = KeyCleanup(owner_path.clone());
+    let _peer_cleanup = KeyCleanup(peer_path);
+    let _restored_cleanup = KeyCleanup(restored_path);
+    owner
+        .execute(
+            "encryption.create",
+            json!({"password":"atomic owner temporary password","device_name":"atomic owner"}),
+        )
+        .unwrap();
+    let old = owner
+        .execute(
+            "encryption.encrypt",
+            json!({"kind":"changes","plaintext_base64":"b2xk"}),
+        )
+        .unwrap();
+    let offer = owner
+        .execute(
+            "encryption.pair.offer",
+            json!({"device_name":"atomic peer"}),
+        )
+        .unwrap();
+    let accepted = peer.execute("encryption.pair.accept",json!({"invitation":offer["invitation"],"pairing_secret":offer["pairing_secret"],"password":"atomic peer temporary password"})).unwrap();
+    let confirmed = owner
+        .execute(
+            "encryption.pair.confirm",
+            json!({"receipt":accepted["receipt"]}),
+        )
+        .unwrap();
+    peer.execute(
+        "encryption.device.apply",
+        json!({"manifest":confirmed["manifest"]}),
+    )
+    .unwrap();
+    let before = owner.execute("encryption.status", json!({})).unwrap();
+    let db = rusqlite::Connection::open(&owner_path).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_rotation BEFORE UPDATE ON encryption_state BEGIN SELECT RAISE(ABORT,'injected storage failure'); END;").unwrap();
+    assert!(owner.execute("encryption.device.revoke",json!({"device_id":accepted["state"]["device_id"],"password":"atomic rotated temporary password"})).is_err());
+    assert_eq!(
+        owner.execute("encryption.status", json!({})).unwrap(),
+        before
+    );
+    assert_eq!(
+        owner
+            .execute(
+                "encryption.encrypt",
+                json!({"kind":"changes","plaintext_base64":"bmV3"})
+            )
+            .unwrap()["envelope"]["epoch"],
+        1
+    );
+    db.execute_batch("DROP TRIGGER reject_rotation;").unwrap();
+    owner.execute("encryption.device.revoke",json!({"device_id":accepted["state"]["device_id"],"password":"atomic rotated temporary password"})).unwrap();
+    let current = owner
+        .execute(
+            "encryption.encrypt",
+            json!({"kind":"changes","plaintext_base64":"bmV3"}),
+        )
+        .unwrap();
+    assert_eq!(current["envelope"]["epoch"], 2);
+    let changed = owner.execute("encryption.password.change",json!({"old_password":"atomic rotated temporary password","new_password":"atomic changed temporary password"})).unwrap();
+    restored.execute("encryption.restore",json!({"bundle":changed["recovery_bundle"],"recovery_secret":changed["recovery_secret"]})).unwrap();
+    for (ciphertext, plain) in [(&old, "b2xk"), (&current, "bmV3")] {
+        assert_eq!(
+            restored
+                .execute(
+                    "encryption.decrypt",
+                    json!({"kind":"changes","envelope":ciphertext["envelope"]})
+                )
+                .unwrap()["plaintext_base64"],
+            plain
+        );
+    }
+}

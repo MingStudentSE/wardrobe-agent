@@ -1,6 +1,6 @@
 # #26 本机验收
 
-2026-10-07，macOS；代码已合入 root b08746b，未 push，未关闭 issue。真实 SQLite / OS Keychain / Application / CLI / MCP / GUI 均用于本票验收，使用临时生成凭据和合成字节，不使用个人衣橱或用户密钥。
+2026-10-07，macOS；候选已合并 root b08746b，尚待独立 merger 交付父任务，未 push，未关闭 issue。真实 SQLite / OS Keychain / Application / CLI / MCP / GUI 均用于本票验收，使用临时生成凭据和合成字节，不使用个人衣橱或用户密钥。
 
 - `cargo test --workspace`：95通过，7 ignored。ignored 中本票5项另行显式运行，另2项属于模型凭据票据。
 - `cargo test -p wardrobe-core --test encryption -- --ignored --test-threads=1`：5通过，真实 Keychain；多实例配对与重启、pending无密钥、签名篡改拒绝、确认单次消费、三设备撤销轮换、恢复/改密码、并发确认、SQLite/WAL不含明文私钥与恢复秘密。
