@@ -189,7 +189,9 @@ impl Application {
         let existing = self.provider_get(&id).ok();
         let now = chrono::Utc::now().to_rfc3339();
         let doc = json!({"schema_version":1,"id":id,"name":name,"endpoint":endpoint,"model":model,"capabilities":capabilities,"adapter":"openai_compatible","authentication":authentication,"created_at":existing.as_ref().map(|v|v["created_at"].clone()).unwrap_or(json!(now)),"updated_at":now});
-        self.connection.execute("INSERT INTO providers(id,document) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,doc.to_string()])?;
+        let tx=self.begin_write()?;
+        tx.execute("INSERT INTO providers(id,document) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,doc.to_string()])?;
+        tx.commit()?;
         Ok(doc)
     }
     pub(crate) fn provider_get(&self, id: &str) -> Result<Value, ApiError> {

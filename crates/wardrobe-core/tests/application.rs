@@ -193,3 +193,42 @@ fn supported_early_database_migrates_price_and_category_without_losing_identity(
         item
     );
 }
+
+#[test]
+fn open_client_refuses_operations_after_newer_client_upgrades_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let app = Application::open(&path).unwrap();
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let before: i64 = connection
+        .query_row("SELECT count(*) FROM members", [], |row| row.get(0))
+        .unwrap();
+    connection
+        .pragma_update(
+            None,
+            "user_version",
+            wardrobe_core::DATABASE_SCHEMA_VERSION + 1,
+        )
+        .unwrap();
+    for (operation, input) in [
+        ("member.create", json!({"name":"新成员"})),
+        (
+            "clothing.create",
+            json!({"member_id":"default","name":"旧客户端录入","category":"top"}),
+        ),
+        ("member.list", json!({})),
+    ] {
+        assert_eq!(
+            app.execute(operation, input).unwrap_err().code,
+            "unsupported_schema"
+        );
+    }
+    let after: i64 = connection
+        .query_row("SELECT count(*) FROM members", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(before, after);
+    let count: i64 = connection
+        .query_row("SELECT count(*) FROM clothing", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+}

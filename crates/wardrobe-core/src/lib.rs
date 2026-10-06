@@ -91,6 +91,7 @@ impl Application {
             }
             tx.execute_batch("PRAGMA user_version=2;")?;
         }
+        tx.execute_batch("CREATE INDEX IF NOT EXISTS clothing_member_status_id ON clothing(member_id,json_extract(document,'$.status'),id);")?;
         members::migrate(&tx)?;
         tx.execute_batch(
             "CREATE TABLE IF NOT EXISTS providers(id TEXT PRIMARY KEY, document TEXT NOT NULL);",
@@ -99,7 +100,28 @@ impl Application {
         tx.commit()?;
         Ok(Self { connection })
     }
+    fn check_schema(&self) -> Result<(), ApiError> {
+        let version: u32 = self
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if version > DATABASE_SCHEMA_VERSION {
+            return Err(ApiError::new(
+                "unsupported_schema",
+                "数据库由更新版本创建，请升级应用后再打开",
+            ));
+        }
+        Ok(())
+    }
+    fn begin_write(&self) -> Result<rusqlite::Transaction<'_>, ApiError> {
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        self.check_schema()?;
+        Ok(tx)
+    }
     pub fn execute(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
+        self.check_schema()?;
         if !input.is_object() {
             return Err(ApiError::new("invalid_input", "输入必须是 JSON 对象"));
         }
@@ -121,9 +143,9 @@ impl Application {
             }
         }
         match operation {
-            "capabilities" => {
-                Ok(json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES}))
-            }
+            "capabilities" => Ok(
+                json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES,"taxonomy":clothing::taxonomy()}),
+            ),
             "space.default" => self.default_space(),
             "member.list" => self.member_list(),
             "member.create" => self.member_create(input),
@@ -136,6 +158,11 @@ impl Application {
             "provider.save" => self.provider_save(input),
             "provider.list" => self.provider_list(input),
             "clothing.create" => self.clothing_create(input),
+            "clothing.history" => self.clothing_history(input),
+            "clothing.update" => self.clothing_update(input),
+            "clothing.archive" | "clothing.activate" | "clothing.delete" | "clothing.restore" => {
+                self.clothing_lifecycle(operation, input)
+            }
             "clothing.get" => self.clothing_get(input),
             "clothing.list" => self.clothing_list(input),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
