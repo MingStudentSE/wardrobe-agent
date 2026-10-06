@@ -1,5 +1,6 @@
 mod assets;
 mod authorization;
+mod backup;
 mod care;
 mod clothing;
 mod cutout;
@@ -186,6 +187,7 @@ impl Application {
             }
         }
         match operation {
+            name if name.starts_with("backup.") => self.backup_operation(name, input),
             name if name.starts_with("encryption.") => self.encryption_operation(name, input),
             "capabilities" => Ok(
                 json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES,"taxonomy":clothing::taxonomy()}),
@@ -272,6 +274,7 @@ fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
 }
 pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
+    descriptors.extend(backup::descriptors());
     descriptors.extend(encryption::descriptors());
     descriptors.extend(clothing::descriptors());
     descriptors.extend(providers::descriptors());
