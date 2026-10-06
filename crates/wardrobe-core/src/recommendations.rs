@@ -34,6 +34,8 @@ impl Application {
                 "source_intent",
                 "retained_ids",
                 "action_excluded_ids",
+                "replacement_category",
+                "retained_items",
             ],
             "recommendation.save" => {
                 vec!["member_id", "id", "proposal_index", "name", "operation_key"]
@@ -102,8 +104,21 @@ impl Application {
                     .iter()
                     .filter(|id| *id != old)
                     .collect::<Vec<_>>());
+                controls["retained_items"]=json!(proposal["items"].as_array().unwrap().iter().filter(|item|item["clothing_id"]!=old).map(|item|json!({"clothing_id":item["clothing_id"],"role":item["role"],"layer":item["layer"]})).collect::<Vec<_>>());
                 controls["action_excluded_ids"] = json!([old]);
+                controls["replacement_category"] = proposal["items"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|item| item["clothing_id"] == old)
+                    .unwrap()["category"]
+                    .clone();
             } else {
+                controls.as_object_mut().unwrap().remove("retained_items");
+                controls
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("replacement_category");
                 controls.as_object_mut().unwrap().remove("retained_ids");
                 controls
                     .as_object_mut()
@@ -329,6 +344,50 @@ impl Application {
                 forbidden.insert(ids);
             }
         }
+        let replacement = input
+            .get("replacement_category")
+            .map(|v| {
+                v.as_str()
+                    .filter(|s| crate::CATEGORIES.contains(s))
+                    .ok_or_else(|| invalid("替换类别不可用"))
+            })
+            .transpose()?;
+        let retained = input
+            .get("retained_items")
+            .map(|value| {
+                value
+                    .as_array()
+                    .filter(|a| a.len() <= 100)
+                    .ok_or_else(|| invalid("保留层级须为最多100项数组"))
+            })
+            .transpose()?;
+        if let Some(items) = retained {
+            let source = self.recommendation_execute(
+                "recommendation.get",
+                json!({"member_id":member,"id":string(&input,"source_intent")?}),
+            )?;
+            let held = ids(&input, "retained_ids")?;
+            let mut seen = std::collections::HashSet::new();
+            for item in items {
+                fields(item, &["clothing_id", "role", "layer"])?;
+                let id = string(item, "clothing_id")?;
+                if !held.iter().any(|held| held == id)
+                    || !seen.insert(id)
+                    || !source["proposals"].as_array().unwrap().iter().any(|p| {
+                        p["items"].as_array().unwrap().iter().any(|old| {
+                            old["clothing_id"] == item["clothing_id"]
+                                && old["role"] == item["role"]
+                                && old["layer"] == item["layer"]
+                        })
+                    })
+                {
+                    return Err(invalid("保留单品角色层级必须来自同成员原意图"));
+                }
+            }
+            if seen.len() != held.len() {
+                return Err(invalid("保留单品层级须完整"));
+            }
+        }
         let rules = PlanningRules {
             fixed: &fixed,
             limit: limit as usize,
@@ -337,10 +396,22 @@ impl Application {
             cold,
             occasion,
             priority: &priority,
+            replacement,
         };
         let mut proposals = plan(&clothes, &rules);
 
         for proposal in &mut proposals {
+            if let Some(retained) = retained {
+                for item in proposal["items"].as_array_mut().unwrap() {
+                    if let Some(old) = retained
+                        .iter()
+                        .find(|old| old["clothing_id"] == item["clothing_id"])
+                    {
+                        item["role"] = old["role"].clone();
+                        item["layer"] = old["layer"].clone();
+                    }
+                }
+            }
             let items = proposal["items"].as_array().unwrap().clone();
             let verified = items.iter().all(|item| {
                 clothes
@@ -358,12 +429,27 @@ impl Application {
             if !verified {
                 reasons.push(json!(format!(
                     "{}场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除",
-                    occasion
+                    match occasion {
+                        "work" => "工作",
+                        "formal" => "正式",
+                        "sport" => "运动",
+                        _ => "日常",
+                    }
                 )));
             }
             reasons.push(json!(format!(
                 "目标：{}；场合：{}（只采用已记录标签，不推断未知事实）",
-                target, occasion
+                match target {
+                    "least_worn" => "少穿优先",
+                    "favorites" => "收藏优先",
+                    _ => "平衡选择",
+                },
+                match occasion {
+                    "work" => "工作",
+                    "formal" => "正式",
+                    "sport" => "运动",
+                    _ => "日常",
+                }
             )));
             for item in items {
                 let id = item["clothing_id"].as_str().unwrap();
@@ -381,7 +467,7 @@ impl Application {
                     .contains(&item["category"].as_str().unwrap())
                 {
                     reasons.push(json!(format!(
-                        "{}保留用户固定角色，不将未知覆盖范围视为全身衣物",
+                        "{}保留显式选入角色，不将未知覆盖范围视为全身衣物",
                         item["name"]
                     )));
                 }
@@ -431,6 +517,7 @@ struct PlanningRules<'a> {
     cold: bool,
     occasion: &'a str,
     priority: &'a std::collections::HashSet<String>,
+    replacement: Option<&'a str>,
 }
 fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> Vec<Value> {
     let PlanningRules {
@@ -441,6 +528,7 @@ fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> Vec<Value> {
         cold,
         occasion,
         priority,
+        replacement,
     } = *rules;
     use std::collections::{BTreeSet, BinaryHeap, HashMap};
     let mandatory: Vec<&Value> = clothes
@@ -489,13 +577,47 @@ fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> Vec<Value> {
         if cold {
             pattern.push(("outerwear", vec!["outerwear"]));
         }
-        for category in ["outerwear", "bag", "accessory"] {
-            if !(cold && category == "outerwear")
+        for category in [
+            "outerwear",
+            "bag",
+            "accessory",
+            "underwear",
+            "sportswear",
+            "other",
+        ] {
+            if !pattern.iter().any(|(role, _)| *role == category)
                 && clothes.iter().any(|c| {
                     c["category"] == category && priority.contains(c["id"].as_str().unwrap())
                 })
             {
                 pattern.push((category, vec![category]));
+            }
+        }
+    }
+    if let Some(category) = replacement {
+        let (role, _) = role(category);
+        let categories = if role == "body" {
+            vec!["dress", "one_piece"]
+        } else {
+            vec![category]
+        };
+        if !exists(&categories) {
+            return vec![];
+        }
+        if ["top", "bottom", "body", "shoes"].contains(&role) {
+            patterns.retain(|p| p.iter().any(|(name, _)| *name == role));
+            if role == "body" {
+                patterns.retain(|p| {
+                    p.iter()
+                        .filter(|(name, _)| *name == "body")
+                        .all(|(_, cats)| exists(cats))
+                });
+            }
+        } else {
+            for pattern in &mut patterns {
+                if !pattern.iter().any(|(name, _)| *name == role) {
+                    pattern.push((role, categories.clone()));
+                }
             }
         }
     }
@@ -710,7 +832,7 @@ fn entry(c: &Value, role: &str, layer: i32) -> Value {
 pub(super) fn descriptors() -> Vec<Value> {
     ["generate","get","list","replace","change","save"].into_iter().map(|op|{
  let mut properties=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
- if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids","retained_ids","action_excluded_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"uniqueItems":true});}properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}
+ if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids","retained_ids","action_excluded_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"uniqueItems":true});}properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["replacement_category"]=json!({"enum":crate::CATEGORIES});properties["retained_items"]=json!({"type":"array","maxItems":100,"items":{"type":"object","required":["clothing_id","role","layer"],"properties":{"clothing_id":{"type":"string"},"role":{"type":"string"},"layer":{"type":"integer"}},"additionalProperties":false}});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}
 if op=="save"{properties["name"]=json!({"type":"string","minLength":1,"maxLength":120});required.push("name");}}}}
  json!({"name":format!("recommendation.{op}"),"description":format!("本地离线搭配 {op}；仅使用同成员真实可用衣物，生成与保存均不记录穿着"),"inputSchema":{"type":"object","required":required,"properties":properties,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"id":{"type":"string"},"proposals":{"type":"array"},"items":{"type":"array"}}}})
  }).collect()

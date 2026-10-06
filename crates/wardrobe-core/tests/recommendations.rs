@@ -265,6 +265,11 @@ fn replace_one_and_change_set_preserve_fixed_hard_controls_and_persist_child_int
         .unwrap(),
         initial
     );
+    let after_replace=a.execute("recommendation.change",json!({"member_id":"default","id":replacement["id"],"proposal_index":0,"operation_key":"change-after-replace"})).unwrap();
+    assert_ne!(
+        after_replace["proposals"][0]["items"],
+        replacement["proposals"][0]["items"]
+    );
 }
 #[test]
 fn manual_weather_controls_are_explicit_offline_stale_and_strictly_validated() {
@@ -523,4 +528,126 @@ fn priority_across_body_patterns_and_actual_goal_counts_and_favorites_change_cho
         .unwrap()
         .iter()
         .any(|i| i["clothing_id"] == top["id"]));
+}
+#[test]
+fn replacing_one_body_or_optional_bag_preserves_exact_remaining_items_and_role() {
+    let d = tempfile::tempdir().unwrap();
+    let a = Application::open(&d.path().join("db")).unwrap();
+    let dress = item(&a, "优先裙子", "dress");
+    let other = item(&a, "另一连体衣", "one_piece");
+    item(&a, "上衣", "top");
+    item(&a, "裤子", "bottom");
+    item(&a, "鞋", "shoes");
+    let bag = item(&a, "优先包", "bag");
+    let other_bag = item(&a, "另一个包", "bag");
+    let original=a.execute("recommendation.generate",json!({"member_id":"default","operation_key":"dress-bag","timezone":"UTC","limit":1,"inventory_priority_ids":[dress["id"],bag["id"]]})).unwrap();
+    let p = &original["proposals"][0];
+    assert_eq!(p["items"].as_array().unwrap().len(), 3);
+    for (old, wanted) in [(&dress, &other), (&bag, &other_bag)] {
+        let r=a.execute("recommendation.replace",json!({"member_id":"default","id":original["id"],"proposal_index":0,"clothing_id":old["id"],"operation_key":old["id"]})).unwrap();
+        assert_eq!(r["actual_count"], 1);
+        let next = r["proposals"][0]["items"].as_array().unwrap();
+        assert_eq!(next.len(), p["items"].as_array().unwrap().len());
+        assert!(next.iter().any(|i| i["clothing_id"] == wanted["id"]));
+        for remaining in p["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["clothing_id"] != old["id"])
+        {
+            assert!(next
+                .iter()
+                .any(|i| i["clothing_id"] == remaining["clothing_id"]
+                    && i["role"] == remaining["role"]));
+        }
+    }
+}
+#[test]
+fn replacing_optional_item_keeps_other_physical_layers_even_when_wear_ranking_changes() {
+    let d = tempfile::tempdir().unwrap();
+    let a = Application::open(&d.path().join("db")).unwrap();
+    let one = item(&a, "内层上衣", "top");
+    let two = item(&a, "叠穿上衣", "top");
+    item(&a, "裤子", "bottom");
+    item(&a, "鞋", "shoes");
+    let bag = item(&a, "优先包", "bag");
+    item(&a, "另一个包", "bag");
+    let original=a.execute("recommendation.generate",json!({"member_id":"default","operation_key":"layers","timezone":"UTC","limit":1,"target":"least_worn","fixed_ids":[one["id"],two["id"]],"inventory_priority_ids":[bag["id"]]})).unwrap();
+    a.execute("wear.record",json!({"member_id":"default","operation_key":"new-wear","local_date":"2020-01-01","timezone":"UTC","clothing_ids":[one["id"]]})).unwrap();
+    let r=a.execute("recommendation.replace",json!({"member_id":"default","id":original["id"],"proposal_index":0,"clothing_id":bag["id"],"operation_key":"layer-replace"})).unwrap();
+    for item in original["proposals"][0]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|i| i["clothing_id"] != bag["id"])
+    {
+        assert!(
+            r["proposals"][0]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|i| i["clothing_id"] == item["clothing_id"]
+                    && i["role"] == item["role"]
+                    && i["layer"] == item["layer"]),
+            "{item}"
+        );
+    }
+}
+#[test]
+fn single_replacement_of_optional_roles_or_shoes_preserves_other_ids_roles_layers_and_shortage() {
+    let d = tempfile::tempdir().unwrap();
+    for category in [
+        "accessory",
+        "underwear",
+        "sportswear",
+        "other",
+        "outerwear",
+        "shoes",
+    ] {
+        let a = Application::open(&d.path().join(category)).unwrap();
+        item(&a, "上衣", "top");
+        item(&a, "裤子", "bottom");
+        item(&a, "鞋", "shoes");
+        let old = item(&a, "显式优先单品", category);
+        item(&a, "同角色替代", category);
+        let original=a.execute("recommendation.generate",json!({"member_id":"default","operation_key":"original","timezone":"UTC","limit":1,"inventory_priority_ids":[old["id"]]})).unwrap();
+        let items = original["proposals"][0]["items"].as_array().unwrap();
+        assert!(
+            items.iter().any(|i| i["clothing_id"] == old["id"]),
+            "{category}"
+        );
+        let r=a.execute("recommendation.replace",json!({"member_id":"default","id":original["id"],"proposal_index":0,"clothing_id":old["id"],"operation_key":"replace"})).unwrap();
+        let next = r["proposals"][0]["items"].as_array().unwrap();
+        assert_eq!(next.len(), items.len());
+        assert!(!next.iter().any(|i| i["clothing_id"] == old["id"]));
+        for remaining in items.iter().filter(|i| i["clothing_id"] != old["id"]) {
+            assert!(
+                next.iter()
+                    .any(|i| i["clothing_id"] == remaining["clothing_id"]
+                        && i["role"] == remaining["role"]
+                        && i["layer"] == remaining["layer"]),
+                "{category}:{remaining}"
+            );
+        }
+    }
+    let a = Application::open(&d.path().join("no-alternative")).unwrap();
+    let dress = item(&a, "唯一连衣裙", "dress");
+    item(&a, "鞋", "shoes");
+    let original = a
+        .execute(
+            "recommendation.generate",
+            json!({"member_id":"default","operation_key":"original","timezone":"UTC"}),
+        )
+        .unwrap();
+    let r=a.execute("recommendation.replace",json!({"member_id":"default","id":original["id"],"proposal_index":0,"clothing_id":dress["id"],"operation_key":"missing"})).unwrap();
+    assert_eq!(r["actual_count"], 0);
+    assert!(!r["shortage_reasons"].as_array().unwrap().is_empty());
+    assert_eq!(
+        a.execute(
+            "recommendation.get",
+            json!({"member_id":"default","id":original["id"]})
+        )
+        .unwrap(),
+        original
+    );
 }
