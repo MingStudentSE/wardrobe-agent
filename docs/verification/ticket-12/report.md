@@ -27,3 +27,5 @@
 run37505079065（8d189de）：macOS ARM job及实际Keychain烟测success；Ubuntu24.04 job及实际独立DBus/gnome-keyring Secret Service烟测success。Windows、macOSIntel与Ubuntu22.04仍在运行，未判全平台通过。此处运行的是临时生成凭据，不是供应商账户成功调用。debug行为测试和原生构建不替代release HEIC运行验收；后者已发现FFI安全限制结构版本不匹配疑点，另行修复复验。
 
 进一步核对run37505079065的steps：Windows Credential Store、macOS Intel/ARM Keychain、Ubuntu22.04/24.04 Secret Service五目标实际临时凭据烟测均success。Windows整体job尚在Tauri编译，不能据此称五平台完整构建结束；真实供应商账户调用仍未验证。
+
+最终 run37505079065 已完成，五个目标整体 job 均 success。该结果证明 8d189de 的构建和上述原生凭据操作，不覆盖后续授权与 HEIC ABI 修复。9b30572 的新回归 run37508786358 和安装包运行 run37508783217 已启动；不得用前一轮成功替代新版本验证。
