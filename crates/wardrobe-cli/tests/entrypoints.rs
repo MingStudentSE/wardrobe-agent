@@ -764,3 +764,126 @@ fn authorized_cli_mcp_share_actual_wear_retries_corrections_and_immutable_histor
     );
     assert_eq!(history["items"], json!([event, corrected]));
 }
+#[test]
+fn authorized_cli_mcp_share_recognition_proposal_review_and_restart() {
+    use std::io::Read;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        let mut b = vec![];
+        loop {
+            let mut chunk = [0; 4096];
+            let n = s.read(&mut chunk).unwrap();
+            assert!(n > 0);
+            b.extend_from_slice(&chunk[..n]);
+            if let Some(split) = b.windows(4).position(|w| w == b"\r\n\r\n") {
+                let len: usize = String::from_utf8_lossy(&b[..split])
+                    .lines()
+                    .find_map(|l| {
+                        l.to_lowercase()
+                            .strip_prefix("content-length: ")
+                            .map(|v| v.parse().unwrap())
+                    })
+                    .unwrap();
+                if b.len() >= split + 4 + len {
+                    let body: Value =
+                        serde_json::from_slice(&b[split + 4..split + 4 + len]).unwrap();
+                    assert_eq!(body["model"], "http-fixture");
+                    break;
+                }
+            }
+        }
+        let body = r#"{"model":"http-fixture","choices":[{"message":{"content":"White shirt; brand uncertain."}}]}"#;
+        write!(
+            s,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .unwrap();
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("db");
+    let source = dir.path().join("fixture.png");
+    std::fs::write(
+        &source,
+        include_bytes!("../../wardrobe-core/tests/fixtures/generated-colors.png"),
+    )
+    .unwrap();
+    let c = cli(
+        &db,
+        "clothing.create",
+        json!({"member_id":"default","name":"手工保护","category":"top"}),
+    )["result"]
+        .clone();
+    let a = cli(
+        &db,
+        "assets.import",
+        json!({"member_id":"default","path":source}),
+    )["result"]
+        .clone();
+    cli(
+        &db,
+        "assets.adopt",
+        json!({"member_id":"default","clothing_id":c["id"],"asset_id":a["id"]}),
+    );
+    let p=cli(&db,"provider.save",json!({"name":"HTTP fixture","endpoint":endpoint,"model":"http-fixture","capabilities":["vision"],"authentication":"none"}))["result"].clone();
+    let token = client_token(&db);
+    let mcp = |op: &str, input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", db.to_str().unwrap(), "mcp"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":op,"arguments":input}})).unwrap();
+        let response: Value =
+            serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+        assert_ne!(response["result"]["isError"], true, "{response}");
+        serde_json::from_str::<Value>(response["result"]["content"][0]["text"].as_str().unwrap())
+            .unwrap()
+    };
+    let request = json!({"member_id":"default","operation_key":"cli-recognition","clothing_id":c["id"],"provider_id":p["id"],"asset_ids":[a["id"]],"upload_role":"product_display","confirm_upload":true});
+    let job = cli(&db, "recognition.create", request.clone())["result"].clone();
+    assert_eq!(mcp("recognition.create", request), job);
+    let done = mcp(
+        "recognition.process",
+        json!({"member_id":"default","id":job["id"]}),
+    );
+    server.join().unwrap();
+    assert_eq!(done["state"], "succeeded");
+    let suggestion = mcp(
+        "recognition.get",
+        json!({"member_id":"default","id":done["result"]["suggestion_id"]}),
+    );
+    assert_eq!(suggestion["state"], "pending_review");
+    assert_eq!(
+        cli(
+            &db,
+            "clothing.get",
+            json!({"member_id":"default","id":c["id"]})
+        )["result"]["description"],
+        Value::Null
+    );
+    let reviewed = mcp(
+        "recognition.review",
+        json!({"member_id":"default","id":suggestion["id"],"facts":{"description":"人工核实","color":["white"]},"confirm_review":true}),
+    );
+    assert_eq!(reviewed["state"], "reviewed");
+    let saved = cli(
+        &db,
+        "clothing.get",
+        json!({"member_id":"default","id":c["id"]}),
+    )["result"]
+        .clone();
+    assert_eq!(saved["name"], "手工保护");
+    assert_eq!(saved["description"], "人工核实");
+    assert_eq!(
+        mcp(
+            "recognition.get",
+            json!({"member_id":"default","id":suggestion["id"]})
+        ),
+        reviewed
+    );
+}

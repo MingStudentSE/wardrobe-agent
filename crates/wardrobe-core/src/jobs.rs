@@ -156,7 +156,9 @@ impl Application {
             }
             doc["state"] = json!("cancelled");
         } else {
-            if doc["kind"] == "product_display" && doc["submitted_at"].is_string() {
+            if (doc["kind"] == "product_display" && doc["submitted_at"].is_string())
+                || (doc["kind"] == "recognition" && doc["payload"]["submission"] != "not_submitted")
+            {
                 return Err(ApiError::new(
                     "submission_already_sent",
                     "此生成任务已经提交，不能盲重发；请检查供应商记录，显式创建新生成意图",

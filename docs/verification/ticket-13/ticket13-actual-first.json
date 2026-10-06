@@ -1,0 +1,36 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": " White shirt with a baseball on it."
+      }
+    }
+  ],
+  "created": 1791312977,
+  "model": "wardrobe-smolvlm",
+  "system_fingerprint": "b0-unknown",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 9,
+    "prompt_tokens": 174,
+    "total_tokens": 183,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "id": "chatcmpl-inq44HFOEeSwIAA6G0vSJUQfeA7jxwJs",
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 174,
+    "prompt_ms": 3017.76,
+    "prompt_per_token_ms": 17.34344827586207,
+    "prompt_per_second": 57.65866072848735,
+    "predicted_n": 9,
+    "predicted_ms": 28.224,
+    "predicted_per_token_ms": 3.528,
+    "predicted_per_second": 283.4467120181406
+  }
+}
