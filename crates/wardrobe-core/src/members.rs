@@ -96,25 +96,30 @@ impl Application {
     pub(super) fn member_create(&self, input: Value) -> Result<Value, ApiError> {
         let name = name(&input)?;
         let id = uuid::Uuid::now_v7().to_string();
-        self.connection.execute(
+        let tx = self.begin_write()?;
+        tx.execute(
             "INSERT INTO members(id,name) VALUES(?1,?2)",
             params![id, name],
         )?;
+        tx.commit()?;
         Ok(json!({"schema_version":1,"member_id":id,"name":name}))
     }
     pub(super) fn member_update(&self, input: Value) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
         let name = name(&input)?;
-        self.connection.execute(
+        let tx = self.begin_write()?;
+        tx.execute(
             "UPDATE members SET name=?1 WHERE id=?2",
             params![name, member],
         )?;
+        tx.commit()?;
         Ok(json!({"schema_version":1,"member_id":member,"name":name}))
     }
     pub(super) fn member_select(&self, input: Value) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
-        self.connection
-            .execute("UPDATE workspace SET selected_member_id=?1", [&member])?;
+        let tx = self.begin_write()?;
+        tx.execute("UPDATE workspace SET selected_member_id=?1", [&member])?;
+        tx.commit()?;
         Ok(json!({"schema_version":1,"member_id":member}))
     }
 }
