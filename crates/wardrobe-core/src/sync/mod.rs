@@ -174,7 +174,7 @@ fn error(code: &str) -> ApiError {
 }
 pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     repair_immutable(tx)?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_pending(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,document TEXT NOT NULL,reason TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_quarantine(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,code TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_reassert(op_id TEXT PRIMARY KEY,fields TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_resolution_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_publications(target_id TEXT NOT NULL,op_id TEXT NOT NULL,PRIMARY KEY(target_id,op_id)); CREATE TABLE IF NOT EXISTS sync_pending(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,document TEXT NOT NULL,reason TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_quarantine(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,code TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_reassert(op_id TEXT PRIMARY KEY,fields TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_resolution_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
     for table in TABLES {
         for kind in ["INSERT", "UPDATE"] {
             let key = entity_key(table, "NEW");
@@ -469,16 +469,32 @@ impl Application {
                     }
                 }
 
-                let target =
-                    json!({"id":"primary","provider_kind":"local_folder","directory":directory});
+                let target = json!({"id":"primary","target_key":digest(json!({"directory":directory,"space_id":identity["space_id"]}).to_string().as_bytes()),"provider_kind":"local_folder","directory":directory});
                 tx.execute("INSERT INTO sync_targets VALUES('primary',?1) ON CONFLICT(id) DO UPDATE SET document=excluded.document",[target.to_string()])?;
                 tx.commit()?;
                 Ok(json!({"schema_version":1,"target":target}))
             }
             "sync.status" => {
+                let target: Option<String> = self
+                    .connection
+                    .query_row(
+                        "SELECT document FROM sync_targets WHERE id='primary'",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                let target_value = target
+                    .as_deref()
+                    .map(serde_json::from_str::<Value>)
+                    .transpose()
+                    .map_err(|_| error("storage_error"))?;
+                let target_key = target_value
+                    .as_ref()
+                    .and_then(|v| v["target_key"].as_str())
+                    .unwrap_or("primary");
                 let pending = self.connection.query_row(
-                    "SELECT count(*) FROM sync_pending WHERE target_id='primary'",
-                    [],
+                    "SELECT count(*) FROM sync_pending WHERE target_id=?1",
+                    [target_key],
                     |r| r.get::<_, u64>(0),
                 )?;
                 let mut state = self
@@ -490,24 +506,16 @@ impl Application {
                     })?
                     .collect::<Result<Vec<_>, _>>()?;
 
-                let mut quarantine_statement = self
-                    .connection
-                    .prepare("SELECT op_id,code FROM sync_quarantine ORDER BY marker_key")?;
+                let mut quarantine_statement = self.connection.prepare(
+                    "SELECT op_id,code FROM sync_quarantine WHERE target_id=?1 ORDER BY marker_key",
+                )?;
                 let quarantine = quarantine_statement
-                    .query_map([], |r| {
+                    .query_map([target_key], |r| {
                         Ok(json!({"op_id":r.get::<_,String>(0)?,"code":r.get::<_,String>(1)?}))
                     })?
                     .collect::<Result<Vec<_>, _>>()?;
-                let target: Option<String> = self
-                    .connection
-                    .query_row(
-                        "SELECT document FROM sync_targets WHERE id='primary'",
-                        [],
-                        |r| r.get(0),
-                    )
-                    .optional()?;
                 Ok(
-                    json!({"schema_version":1,"pending":pending,"asset_errors":asset_errors,"quarantine":quarantine,"target":target.map(|s|serde_json::from_str::<Value>(&s)).transpose().map_err(|_|error("storage_error"))?}),
+                    json!({"schema_version":1,"pending":pending,"asset_errors":asset_errors,"quarantine":quarantine,"target":target_value}),
                 )
             }
             "sync.run" => {
@@ -523,12 +531,13 @@ impl Application {
                 let target: Value =
                     serde_json::from_str(&target).map_err(|_| error("storage_error"))?;
                 let storage = LocalFolder::new(Path::new(string(&target, "directory")?))?;
+                let target_key = target["target_key"].as_str().map(str::to_owned).unwrap_or_else(|| digest(json!({"directory":target["directory"],"space_id":identity["space_id"]}).to_string().as_bytes()));
                 let prefix = format!("{}/changes", string(&identity, "space_id")?);
                 self.sync_publish_assets(&storage, &identity)?;
                 self.sync_discover_assets(&storage, &identity)?;
-                let mut stmt=self.connection.prepare("SELECT id,op_id,device,entity_type,entity_id,before_doc,after_doc,base,clock,published FROM sync_journal ORDER BY id")?;
+                let mut stmt=self.connection.prepare("SELECT id,op_id,device,entity_type,entity_id,before_doc,after_doc,base,clock,EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0 ORDER BY id LIMIT 256")?;
                 let rows = stmt
-                    .query_map([], |r| {
+                    .query_map([&target_key], |r| {
                         Ok((
                             r.get::<_, i64>(0)?,
                             r.get::<_, String>(1)?,
@@ -565,6 +574,8 @@ impl Application {
                         .unwrap_or_else(|| json!([]));
                     let op = json!({"reassert":reassert,"protocol_version":1,"op_id":id,"device_id":device,"entity_type":table,"entity_id":entity,"before":before.as_deref().map(parse).transpose()?,"after":parse(&after)?,"base":parse(&base)?,"clock":parse(&clock)?});
                     self.sync_apply(&op, true)?;
+                    self.connection
+                        .execute("UPDATE sync_journal SET registered=1 WHERE id=?1", [row])?;
                     if !published {
                         let cipher = self.sync_encrypt("changes", &op)?;
                         let bytes =
@@ -587,14 +598,18 @@ impl Application {
                                 WriteCondition::CreateOnly,
                             )?;
                         }
-                        self.connection
-                            .execute("UPDATE sync_journal SET published=1 WHERE id=?1", [row])?;
+                        self.connection.execute(
+                            "INSERT OR IGNORE INTO sync_publications VALUES(?1,?2)",
+                            params![target_key, id],
+                        )?;
                         sent += 1;
                     }
                 }
                 let mut received = 0;
                 let mut quarantined = 0;
-                loop {
+                let mut incoming_count = 0usize;
+                let mut incoming_more = false;
+                'incoming: loop {
                     let initial = received;
                     let mut cursor = None;
                     loop {
@@ -603,7 +618,12 @@ impl Application {
                             if !object.key.ends_with(".commit") {
                                 continue;
                             }
-                            if self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_cursors WHERE target_id='primary' AND key=?1)",[&object.key],|r|r.get::<_,bool>(0))?{continue;}
+                            if self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_cursors WHERE target_id=?1 AND key=?2)",params![target_key,object.key],|r|r.get::<_,bool>(0))?{continue;}
+                            if incoming_count == 256 {
+                                incoming_more = true;
+                                break 'incoming;
+                            }
+                            incoming_count += 1;
                             let marker: Value =
                                 serde_json::from_slice(&bounded(&storage, &object.key)?)
                                     .map_err(|_| error("storage_corrupt"))?;
@@ -619,7 +639,12 @@ impl Application {
                             match self.sync_apply(&op, false) {
                                 Ok(()) => {}
                                 Err(e) if e.code == "sync_dependency" => {
-                                    self.sync_stage_pending("primary", &object.key, &op, &e.code)?;
+                                    self.sync_stage_pending(
+                                        &target_key,
+                                        &object.key,
+                                        &op,
+                                        &e.code,
+                                    )?;
                                     continue;
                                 }
                                 Err(e)
@@ -632,8 +657,9 @@ impl Application {
                                 {
                                     let tx = self.begin_write()?;
                                     tx.execute(
-                                        "INSERT INTO sync_quarantine VALUES('primary',?1,?2,?3,?4)",
+                                        "INSERT INTO sync_quarantine VALUES(?1,?2,?3,?4,?5)",
                                         params![
+                                            target_key,
                                             object.key,
                                             op["op_id"].as_str().unwrap_or("invalid"),
                                             e.code,
@@ -642,8 +668,8 @@ impl Application {
                                     )?;
                                     tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.quarantine',?2)",params![op["entity_id"].as_str().unwrap_or("invalid"),json!({"op_id":op["op_id"],"code":e.code}).to_string()])?;
                                     tx.execute(
-                                        "INSERT OR IGNORE INTO sync_cursors VALUES('primary',?1)",
-                                        [&object.key],
+                                        "INSERT OR IGNORE INTO sync_cursors VALUES(?1,?2)",
+                                        params![target_key, object.key],
                                     )?;
                                     tx.commit()?;
                                     quarantined += 1;
@@ -652,8 +678,8 @@ impl Application {
                                 Err(e) => return Err(e),
                             }
                             self.connection.execute(
-                                "INSERT OR IGNORE INTO sync_cursors VALUES('primary',?1)",
-                                [&object.key],
+                                "INSERT OR IGNORE INTO sync_cursors VALUES(?1,?2)",
+                                params![target_key, object.key],
                             )?;
                             received += 1;
                         }
@@ -667,12 +693,13 @@ impl Application {
                     }
                 }
                 let (replayed, replay_quarantined, pending) =
-                    self.sync_replay_pending("primary")?;
+                    self.sync_replay_pending(&target_key, 256 - incoming_count)?;
                 received += replayed;
                 quarantined += replay_quarantined;
                 let missing_assets = self.sync_fetch_assets(&storage)?;
+                let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0)", [&target_key], |r| r.get(0))?;
                 Ok(
-                    json!({"schema_version":1,"sent":sent,"received":received,"pending":pending,"quarantined":quarantined,"missing_assets":missing_assets}),
+                    json!({"schema_version":1,"sent":sent,"received":received,"pending":pending,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":has_more || incoming_more || (pending > 0 && replayed + replay_quarantined == (256 - incoming_count) as u64 && incoming_count < 256)}),
                 )
             }
             _ => Err(error("unsupported_operation")),

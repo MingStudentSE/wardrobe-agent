@@ -17,13 +17,21 @@ impl Application {
         Ok(())
     }
     /// Bounded and fair: permanent historical dependencies cannot monopolize later arrivals.
-    pub(super) fn sync_replay_pending(&self, target: &str) -> Result<(u64, u64, u64), ApiError> {
+    pub(super) fn sync_replay_pending(
+        &self,
+        target: &str,
+        budget: usize,
+    ) -> Result<(u64, u64, u64), ApiError> {
         let mut applied = 0;
         let mut quarantined = 0;
-        for _ in 0..8 {
-            let mut statement=self.connection.prepare("SELECT marker_key,op_id,document FROM sync_pending WHERE target_id=?1 ORDER BY attempts,op_id LIMIT 256")?;
+        let mut attempted = 0;
+        'replay: for _ in 0..8 {
+            if attempted == budget {
+                break;
+            }
+            let mut statement=self.connection.prepare("SELECT marker_key,op_id,document FROM sync_pending WHERE target_id=?1 ORDER BY attempts,op_id LIMIT ?2")?;
             let rows = statement
-                .query_map([target], |r| {
+                .query_map(params![target, budget - attempted], |r| {
                     Ok((
                         r.get::<_, String>(0)?,
                         r.get::<_, String>(1)?,
@@ -34,6 +42,10 @@ impl Application {
             drop(statement);
             let mut progress = false;
             for (key, id, raw) in rows {
+                if attempted == budget {
+                    break 'replay;
+                }
+                attempted += 1;
                 let op: Value = serde_json::from_str(&raw).map_err(|_| error("storage_error"))?;
                 match self.sync_apply(&op, false) {
                     Ok(()) => {

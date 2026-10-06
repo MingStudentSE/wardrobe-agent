@@ -923,6 +923,10 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
     }
     for _ in 0..10 {
         let r = peer.execute("sync.run", json!({})).unwrap();
+        assert!(
+            r["received"].as_u64().unwrap() <= 256,
+            "receiving must also bound each transaction batch"
+        );
         if r["has_more"] == false {
             break;
         }
@@ -944,4 +948,29 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
     }
     assert_eq!(count, 300);
     assert_eq!(owner.execute("sync.run", json!({})).unwrap()["sent"], 0);
+    let second = tempfile::tempdir().unwrap();
+    owner
+        .execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":second.path()}),
+        )
+        .unwrap();
+    let switched = owner.execute("sync.run", json!({})).unwrap();
+    assert_eq!(
+        switched["sent"], 256,
+        "a new target must receive the durable journal independently"
+    );
+    assert_eq!(switched["has_more"], true);
+    owner.execute("sync.run", json!({})).unwrap();
+    owner
+        .execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    assert_eq!(
+        owner.execute("sync.run", json!({})).unwrap()["sent"],
+        0,
+        "returning to a known target must retain its publication receipts"
+    );
 }
