@@ -264,3 +264,10 @@ fn configuration_keeps_identity_creation_timestamp_and_uses_revision_cas() {
     assert_eq!(second["created_at"], first["created_at"]);
     assert_eq!(a.execute("care.configure",json!({"member_id":"default","clothing_id":c["id"],"wash_after_wears":null,"expected_revision":1,"operation_key":"stale"})).unwrap_err().code,"version_conflict");
 }
+#[test]
+fn correcting_time_or_action_preserves_notes_when_not_explicitly_replaced() {
+    let (_d, a, c) = setup();
+    let event=a.execute("care.record",json!({"member_id":"default","clothing_id":c["id"],"action":"wash","notes":"手洗阴干","local_date":"2020-01-01","timezone":"UTC","operation_key":"one"})).unwrap();
+    let correction=a.execute("care.correct",json!({"member_id":"default","root_event_id":event["id"],"expected_revision":1,"action":"dry_clean","local_date":"2020-01-02","timezone":"UTC","operation_key":"two"})).unwrap();
+    assert_eq!(correction["notes"], "手洗阴干");
+}

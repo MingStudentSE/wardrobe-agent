@@ -278,7 +278,12 @@ impl Application {
                             .ok_or_else(|| invalid("备注最多2000字符"))
                     })
                     .transpose()?
-                    .unwrap_or("");
+                    .unwrap_or_else(|| {
+                        previous
+                            .as_ref()
+                            .and_then(|p| p["notes"].as_str())
+                            .unwrap_or("")
+                    });
                 result = json!({"schema_version":1,"member_id":member,"clothing_id":snapshot["id"],"snapshot":snapshot,"action":action,"notes":notes,"kind":if previous.is_some(){"correction"}else{"record"}});
                 for (k, v) in timing.as_object().unwrap() {
                     result[k] = v.clone();
@@ -431,15 +436,43 @@ impl Application {
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
-    ["configure","mark_dirty","record","correct","revoke","status","get","list","history","dirty_list","reminders","availability"].into_iter().map(|op|{let mut props=json!({"member_id":{"type":"string"}});let mut req=vec!["member_id"];if ["configure","mark_dirty","record","status","list"].contains(&op){props["clothing_id"]=json!({"type":"string"});if op!="list"{req.push("clothing_id");}}
-if ["configure","mark_dirty","record","correct","revoke"].contains(&op){props["operation_key"]=json!({"type":"string"});req.push("operation_key");}
-if op=="configure"{props["wash_after_wears"]=json!({"type":["integer","null"],"minimum":1});props["expected_revision"]=json!({"type":"integer","minimum":0});req.push("wash_after_wears");req.push("expected_revision");}
-if ["mark_dirty","record","correct"].contains(&op){for k in ["local_date","timezone"]{props[k]=json!({"type":"string"});req.push(k);}for k in ["local_time","notes"]{props[k]=json!({"type":"string"});}if op!="mark_dirty" {props["action"]=json!({"enum":["wash","dry_clean","maintenance"]});}
-if op!="record" {props["dirty"]=json!({"type":"boolean"});}if op=="record"{req.push("action");}
-if op=="mark_dirty"{req.push("dirty");}}
-if ["correct","revoke","history"].contains(&op){props["root_event_id"]=json!({"type":"string"});req.push("root_event_id");}
-if ["correct","revoke"].contains(&op){props["expected_revision"]=json!({"type":"integer","minimum":1});req.push("expected_revision");}
-if op=="revoke"{props["reason"]=json!({"type":"string"});req.push("reason");}
-if op=="get"{props["id"]=json!({"type":"string"});req.push("id");}
-if op=="list"{props["include_revoked"]=json!({"type":"boolean"});}json!({"name":format!("care.{op}"),"description":format!("洗护 {op}"),"inputSchema":{"type":"object","additionalProperties":false,"required":req,"properties":props},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1}}}})}).collect()
+    ["configure","mark_dirty","record","correct","revoke","status","get","list","history","dirty_list","reminders","availability"].into_iter().map(|op|{let mut props=json!({"member_id":{"type":"string"}});
+let mut req=vec!["member_id"];
+if ["configure","mark_dirty","record","status","list"].contains(&op){props["clothing_id"]=json!({"type":"string"});
+if op!="list"{req.push("clothing_id");
+}}
+if ["configure","mark_dirty","record","correct","revoke"].contains(&op){props["operation_key"]=json!({"type":"string"});
+req.push("operation_key");
+}
+if op=="configure"{props["wash_after_wears"]=json!({"type":["integer","null"],"minimum":1});
+props["expected_revision"]=json!({"type":"integer","minimum":0});
+req.push("wash_after_wears");
+req.push("expected_revision");
+}
+if ["mark_dirty","record","correct"].contains(&op){for k in ["local_date","timezone"]{props[k]=json!({"type":"string"});
+req.push(k);
+}for k in ["local_time","notes"]{props[k]=json!({"type":"string"});
+}
+if op!="mark_dirty" {props["action"]=json!({"enum":["wash","dry_clean","maintenance"]});
+}
+if op!="record" {props["dirty"]=json!({"type":"boolean"});
+}
+if op=="record"{req.push("action");
+}
+if op=="mark_dirty"{req.push("dirty");
+}}
+if ["correct","revoke","history"].contains(&op){props["root_event_id"]=json!({"type":"string"});
+req.push("root_event_id");
+}
+if ["correct","revoke"].contains(&op){props["expected_revision"]=json!({"type":"integer","minimum":1});
+req.push("expected_revision");
+}
+if op=="revoke"{props["reason"]=json!({"type":"string"});
+req.push("reason");
+}
+if op=="get"{props["id"]=json!({"type":"string"});
+req.push("id");
+}
+if op=="list"{props["include_revoked"]=json!({"type":"boolean"});
+}json!({"name":format!("care.{op}"),"description":format!("洗护 {op}"),"inputSchema":{"type":"object","additionalProperties":false,"required":req,"properties":props},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1}}}})}).collect()
 }
