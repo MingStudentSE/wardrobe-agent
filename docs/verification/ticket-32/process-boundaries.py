@@ -5,10 +5,18 @@ def command(db,name,args):
  p=subprocess.run([CLI,'--db',str(db),'--trusted-local',name,'--input-stdin'],input=json.dumps(args),text=True,capture_output=True)
  response=json.loads(p.stdout)
  if p.returncode:raise RuntimeError(response)
- return response['result']
-def start_move(db,target):return subprocess.Popen([CLI,'--db',str(db),'--trusted-local','data_directory.move','--input-stdin'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+ result=response['result']
+ if name in ('backup.create','backup.preview','backup.restore','data_directory.move'):
+  assert result['state']=='queued' and result['job_id'],result
+  completed=command(db,'maintenance.worker.run',{'id':result['job_id']})
+  if completed['state']!='succeeded':raise RuntimeError({'operation':name,'job':completed})
+  return completed['result']
+ return result
+def start_move(db,target):return subprocess.Popen([CLI,'--db',str(db),'--trusted-local','maintenance.worker.run','--input-stdin'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
 def launch(db,target):
- p=start_move(db,target);p.stdin.write(json.dumps({'directory':str(target)}));p.stdin.close();return p
+ submitted=subprocess.run([CLI,'--db',str(db),'--trusted-local','data_directory.move','--input-stdin'],input=json.dumps({'directory':str(target)}),text=True,capture_output=True)
+ job=json.loads(submitted.stdout)['result'];assert job['state']=='queued' and not target.exists()
+ p=start_move(db,target);p.stdin.write(json.dumps({'id':job['job_id']}));p.stdin.close();return p
 def copying(root,process):
  deadline=time.monotonic()+15
  while time.monotonic()<deadline:

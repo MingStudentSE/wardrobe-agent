@@ -427,6 +427,47 @@ const TEXT_FACTS: &[&str] = &[
     "color_description",
 ];
 const ARRAY_FACTS: &[&str] = &["color", "pattern", "material", "style", "occasion", "tags"];
+pub(super) fn validate_stored_document(document: &Value) -> Result<(), ApiError> {
+    let object = document
+        .as_object()
+        .ok_or_else(|| ApiError::new("invalid_input", "单品文档须为对象"))?;
+    if document["schema_version"] != 1
+        || !document["name"].is_string()
+        || !document["category"].is_string()
+        || !document["status"]
+            .as_str()
+            .is_some_and(|status| ["active", "archived", "deleted"].contains(&status))
+    {
+        return Err(ApiError::new("invalid_input", "单品格式或生命周期无效"));
+    }
+    let facts = Value::Object(
+        object
+            .iter()
+            .filter(|(key, _)| {
+                TEXT_FACTS.contains(&key.as_str())
+                    || ARRAY_FACTS.contains(&key.as_str())
+                    || [
+                        "name",
+                        "category",
+                        "seasons",
+                        "favorite",
+                        "purchase_price_minor",
+                        "currency",
+                    ]
+                    .contains(&key.as_str())
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    );
+    let mut validated = document.clone();
+    apply_facts(&mut validated, &facts)?;
+    if document.get("price_exponent").is_some()
+        && document["price_exponent"] != validated["price_exponent"]
+    {
+        return Err(ApiError::new("invalid_input", "货币单位与记录不一致"));
+    }
+    Ok(())
+}
 pub(super) fn apply_facts(doc: &mut Value, input: &Value) -> Result<(), ApiError> {
     for key in input.as_object().unwrap().keys() {
         if !TEXT_FACTS.contains(&key.as_str())

@@ -5,7 +5,13 @@ def command(db,name,args):
  p=subprocess.run([CLI,'--db',str(db),'--trusted-local',name,'--input-stdin'],input=json.dumps(args),text=True,capture_output=True)
  response=json.loads(p.stdout)
  if p.returncode:raise RuntimeError(response)
- return response['result']
+ result=response['result']
+ if name in ('backup.create','backup.preview','backup.restore','data_directory.move'):
+  assert result['state']=='queued' and result['job_id'],result
+  completed=command(db,'maintenance.worker.run',{'id':result['job_id']})
+  if completed['state']!='succeeded':raise RuntimeError({'operation':name,'job':completed})
+  return completed['result']
+ return result
 def chunk(kind,payload):return struct.pack('>I',len(payload))+kind+payload+struct.pack('>I',zlib.crc32(kind+payload)&0xffffffff)
 with tempfile.TemporaryDirectory(prefix='wardrobe32-restore-writer-') as raw:
  root=pathlib.Path(raw);source=root/'incoming'/'wardrobe.sqlite';target=root/'target'/'wardrobe.sqlite'
@@ -19,8 +25,10 @@ with tempfile.TemporaryDirectory(prefix='wardrobe32-restore-writer-') as raw:
  mcp=subprocess.Popen([CLI,'--db',str(target),'mcp'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
  def send(id,method,params):mcp.stdin.write(json.dumps({'jsonrpc':'2.0','id':id,'method':method,'params':params})+'\n');mcp.stdin.flush()
  send(1,'initialize',{'authorization_token':grant['token']});assert json.loads(mcp.stdout.readline())['id']==1
- restore=subprocess.Popen([CLI,'--db',str(target),'--trusted-local','backup.restore','--input-stdin'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
- restore.stdin.write(json.dumps({'directory':str(package),'confirm_overwrite':True}));restore.stdin.close()
+ submitted=subprocess.run([CLI,'--db',str(target),'--trusted-local','backup.restore','--input-stdin'],input=json.dumps({'directory':str(package),'confirm_overwrite':True}),text=True,capture_output=True)
+ job=json.loads(submitted.stdout)['result'];assert job['state']=='queued'
+ restore=subprocess.Popen([CLI,'--db',str(target),'--trusted-local','maintenance.worker.run','--input-stdin'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+ restore.stdin.write(json.dumps({'id':job['job_id']}));restore.stdin.close()
  deadline=time.monotonic()+20
  while not list(target.parent.glob('backup-rollback/*.staging-*/media/*')):
   if restore.poll() is not None:raise RuntimeError('restore ended before prebackup observer')

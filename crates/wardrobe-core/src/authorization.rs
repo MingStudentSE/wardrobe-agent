@@ -136,6 +136,23 @@ impl Application {
         {
             return Err(ApiError::new("unsupported_operation", "此操作尚不可用"));
         }
+        if grant["member_ids"].is_array() && crate::maintenance::is_global_operation(operation) {
+            return Err(ApiError::new("member_denied", "全空间维护需要授权全部成员"));
+        }
+        if operation.starts_with("maintenance.") && operation != "maintenance.list" {
+            let job = self.maintenance_raw_get(string(&input, "id")?)?;
+            if grant["mode"] != "full"
+                && !grant["operations"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&job["operation"])
+            {
+                return Err(ApiError::new(
+                    "scope_denied",
+                    "维护控制还需要原业务操作的授权scope",
+                ));
+            }
+        }
         if let Some(members) = grant["member_ids"].as_array() {
             if input.get("member_id").is_some() {
                 let member = self.member(&input)?;
@@ -169,6 +186,11 @@ impl Application {
         if operation == "capabilities" {
             let mut result = self.execute_current(operation, input)?;
             result["operations"].as_array_mut().unwrap().retain(|o| {
+                if grant["member_ids"].is_array()
+                    && crate::maintenance::is_global_operation(o["name"].as_str().unwrap())
+                {
+                    return false;
+                }
                 !privileged(o["name"].as_str().unwrap())
                     && (grant["mode"] == "full"
                         || o["name"] == "capabilities"
@@ -179,7 +201,16 @@ impl Application {
         if operation == "provider.save" {
             return self.provider_save_from_client(input);
         }
-        self.execute_current(operation, input)
+        let mut result = self.execute_current(operation, input)?;
+        if operation == "maintenance.list" && grant["mode"] != "full" {
+            result["items"].as_array_mut().unwrap().retain(|job| {
+                grant["operations"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&job["operation"])
+            });
+        }
+        Ok(result)
     }
 
     pub(super) fn client_list(&self, input: Value) -> Result<Value, ApiError> {
@@ -340,17 +371,23 @@ mod restore_boundary_tests {
         let db = installation.path().join("wardrobe.sqlite");
         let app = Application::open(&db).unwrap();
         let package = archive.path().join("backup");
-        app.execute("backup.create", json!({"directory":package}))
+        let queued = app
+            .execute("backup.create", json!({"directory":package}))
+            .unwrap();
+        app.execute("maintenance.worker.run", json!({"id":queued["id"]}))
             .unwrap();
         let grant = app.execute("client.authorize",json!({"name":"deterministic authorization seam","mode":"full","operations":[],"member_ids":null,"expires_at":null})).unwrap();
         let restorer = Application::open(&db).unwrap();
         AFTER_AUTHORIZATION.with(|hook| {
             *hook.borrow_mut() = Some(Box::new(move || {
-                restorer
+                let queued = restorer
                     .execute(
                         "backup.restore",
                         json!({"directory":package,"confirm_overwrite":true}),
                     )
+                    .unwrap();
+                restorer
+                    .execute("maintenance.worker.run", json!({"id":queued["id"]}))
                     .unwrap();
             }))
         });

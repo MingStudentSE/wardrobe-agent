@@ -162,6 +162,17 @@ impl Application {
         operation: &str,
         input: Value,
     ) -> Result<Value, ApiError> {
+        self.directory_run(operation, input, None)
+    }
+    pub(super) fn directory_run(
+        &self,
+        operation: &str,
+        input: Value,
+        control: Option<&crate::maintenance::Control>,
+    ) -> Result<Value, ApiError> {
+        if let Some(control) = control {
+            control.tick()?;
+        }
         if operation == "data_directory.status" {
             if !input.as_object().unwrap().is_empty() {
                 return Err(ApiError::new("invalid_input", "数据目录状态无输入字段"));
@@ -203,6 +214,9 @@ impl Application {
         let marker = source.join(".wardrobe-location.json");
         let mut pending = false;
         let result = (|| {
+            if let Some(control) = control {
+                control.enter_critical(self)?;
+            }
             let tx = self.begin_write()?;
             let database = staging.join("wardrobe.sqlite");
             let target = Connection::open(&database)?;
@@ -278,6 +292,9 @@ impl Application {
             if verified.default_space()? != self.default_space()? {
                 return Err(ApiError::new("directory_invalid", "新数据库公开读取不一致"));
             }
+            if let Some(control) = control {
+                control.prepare_move_result(&verified.connection,&json!({"schema_version":1,"switched":true,"directory":destination,"old_directory":source,"copied_media_bytes":bytes}))?;
+            }
             drop(verified);
             let mut record = json!({"version":1,"phase":"pending","source_file":Path::new(self.connection.path().unwrap()).file_name().and_then(|name|name.to_str()),"target_database":newdb});
             publish(&marker, &record)?;
@@ -302,6 +319,6 @@ impl Application {
 pub(super) fn descriptors() -> Vec<Value> {
     vec![
         json!({"name":"data_directory.status","description":"读取当前本机数据目录","outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":1}}},"inputSchema":{"type":"object","additionalProperties":false,"properties":{}}}),
-        json!({"name":"data_directory.move","description":"校验完整本机副本后切换目录并保留旧源","outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":1}}},"inputSchema":{"type":"object","additionalProperties":false,"required":["directory"],"properties":{"directory":{"type":"string"}}}}),
+        json!({"name":"data_directory.move","description":"校验完整本机副本后切换目录并保留旧源","outputSchema":crate::maintenance::job_schema(),"inputSchema":{"type":"object","additionalProperties":false,"required":["directory"],"properties":{"directory":{"type":"string"},"operation_key":{"type":"string","minLength":1,"maxLength":200}}}}),
     ]
 }

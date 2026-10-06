@@ -11,6 +11,7 @@ mod image_editing;
 mod imports;
 mod insights;
 mod jobs;
+mod maintenance;
 mod members;
 mod outfits;
 mod product;
@@ -42,7 +43,15 @@ impl ApiError {
     }
 }
 impl From<rusqlite::Error> for ApiError {
-    fn from(_: rusqlite::Error) -> Self {
+    fn from(error: rusqlite::Error) -> Self {
+        #[cfg(all(debug_assertions, feature = "backup-test-diagnostics"))]
+        if let rusqlite::Error::SqliteFailure(code, _) = &error {
+            eprintln!(
+                "backup_test_sqlite_code={:?} extended_code={}",
+                code.code, code.extended_code
+            );
+        }
+        let _ = error;
         Self::new("storage_error", "本地数据库操作失败")
     }
 }
@@ -131,6 +140,7 @@ impl Application {
         recognition::migrate(&tx)?;
         encryption::migrate(&tx)?;
         backup::migrate(&tx)?;
+        maintenance::migrate(&tx)?;
         tx.execute_batch(&format!(
             "PRAGMA user_version={};",
             version.max(DATABASE_SCHEMA_VERSION)
@@ -242,6 +252,8 @@ impl Application {
             }
         }
         match operation {
+            name if matches!(name,"backup.create"|"backup.preview"|"backup.restore"|"data_directory.move") => self.maintenance_enqueue(name,input),
+            name if name.starts_with("maintenance.") => self.maintenance_operation(name,input),
             name if name.starts_with("data_directory.") => self.directory_operation(name, input),
             name if name.starts_with("backup.") => self.backup_operation(name, input),
             name if name.starts_with("encryption.") => self.encryption_operation(name, input),
@@ -337,6 +349,7 @@ fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
 pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
     descriptors.extend(backup::descriptors());
+    descriptors.extend(maintenance::descriptors());
     descriptors.extend(data_directory::descriptors());
     descriptors.extend(encryption::descriptors());
     descriptors.extend(clothing::descriptors());

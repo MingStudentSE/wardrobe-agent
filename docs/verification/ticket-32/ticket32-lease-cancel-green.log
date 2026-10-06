@@ -1,0 +1,9 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 2.82s
+     Running unittests src/lib.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wardrobe_core-1455b102a1d64765)
+
+running 1 test
+test maintenance::lease_tests::cancellation_committed_at_lease_refresh_boundary_cannot_be_resurrected ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
+

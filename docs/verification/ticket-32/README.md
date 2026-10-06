@@ -36,3 +36,19 @@ Still required: complete same-source CLI/MCP/GUI regression and member scopes, c
 Session 40994 confirmed exit 1: full 743,403,520-byte synthetic source SQLite plus 270,001,539-byte media; actual create 19.339450s and preview 32.624948s passed, but `backup.restore` returned generic storage_error. TempDir cleanup completed and disk returned to 2.5 GiB. Cause is **unconfirmed**; do not attribute to source correctness or ENOSPC without specific evidence. `ticket32-scale-final.log` retains the actual failure. No capacity green claim.
 
 All spawned terminal handles for this subturn have exited. No additional build was started after the root coordination request. This checkpoint releases the agent slot for required independent #16 reviews; #32 work resumes afterward with full original scope.
+
+
+## Async maintenance checkpoint — incomplete
+
+Full diagnostic scale run 74163 exited 0: 10,000 clothing, 100,000 wear events/receipts, 270,001,539 bytes original media and a 1,002,981,099-byte package. Actual create 13.653s, preview 17.272s, restore 39.602s, source removed before restore, restart/public counts/original reads passed. Earlier generic storage_error causes remain unconfirmed. This scale precedes async maintenance and stricter receipt identity validation; it is not final same-source capacity acceptance. The synthetic expansion now fixes each receipt request operation_key/clothing_ids to agree with its SQL row.
+
+Public long operations now enqueue installation-local maintenance_jobs and immediately return a durable ID. Whole-space tasks have no member FK and cannot appear in generic member jobs APIs. GUI submits, drives a worker, polls state and exposes safe cancellation/explicit retry. Preview/domain validation now checks garment facts and SQL/document identities, historical roots/revisions, outfit version identities and original receipt revisions without rewriting immutable history.
+
+- 65029: backup domain contracts 28 passed. Prior 51643 was 26/28 because two authorized test paths only enqueued without driving their worker; corrected explicit pipeline, not product failure.
+- maintenance public contracts: 6 passed, including limited-member denial and generic jobs invisibility, durable queued cancellation/retry.
+- 69948 lease cancellation deterministic seam: actual red (cancelled state could be overwritten by renewal); 95871 green after IMMEDIATE validation+renewal. A boundary simulation, not a claim of observed random production timing.
+- CLI build 6659 and frontend build 56835 exited 0; GUI 60015 2 passed on that same CLI source, actual create/preview/overwrite/prebackup and old-path CLI after directory move.
+- 57200 directory publication/worker-finalization boundary red; 45775 library 3 passed after querying a published move reconciles its receipt. Real copy + active marker, deterministic skipped final worker write, not a true process kill at that instant.
+- 17151 **current red**: an expired maintenance receipt can be claimed even while a real local worker lock is held. Worker file-lock integration remains required; no final suite green claim.
+
+Remaining: worker exclusion + crash/recovery receipts for all maintenance operations; final same-source CLI/MCP/GUI/full sequential Rust targets/clippy; real interrupted/cancelled process contracts; final full capacity; accepted root integration (weather explicit configuration only, no derived cache/errors); unknown provider submission + same-space restore cross-module gate; independent merger. No push or issue closure.

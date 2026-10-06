@@ -2,10 +2,25 @@
 import copy,json,pathlib,shutil,sqlite3,struct,subprocess,sys,tempfile,time,uuid,zlib
 CLI=str(pathlib.Path(sys.argv[1]).resolve())
 def command(db,name,args):
- p=subprocess.run([CLI,'--db',str(db),'--trusted-local',name,'--input-stdin'],input=json.dumps(args),text=True,capture_output=True)
- response=json.loads(p.stdout)
- if p.returncode:raise RuntimeError({"operation":name,"response":response})
- return response['result']
+ p=subprocess.Popen([CLI,'--db',str(db),'--trusted-local',name,'--input-stdin'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+ pending=json.dumps(args)
+ while True:
+  try:
+   output,diagnostics=p.communicate(pending,timeout=5);break
+  except subprocess.TimeoutExpired:
+   pending=None
+   installation=pathlib.Path(db).parent.parent
+   print(json.dumps({'phase':name,'still_running':True,'free_bytes':shutil.disk_usage(installation).free,'sqlite_and_wal_bytes':sum(f.stat().st_size for f in installation.rglob('*') if f.is_file() and ('sqlite' in f.name or f.name.endswith('-wal')))}),flush=True)
+ response=json.loads(output)
+ if diagnostics:print(json.dumps({'operation':name,'diagnostic_lines':diagnostics.strip().splitlines()}),flush=True)
+ if p.returncode:raise RuntimeError({"operation":name,"response":response,"diagnostic_stderr":diagnostics})
+ result=response['result']
+ if name in ('backup.create','backup.preview','backup.restore','data_directory.move'):
+  assert result['state']=='queued' and result['job_id'],result
+  completed=command(db,'maintenance.worker.run',{'id':result['job_id']})
+  if completed['state']!='succeeded':raise RuntimeError({'operation':name,'job':completed})
+  return completed['result']
+ return result
 def chunk(kind,payload):return struct.pack('>I',len(payload))+kind+payload+struct.pack('>I',zlib.crc32(kind+payload)&0xffffffff)
 def encoded(value):return json.dumps(value,separators=(',',':'))
 with tempfile.TemporaryDirectory(prefix='wardrobe32-scale-') as raw:
@@ -31,7 +46,8 @@ with tempfile.TemporaryDirectory(prefix='wardrobe32-scale-') as raw:
    item=document['items'][0];item['clothing_id']=ids[n%10000];item['snapshot']['id']=ids[n%10000]
    text=encoded(document)
    connection.execute('INSERT INTO wear_events VALUES(?,?,?,?,?)',(id,member,id,1,text))
-   connection.execute('INSERT INTO wear_receipts VALUES(?,?,?,?)',(member,f'scale-{n}',encoded(request),text))
+   row_request=copy.deepcopy(request);row_request['input']['operation_key']=f'scale-{n}';row_request['input']['clothing_ids']=[ids[n%10000]]
+   connection.execute('INSERT INTO wear_receipts VALUES(?,?,?,?)',(member,f'scale-{n}',encoded(row_request),text))
    connection.execute('INSERT INTO wear_asset_refs VALUES(?,?,?)',(id,assets[0]['id'],member))
    connection.execute('INSERT INTO audit(entity_id,operation,document) VALUES(?,?,?)',(id,'wear.record',text))
    connection.execute('INSERT INTO outbox(entity_id,document) VALUES(?,?)',(id,text))
