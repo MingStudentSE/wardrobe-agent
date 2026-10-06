@@ -1,5 +1,6 @@
 use crate::{string, ApiError, Application};
 use rusqlite::params;
+use rusqlite::OptionalExtension;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 fn hash(token: &str) -> String {
@@ -130,17 +131,38 @@ impl Application {
             return Err(ApiError::new("unsupported_operation", "此操作尚不可用"));
         }
         if let Some(members) = grant["member_ids"].as_array() {
-            if ["sync.configure", "sync.run", "sync.status"].contains(&operation) {
+            if ["sync.configure", "sync.run", "sync.process", "sync.status"].contains(&operation) {
                 return Err(ApiError::new(
                     "member_denied",
                     "同步目标和运行操作需要明确授权全部成员",
                 ));
             }
 
+            if ["jobs.get", "jobs.cancel", "jobs.retry"].contains(&operation) {
+                if let Some(id) = input["id"].as_str() {
+                    let kind: Option<String> = self
+                        .connection
+                        .query_row("SELECT kind FROM jobs WHERE id=?1", [id], |r| r.get(0))
+                        .optional()?;
+                    if kind.as_deref().is_some_and(crate::jobs::is_space_job) {
+                        return Err(ApiError::new(
+                            "member_denied",
+                            "空间同步任务需要明确授权全部成员",
+                        ));
+                    }
+                }
+            }
             if input.get("member_id").is_some() {
                 let member = self.member(&input)?;
                 if !members.contains(&json!(member)) {
                     return Err(ApiError::new("member_denied", "成员超出客户端授权范围"));
+                }
+                if operation == "jobs.list" {
+                    let mut result = self.execute(operation, input)?;
+                    result["items"].as_array_mut().unwrap().retain(|job| {
+                        !crate::jobs::is_space_job(job["kind"].as_str().unwrap_or(""))
+                    });
+                    return Ok(result);
                 }
             } else if operation == "member.list" {
                 let mut result = self.member_list()?;
@@ -164,7 +186,7 @@ impl Application {
             result["operations"].as_array_mut().unwrap().retain(|o| {
                 !privileged(o["name"].as_str().unwrap())
                     && (grant["member_ids"].is_null()
-                        || !["sync.configure", "sync.run", "sync.status"]
+                        || !["sync.configure", "sync.run", "sync.process", "sync.status"]
                             .contains(&o["name"].as_str().unwrap()))
                     && (grant["mode"] == "full"
                         || o["name"] == "capabilities"

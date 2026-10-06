@@ -1,5 +1,18 @@
 use serde_json::json;
 use wardrobe_core::Application;
+trait SyncBatch {
+    fn sync_batch(&self) -> Result<serde_json::Value, wardrobe_core::ApiError>;
+}
+impl SyncBatch for Application {
+    fn sync_batch(&self) -> Result<serde_json::Value, wardrobe_core::ApiError> {
+        let queued = self.execute("sync.run", json!({}))?;
+        let processed = self.execute("sync.process", json!({"id":queued["job_id"]}))?;
+        if processed["state"] == "failed" {
+            panic!("sync worker failed: {}", processed["error"]);
+        }
+        Ok(processed["result"].clone())
+    }
+}
 struct Cleanup(std::path::PathBuf);
 impl Drop for Cleanup {
     fn drop(&mut self) {
@@ -91,7 +104,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         )
         .unwrap();
     }
-    owner.execute("sync.run", json!({})).unwrap();
+    owner.sync_batch().unwrap();
     fn chunk(path: &std::path::Path) -> Option<std::path::PathBuf> {
         for entry in std::fs::read_dir(path).unwrap() {
             let p = entry.unwrap().path();
@@ -110,7 +123,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
     let chunk_path = chunk(remote.path()).unwrap();
     let backup = a.path().join("interrupted-download-block");
     std::fs::rename(&chunk_path, &backup).unwrap();
-    let interrupted = peer.execute("sync.run", json!({})).unwrap();
+    let interrupted = peer.sync_batch().unwrap();
     assert_eq!(interrupted["missing_assets"], 1);
     assert_eq!(
         peer.execute(
@@ -130,7 +143,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
     let missing_wear=peer.execute("wear.record",json!({"member_id":member["member_id"],"clothing_ids":[garment["id"]],"local_date":"2026-10-03","timezone":"Asia/Shanghai","operation_key":"wear without original or display"})).unwrap();
     assert!(missing_wear["id"].is_string());
     std::fs::rename(&backup, &chunk_path).unwrap();
-    let received = peer.execute("sync.run", json!({})).unwrap();
+    let received = peer.sync_batch().unwrap();
     assert_eq!(
         received["missing_assets"],
         0,
@@ -224,7 +237,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         )
         .unwrap();
     assert_eq!(got["name"], "同步蓝衬衫");
-    peer.execute("sync.run", json!({})).unwrap();
+    peer.sync_batch().unwrap();
     assert_eq!(
         peer.execute("clothing.list", json!({"member_id":member["member_id"]}))
             .unwrap()["items"]
@@ -238,8 +251,8 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         json!({"member_id":member["member_id"],"id":garment["id"],"name":"第二设备可编辑"}),
     )
     .unwrap();
-    peer.execute("sync.run", json!({})).unwrap();
-    owner.execute("sync.run", json!({})).unwrap();
+    peer.sync_batch().unwrap();
+    owner.sync_batch().unwrap();
     assert_eq!(
         owner
             .execute(
@@ -252,7 +265,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
     owner.execute("clothing.update",json!({"member_id":member["member_id"],"id":garment["id"],"name":"源端待审核名称","tags":["owner tag"],"color":["blue"]})).unwrap();
     peer.execute("clothing.update",json!({"member_id":member["member_id"],"id":garment["id"],"name":"第二设备待审核名称","tags":["peer tag"],"size_label":"M"})).unwrap();
     for app in [&owner, &peer, &owner, &peer] {
-        app.execute("sync.run", json!({})).unwrap();
+        app.sync_batch().unwrap();
     }
     for app in [&owner, &peer] {
         let doc = app
@@ -287,8 +300,8 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .unwrap()["name"]
         .clone();
     owner.execute("sync.resolve",json!({"member_id":member["member_id"],"entity_type":"clothing","entity_id":garment["id"],"field":"name","value":chosen,"expected_token":conflict["token"],"operation_key":"choose shared name"})).unwrap();
-    owner.execute("sync.run", json!({})).unwrap();
-    peer.execute("sync.run", json!({})).unwrap();
+    owner.sync_batch().unwrap();
+    peer.sync_batch().unwrap();
     assert_eq!(
         peer.execute(
             "clothing.get",
@@ -305,11 +318,11 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .iter()
         .all(|v| v["entity_id"] != garment["id"] || v["field"] != "name"));
     let root=owner.execute("wear.record",json!({"member_id":member["member_id"],"clothing_ids":[garment["id"]],"local_date":"2026-10-03","timezone":"Asia/Shanghai","operation_key":"concurrent root"})).unwrap();
-    owner.execute("sync.run", json!({})).unwrap();
-    peer.execute("sync.run", json!({})).unwrap();
+    owner.sync_batch().unwrap();
+    peer.sync_batch().unwrap();
     let care_root=owner.execute("care.record",json!({"member_id":member["member_id"],"clothing_id":garment["id"],"action":"wash","local_date":"2026-10-03","timezone":"Asia/Shanghai","operation_key":"concurrent care root"})).unwrap();
-    owner.execute("sync.run", json!({})).unwrap();
-    peer.execute("sync.run", json!({})).unwrap();
+    owner.sync_batch().unwrap();
+    peer.sync_batch().unwrap();
     let mut care_branches = vec![];
     let mut branches = vec![];
     for (app, date, key) in [
@@ -321,7 +334,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         app.execute("outfit.update",json!({"member_id":member["member_id"],"id":look["id"],"expected_version":1,"name":key,"items":[{"clothing_id":garment["id"],"role":"top","layer":0}]})).unwrap();
     }
     for app in [&owner, &peer, &owner, &peer] {
-        app.execute("sync.run", json!({})).unwrap();
+        app.sync_batch().unwrap();
     }
     for app in [&owner, &peer] {
         let history = app
@@ -371,7 +384,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         );
     }
     for app in [&owner, &peer, &owner, &peer] {
-        app.execute("sync.run", json!({})).unwrap();
+        app.sync_batch().unwrap();
     }
     for app in [&owner, &peer] {
         let history = app
@@ -572,10 +585,10 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         )
         .unwrap();
     let result = owner
-        .execute("sync.run", json!({}))
+        .sync_batch()
         .expect("bad immutable payload is isolated without blocking valid facts");
     assert_eq!(result["quarantined"], 2);
-    peer.execute("sync.run", json!({})).unwrap();
+    peer.sync_batch().unwrap();
     assert_eq!(
         peer.execute(
             "clothing.get",
@@ -608,15 +621,12 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
             .unwrap()
             .iter()
             .any(|v| v["op_id"] == invalid_id && v["code"] == "sync_invalid"));
-        assert_eq!(
-            app.execute("sync.run", json!({})).unwrap()["quarantined"],
-            0
-        );
+        assert_eq!(app.sync_batch().unwrap()["quarantined"], 0);
     }
 
     let disposable=owner.execute("clothing.create",json!({"member_id":member["member_id"],"name":"offline delete/edit","category":"top","tags":["baseline"]})).unwrap();
-    owner.execute("sync.run", json!({})).unwrap();
-    peer.execute("sync.run", json!({})).unwrap();
+    owner.sync_batch().unwrap();
+    peer.sync_batch().unwrap();
     owner
         .execute(
             "clothing.update",
@@ -625,7 +635,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .unwrap();
     peer.execute("clothing.update",json!({"member_id":member["member_id"],"id":disposable["id"],"tags":["baseline","new while offline"]})).unwrap();
     for app in [&owner, &peer, &owner, &peer] {
-        app.execute("sync.run", json!({})).unwrap();
+        app.sync_batch().unwrap();
     }
     for app in [&owner, &peer] {
         assert_eq!(
@@ -645,7 +655,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .unwrap();
     peer.execute("clothing.update",json!({"member_id":member["member_id"],"id":disposable["id"],"name":"edited while disconnected"})).unwrap();
     for app in [&owner, &peer, &owner, &peer] {
-        app.execute("sync.run", json!({})).unwrap();
+        app.sync_batch().unwrap();
     }
     for app in [&owner, &peer] {
         assert_eq!(
@@ -668,7 +678,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .expect("concurrent delete/edit requires review");
     owner.execute("sync.resolve",json!({"member_id":member["member_id"],"entity_type":"clothing","entity_id":disposable["id"],"field":"lifecycle","value":"active","expected_token":conflict["token"],"operation_key":"explicitly restore edited item"})).unwrap();
     for app in [&owner, &peer, &owner, &peer] {
-        app.execute("sync.run", json!({})).unwrap();
+        app.sync_batch().unwrap();
     }
     for app in [&owner, &peer] {
         let doc = app
@@ -691,7 +701,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .execute("member.create", json!({"name":"out of order member"}))
         .unwrap();
     let delayed=owner.execute("clothing.create",json!({"member_id":delayed_member["member_id"],"name":"fact before its member","category":"top"})).unwrap();
-    owner.execute("sync.run", json!({})).unwrap();
+    owner.sync_batch().unwrap();
     let read =
         rusqlite::Connection::open_with_flags(&ap, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .unwrap();
@@ -708,7 +718,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .join(format!("{space}/changes/{operation}.commit"));
     let parked = ap.parent().unwrap().join("delayed-member-marker");
     std::fs::rename(&marker, &parked).unwrap();
-    peer.execute("sync.run", json!({})).unwrap();
+    peer.sync_batch().unwrap();
     let state = peer.execute("sync.status", json!({})).unwrap();
     assert!(
         state["pending"].as_u64().is_some_and(|n| n > 0),
@@ -721,7 +731,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         state["pending"]
     );
     std::fs::rename(&parked, &marker).unwrap();
-    peer.execute("sync.run", json!({})).unwrap();
+    peer.sync_batch().unwrap();
     assert_eq!(
         peer.execute("sync.status", json!({})).unwrap()["pending"],
         0
@@ -906,7 +916,19 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
         )
         .unwrap();
     }
-    let first = owner.execute("sync.run", json!({})).unwrap();
+    let queued = owner
+        .execute("sync.run", json!({"operation_key":"bounded-publication"}))
+        .unwrap();
+    let job_id = queued["job_id"].clone();
+    assert_eq!(
+        owner
+            .execute("sync.run", json!({"operation_key":"bounded-publication"}))
+            .unwrap()["job_id"],
+        job_id
+    );
+    let processed = owner.execute("sync.process", json!({"id":job_id})).unwrap();
+    assert_eq!(processed["state"], "queued");
+    let first = processed["result"].clone();
     assert!(
         first["sent"].as_u64().unwrap() <= 256,
         "one run must not materialize an unbounded journal"
@@ -915,14 +937,15 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
     drop(owner);
     let owner = Application::open(&ap).unwrap();
     for _ in 0..10 {
-        let r = owner.execute("sync.run", json!({})).unwrap();
+        let processed = owner.execute("sync.process", json!({"id":job_id})).unwrap();
+        let r = &processed["result"];
         assert!(r["sent"].as_u64().unwrap() <= 256);
-        if r["has_more"] == false {
+        if processed["state"] == "succeeded" {
             break;
         }
     }
     for _ in 0..10 {
-        let r = peer.execute("sync.run", json!({})).unwrap();
+        let r = peer.sync_batch().unwrap();
         assert!(
             r["received"].as_u64().unwrap() <= 256,
             "receiving must also bound each transaction batch"
@@ -947,7 +970,7 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
         }
     }
     assert_eq!(count, 300);
-    assert_eq!(owner.execute("sync.run", json!({})).unwrap()["sent"], 0);
+    assert_eq!(owner.sync_batch().unwrap()["sent"], 0);
     let second = tempfile::tempdir().unwrap();
     owner
         .execute(
@@ -955,13 +978,13 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
             json!({"provider_kind":"local_folder","directory":second.path()}),
         )
         .unwrap();
-    let switched = owner.execute("sync.run", json!({})).unwrap();
+    let switched = owner.sync_batch().unwrap();
     assert_eq!(
         switched["sent"], 256,
         "a new target must receive the durable journal independently"
     );
     assert_eq!(switched["has_more"], true);
-    owner.execute("sync.run", json!({})).unwrap();
+    owner.sync_batch().unwrap();
     owner
         .execute(
             "sync.configure",
@@ -969,7 +992,7 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
         )
         .unwrap();
     assert_eq!(
-        owner.execute("sync.run", json!({})).unwrap()["sent"],
+        owner.sync_batch().unwrap()["sent"],
         0,
         "returning to a known target must retain its publication receipts"
     );

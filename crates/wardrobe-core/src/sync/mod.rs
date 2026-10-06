@@ -5,6 +5,7 @@ mod conflicts;
 mod pending;
 mod schema;
 pub mod storage;
+mod worker;
 use crate::{string, ApiError, Application};
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
@@ -366,7 +367,9 @@ impl Application {
     pub(crate) fn sync_operation(&self, op: &str, input: Value) -> Result<Value, ApiError> {
         let allowed: &[&str] = match op {
             "sync.configure" => &["provider_kind", "directory"],
-            "sync.run" | "sync.status" => &[],
+            "sync.run" => &["operation_key"],
+            "sync.process" => &["id"],
+            "sync.status" => &[],
             "sync.conflicts" => &["member_id"],
             "sync.history" => &["member_id", "entity_type", "entity_id"],
             "sync.resolve" => &[
@@ -514,207 +517,216 @@ impl Application {
                         Ok(json!({"op_id":r.get::<_,String>(0)?,"code":r.get::<_,String>(1)?}))
                     })?
                     .collect::<Result<Vec<_>, _>>()?;
+                let active_job: Option<String> = self.connection.query_row("SELECT document FROM jobs WHERE kind='sync' AND json_extract(document,'$.payload.target.target_key')=?1 AND json_extract(document,'$.state') IN ('queued','running') ORDER BY id DESC LIMIT 1",[target_key],|r|r.get(0)).optional()?;
+                let active_job=active_job.as_deref().map(serde_json::from_str::<Value>).transpose().map_err(|_|error("storage_error"))?.map(|job|json!({"id":job["id"],"member_id":job["member_id"],"state":job["state"]}));
                 Ok(
-                    json!({"schema_version":1,"pending":pending,"asset_errors":asset_errors,"quarantine":quarantine,"target":target_value}),
+                    json!({"schema_version":1,"pending":pending,"asset_errors":asset_errors,"quarantine":quarantine,"target":target_value,"active_job":active_job}),
                 )
             }
-            "sync.run" => {
-                let identity = self.sync_identity()?;
-                let target: String = self
-                    .connection
-                    .query_row(
-                        "SELECT document FROM sync_targets WHERE id='primary'",
-                        [],
-                        |r| r.get(0),
-                    )
-                    .map_err(|_| error("sync_not_configured"))?;
-                let target: Value =
-                    serde_json::from_str(&target).map_err(|_| error("storage_error"))?;
-                let storage = LocalFolder::new(Path::new(string(&target, "directory")?))?;
-                let target_key = target["target_key"].as_str().map(str::to_owned).unwrap_or_else(|| digest(json!({"directory":target["directory"],"space_id":identity["space_id"]}).to_string().as_bytes()));
-                let prefix = format!("{}/changes", string(&identity, "space_id")?);
-                self.sync_publish_assets(&storage, &identity)?;
-                self.sync_discover_assets(&storage, &identity)?;
-                let mut stmt=self.connection.prepare("SELECT id,op_id,device,entity_type,entity_id,before_doc,after_doc,base,clock,EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0 ORDER BY id LIMIT 256")?;
-                let rows = stmt
-                    .query_map([&target_key], |r| {
-                        Ok((
-                            r.get::<_, i64>(0)?,
-                            r.get::<_, String>(1)?,
-                            r.get::<_, String>(2)?,
-                            r.get::<_, String>(3)?,
-                            r.get::<_, String>(4)?,
-                            r.get::<_, Option<String>>(5)?,
-                            r.get::<_, String>(6)?,
-                            r.get::<_, String>(7)?,
-                            r.get::<_, String>(8)?,
-                            r.get::<_, bool>(9)?,
-                        ))
-                    })?
-                    .collect::<Result<Vec<_>, _>>()?;
-                drop(stmt);
-                let mut sent = 0;
-                for (row, id, device, table, entity, before, after, base, clock, published) in rows
-                {
-                    let parse = |s: &str| {
-                        serde_json::from_str::<Value>(s).map_err(|_| error("storage_error"))
-                    };
-                    let reassert: Option<String> = self
-                        .connection
-                        .query_row(
-                            "SELECT fields FROM sync_reassert WHERE op_id=?1",
-                            [&id],
-                            |r| r.get(0),
-                        )
-                        .optional()?;
-                    let reassert = reassert
-                        .as_deref()
-                        .map(parse)
-                        .transpose()?
-                        .unwrap_or_else(|| json!([]));
-                    let op = json!({"reassert":reassert,"protocol_version":1,"op_id":id,"device_id":device,"entity_type":table,"entity_id":entity,"before":before.as_deref().map(parse).transpose()?,"after":parse(&after)?,"base":parse(&base)?,"clock":parse(&clock)?});
-                    self.sync_apply(&op, true)?;
-                    self.connection
-                        .execute("UPDATE sync_journal SET registered=1 WHERE id=?1", [row])?;
-                    if !published {
-                        let cipher = self.sync_encrypt("changes", &op)?;
-                        let bytes =
-                            serde_json::to_vec(&cipher).map_err(|_| error("sync_invalid"))?;
-                        let key = format!("{prefix}/{id}.object");
-                        if !storage.stat(&key).is_ok() {
-                            storage.put(&key, &mut bytes.as_slice(), WriteCondition::CreateOnly)?;
-                        }
-                        let stored = bounded(&storage, &key)?;
-                        let marker =
-                            json!({"key":key,"sha256":digest(&stored),"bytes":stored.len()});
-                        let marker = self.sync_encrypt("changes", &marker)?;
-                        let marker_bytes =
-                            serde_json::to_vec(&marker).map_err(|_| error("sync_invalid"))?;
-                        let marker_key = format!("{prefix}/{id}.commit");
-                        if storage.stat(&marker_key).is_err() {
-                            storage.put(
-                                &marker_key,
-                                &mut marker_bytes.as_slice(),
-                                WriteCondition::CreateOnly,
-                            )?;
-                        }
-                        self.connection.execute(
-                            "INSERT OR IGNORE INTO sync_publications VALUES(?1,?2)",
-                            params![target_key, id],
-                        )?;
-                        sent += 1;
-                    }
-                }
-                let mut received = 0;
-                let mut quarantined = 0;
-                let mut incoming_count = 0usize;
-                let mut incoming_more = false;
-                'incoming: loop {
-                    let initial = received;
-                    let mut cursor = None;
-                    loop {
-                        let page = storage.list(&prefix, cursor.as_deref(), 64)?;
-                        for object in page.items {
-                            if !object.key.ends_with(".commit") {
-                                continue;
-                            }
-                            if self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_cursors WHERE target_id=?1 AND key=?2)",params![target_key,object.key],|r|r.get::<_,bool>(0))?{continue;}
-                            if incoming_count == 256 {
-                                incoming_more = true;
-                                break 'incoming;
-                            }
-                            incoming_count += 1;
-                            let marker: Value =
-                                serde_json::from_slice(&bounded(&storage, &object.key)?)
-                                    .map_err(|_| error("storage_corrupt"))?;
-                            let marker = self.sync_decrypt("changes", &marker)?;
-                            let bytes = bounded(&storage, string(&marker, "key")?)?;
-                            if marker["sha256"] != digest(&bytes) || marker["bytes"] != bytes.len()
-                            {
-                                return Err(error("storage_corrupt"));
-                            }
-                            let cipher: Value = serde_json::from_slice(&bytes)
-                                .map_err(|_| error("storage_corrupt"))?;
-                            let op = self.sync_decrypt("changes", &cipher)?;
-                            match self.sync_apply(&op, false) {
-                                Ok(()) => {}
-                                Err(e) if e.code == "sync_dependency" => {
-                                    self.sync_stage_pending(
-                                        &target_key,
-                                        &object.key,
-                                        &op,
-                                        &e.code,
-                                    )?;
-                                    continue;
-                                }
-                                Err(e)
-                                    if [
-                                        "sync_identity_conflict",
-                                        "sync_invalid",
-                                        "invalid_input",
-                                    ]
-                                    .contains(&e.code.as_str()) =>
-                                {
-                                    let tx = self.begin_write()?;
-                                    tx.execute(
-                                        "INSERT INTO sync_quarantine VALUES(?1,?2,?3,?4,?5)",
-                                        params![
-                                            target_key,
-                                            object.key,
-                                            op["op_id"].as_str().unwrap_or("invalid"),
-                                            e.code,
-                                            op.to_string()
-                                        ],
-                                    )?;
-                                    tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.quarantine',?2)",params![op["entity_id"].as_str().unwrap_or("invalid"),json!({"op_id":op["op_id"],"code":e.code}).to_string()])?;
-                                    tx.execute(
-                                        "INSERT OR IGNORE INTO sync_cursors VALUES(?1,?2)",
-                                        params![target_key, object.key],
-                                    )?;
-                                    tx.commit()?;
-                                    quarantined += 1;
-                                    continue;
-                                }
-                                Err(e) => return Err(e),
-                            }
-                            self.connection.execute(
-                                "INSERT OR IGNORE INTO sync_cursors VALUES(?1,?2)",
-                                params![target_key, object.key],
-                            )?;
-                            received += 1;
-                        }
-                        cursor = page.cursor;
-                        if cursor.is_none() {
-                            break;
-                        }
-                    }
-                    if received == initial {
-                        break;
-                    }
-                }
-                let (replayed, replay_quarantined, pending) =
-                    self.sync_replay_pending(&target_key, 256 - incoming_count)?;
-                received += replayed;
-                quarantined += replay_quarantined;
-                let missing_assets = self.sync_fetch_assets(&storage)?;
-                let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0)", [&target_key], |r| r.get(0))?;
-                Ok(
-                    json!({"schema_version":1,"sent":sent,"received":received,"pending":pending,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":has_more || incoming_more || (pending > 0 && replayed + replay_quarantined == (256 - incoming_count) as u64 && incoming_count < 256)}),
-                )
-            }
+            "sync.run" => self.sync_enqueue(input),
+            "sync.process" => self.sync_process(input),
             _ => Err(error("unsupported_operation")),
         }
     }
 }
+impl Application {
+    fn sync_step(&self) -> Result<Value, ApiError> {
+        let identity = self.sync_identity()?;
+        let target: String = self
+            .connection
+            .query_row(
+                "SELECT document FROM sync_targets WHERE id='primary'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|_| error("sync_not_configured"))?;
+        let target: Value = serde_json::from_str(&target).map_err(|_| error("storage_error"))?;
+        let storage = LocalFolder::new(Path::new(string(&target, "directory")?))?;
+        let target_key = target["target_key"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                digest(
+                    json!({"directory":target["directory"],"space_id":identity["space_id"]})
+                        .to_string()
+                        .as_bytes(),
+                )
+            });
+        let prefix = format!("{}/changes", string(&identity, "space_id")?);
+        self.sync_publish_assets(&storage, &identity)?;
+        self.sync_discover_assets(&storage, &identity)?;
+        let mut stmt=self.connection.prepare("SELECT id,op_id,device,entity_type,entity_id,before_doc,after_doc,base,clock,EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0 ORDER BY id LIMIT 256")?;
+        let rows = stmt
+            .query_map([&target_key], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                    r.get::<_, String>(6)?,
+                    r.get::<_, String>(7)?,
+                    r.get::<_, String>(8)?,
+                    r.get::<_, bool>(9)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        let mut sent = 0;
+        for (row, id, device, table, entity, before, after, base, clock, published) in rows {
+            let parse =
+                |s: &str| serde_json::from_str::<Value>(s).map_err(|_| error("storage_error"));
+            let reassert: Option<String> = self
+                .connection
+                .query_row(
+                    "SELECT fields FROM sync_reassert WHERE op_id=?1",
+                    [&id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let reassert = reassert
+                .as_deref()
+                .map(parse)
+                .transpose()?
+                .unwrap_or_else(|| json!([]));
+            let op = json!({"reassert":reassert,"protocol_version":1,"op_id":id,"device_id":device,"entity_type":table,"entity_id":entity,"before":before.as_deref().map(parse).transpose()?,"after":parse(&after)?,"base":parse(&base)?,"clock":parse(&clock)?});
+            self.sync_apply(&op, true)?;
+            self.connection
+                .execute("UPDATE sync_journal SET registered=1 WHERE id=?1", [row])?;
+            if !published {
+                let cipher = self.sync_encrypt("changes", &op)?;
+                let bytes = serde_json::to_vec(&cipher).map_err(|_| error("sync_invalid"))?;
+                let key = format!("{prefix}/{id}.object");
+                if !storage.stat(&key).is_ok() {
+                    storage.put(&key, &mut bytes.as_slice(), WriteCondition::CreateOnly)?;
+                }
+                let stored = bounded(&storage, &key)?;
+                let marker = json!({"key":key,"sha256":digest(&stored),"bytes":stored.len()});
+                let marker = self.sync_encrypt("changes", &marker)?;
+                let marker_bytes =
+                    serde_json::to_vec(&marker).map_err(|_| error("sync_invalid"))?;
+                let marker_key = format!("{prefix}/{id}.commit");
+                if storage.stat(&marker_key).is_err() {
+                    storage.put(
+                        &marker_key,
+                        &mut marker_bytes.as_slice(),
+                        WriteCondition::CreateOnly,
+                    )?;
+                }
+                self.connection.execute(
+                    "INSERT OR IGNORE INTO sync_publications VALUES(?1,?2)",
+                    params![target_key, id],
+                )?;
+                sent += 1;
+            }
+        }
+        let mut received = 0;
+        let mut quarantined = 0;
+        let mut incoming_count = 0usize;
+        let mut incoming_more = false;
+        'incoming: loop {
+            let initial = received;
+            let mut cursor = None;
+            loop {
+                let page = storage.list(&prefix, cursor.as_deref(), 64)?;
+                for object in page.items {
+                    if !object.key.ends_with(".commit") {
+                        continue;
+                    }
+                    if self.connection.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM sync_cursors WHERE target_id=?1 AND key=?2)",
+                        params![target_key, object.key],
+                        |r| r.get::<_, bool>(0),
+                    )? {
+                        continue;
+                    }
+                    if incoming_count == 256 {
+                        incoming_more = true;
+                        break 'incoming;
+                    }
+                    incoming_count += 1;
+                    let marker: Value = serde_json::from_slice(&bounded(&storage, &object.key)?)
+                        .map_err(|_| error("storage_corrupt"))?;
+                    let marker = self.sync_decrypt("changes", &marker)?;
+                    let bytes = bounded(&storage, string(&marker, "key")?)?;
+                    if marker["sha256"] != digest(&bytes) || marker["bytes"] != bytes.len() {
+                        return Err(error("storage_corrupt"));
+                    }
+                    let cipher: Value =
+                        serde_json::from_slice(&bytes).map_err(|_| error("storage_corrupt"))?;
+                    let op = self.sync_decrypt("changes", &cipher)?;
+                    match self.sync_apply(&op, false) {
+                        Ok(()) => {}
+                        Err(e) if e.code == "sync_dependency" => {
+                            self.sync_stage_pending(&target_key, &object.key, &op, &e.code)?;
+                            continue;
+                        }
+                        Err(e)
+                            if ["sync_identity_conflict", "sync_invalid", "invalid_input"]
+                                .contains(&e.code.as_str()) =>
+                        {
+                            let tx = self.begin_write()?;
+                            tx.execute(
+                                "INSERT INTO sync_quarantine VALUES(?1,?2,?3,?4,?5)",
+                                params![
+                                    target_key,
+                                    object.key,
+                                    op["op_id"].as_str().unwrap_or("invalid"),
+                                    e.code,
+                                    op.to_string()
+                                ],
+                            )?;
+                            tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.quarantine',?2)",params![op["entity_id"].as_str().unwrap_or("invalid"),json!({"op_id":op["op_id"],"code":e.code}).to_string()])?;
+                            tx.execute(
+                                "INSERT OR IGNORE INTO sync_cursors VALUES(?1,?2)",
+                                params![target_key, object.key],
+                            )?;
+                            tx.commit()?;
+                            quarantined += 1;
+                            continue;
+                        }
+                        Err(e) => return Err(e),
+                    }
+                    self.connection.execute(
+                        "INSERT OR IGNORE INTO sync_cursors VALUES(?1,?2)",
+                        params![target_key, object.key],
+                    )?;
+                    received += 1;
+                }
+                cursor = page.cursor;
+                if cursor.is_none() {
+                    break;
+                }
+            }
+            if received == initial {
+                break;
+            }
+        }
+        let (replayed, replay_quarantined, pending) =
+            self.sync_replay_pending(&target_key, 256 - incoming_count)?;
+        received += replayed;
+        quarantined += replay_quarantined;
+        let missing_assets = self.sync_fetch_assets(&storage)?;
+        let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0)", [&target_key], |r| r.get(0))?;
+        Ok(
+            json!({"schema_version":1,"sent":sent,"received":received,"pending":pending,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":has_more || incoming_more || (pending > 0 && replayed + replay_quarantined == (256 - incoming_count) as u64 && incoming_count < 256)}),
+        )
+    }
+}
+
 pub(crate) fn descriptors() -> Vec<Value> {
-    ["configure","run","status","history","conflicts","resolve"].into_iter().map(|op|{
+    ["configure","run","process","status","history","conflicts","resolve"].into_iter().map(|op|{
         let mut properties=json!({});let mut required=vec![];
+        if op=="run" {properties=json!({"operation_key":{"type":"string","minLength":1}});}
+        if op=="process" {properties=json!({"id":{"type":"string","minLength":1}});required.push("id");}
         if op=="configure" {properties=json!({"provider_kind":{"const":"local_folder"},"directory":{"type":"string","minLength":1}});required.extend(["provider_kind","directory"]);}
         if ["history","conflicts","resolve"].contains(&op) {properties["member_id"]=json!({"type":"string"});required.push("member_id");}
         if ["history","resolve"].contains(&op) {for key in ["entity_type","entity_id"] {properties[key]=json!({"type":"string"});required.push(key);}}
         if op=="resolve" {for key in ["field","expected_token","operation_key"] {properties[key]=json!({"type":"string","minLength":1});required.push(key);}properties["value"]=json!({});properties["branch_id"]=json!({"type":"string"});}
         let mut schema=json!({"type":"object","additionalProperties":false,"required":required,"properties":properties});
         if op=="resolve" {schema["oneOf"]=json!([{"required":["value"],"not":{"required":["branch_id"]}},{"required":["branch_id"],"not":{"required":["value"]}}]);}
-        json!({"name":format!("sync.{op}"),"description":"同步已配对加密空间，空间级运行需要全部成员授权；冲突选择保留旧历史","inputSchema":schema,"outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}}})
+        let output=match op {"run"=>json!({"type":"object","required":["schema_version","job_id","member_id","state"],"properties":{"schema_version":{"const":1},"job_id":{"type":"string"},"member_id":{"type":"string"},"state":{"type":"string"}}}),"process"=>crate::jobs::output_schema(),_=>json!({"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}})};
+        json!({"name":format!("sync.{op}"),"description":"同步已配对加密空间：run立即返回持久job_id，process执行有限worker批次；空间级操作需要全部成员授权，冲突选择保留旧历史","inputSchema":schema,"outputSchema":output})
     }).collect()
 }
