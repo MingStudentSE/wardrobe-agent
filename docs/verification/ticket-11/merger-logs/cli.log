@@ -1,0 +1,9 @@
+   Compiling wardrobe-cli v0.1.0 (/private/tmp/wardrobe-merge-11/crates/wardrobe-cli)
+    Finished `test` profile [unoptimized] target(s) in 1.72s
+     Running tests/entrypoints.rs (target/debug/deps/entrypoints-95eae7cede4a3832)
+
+running 1 test
+test authorized_cli_and_mcp_return_the_same_derived_insights_and_persistent_threshold ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.18s
+

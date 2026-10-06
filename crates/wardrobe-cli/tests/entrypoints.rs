@@ -3,6 +3,63 @@ use std::{
     io::Write,
     process::{Command, Stdio},
 };
+#[test]
+fn authorized_cli_and_mcp_return_the_same_derived_insights_and_persistent_threshold() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    cli(&path, "space.default", json!({}));
+    let a=cli(&path,"clothing.create",json!({"member_id":"default","name":"洞察红蓝上衣","category":"top","color":["red","blue"]}))["result"].clone();
+    for key in ["one", "two"] {
+        cli(
+            &path,
+            "wear.record",
+            json!({"member_id":"default","operation_key":key,"local_date":"2020-01-01","timezone":"Asia/Shanghai","clothing_ids":[a["id"]]}),
+        );
+    }
+    let token = client_token(&path);
+    let authorized = |operation: &str, input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", path.to_str().unwrap(), operation, "--client-stdin"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        write!(
+            child.stdin.take().unwrap(),
+            "{}",
+            json!({"token":token,"input":input})
+        )
+        .unwrap();
+        let v: Value = serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+        assert!(v.get("error").is_none());
+        v["result"].clone()
+    };
+    assert_eq!(
+        authorized(
+            "insights.configure",
+            json!({"member_id":"default","stale_days":91,"expected_revision":0})
+        )["stale_days"],
+        91
+    );
+    let query = json!({"member_id":"default","as_of_date":"2020-04-01","timezone":"Asia/Shanghai"});
+    let expected = authorized("insights.summary", query.clone());
+    assert_eq!(expected["stale_days"], 91);
+    assert_eq!(expected["frequency"][0]["wearCount"], 2);
+    assert_eq!(expected["frequency"][0]["wearDays"], 1);
+    assert_eq!(expected["stale"].as_array().unwrap().len(), 1);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":"insights.summary","arguments":query}})).unwrap();
+    let response: Value =
+        serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+    let returned: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(returned, expected);
+}
 fn cli(path: &std::path::Path, operation: &str, input: Value) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
         .args([

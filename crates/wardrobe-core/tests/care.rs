@@ -349,10 +349,10 @@ fn revoked_care_snapshot_keeps_adopted_asset_after_detach_delete_and_restart() {
         .to_string()
         .contains(asset["display"]["id"].as_str().unwrap()));
     let db = rusqlite::Connection::open(d.path().join("wardrobe.sqlite")).unwrap();
-    assert!(
+    assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
-            .unwrap()
-            >= 13
+            .unwrap(),
+        wardrobe_core::DATABASE_SCHEMA_VERSION
     );
     for table in [
         "recognition_suggestions",

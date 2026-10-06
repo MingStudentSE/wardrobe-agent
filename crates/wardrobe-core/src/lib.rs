@@ -7,6 +7,7 @@ mod encryption;
 mod flatlay;
 mod image_editing;
 mod imports;
+mod insights;
 mod jobs;
 mod members;
 mod outfits;
@@ -116,6 +117,7 @@ impl Application {
         tx.execute_batch("CREATE TABLE IF NOT EXISTS clients(id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, document TEXT NOT NULL);")?;
         outfits::migrate(&tx)?;
         wears::migrate(&tx)?;
+        insights::migrate(&tx)?;
         care::migrate(&tx)?;
         recommendations::migrate(&tx)?;
         jobs::migrate(&tx)?;
@@ -235,6 +237,8 @@ impl Application {
             op if op.starts_with("outfit.") => self.outfit_execute(op, input),
             op if op.starts_with("wear.") => self.wear_execute(op, input),
             op if op.starts_with("recommendation.") => self.recommendation_execute(op, input),
+            "insights.summary" => self.insights_summary(input),
+            "insights.configure" => self.insights_configure(input),
             op if op.starts_with("care.") => self.care_execute(op, input),
             "imports.update" => self.imports_update(input),
             "imports.group" => self.imports_group(input),
@@ -282,6 +286,7 @@ pub fn operations() -> Value {
     descriptors.extend(assets::descriptors());
     descriptors.extend(outfits::descriptors());
     descriptors.extend(wears::descriptors());
+    descriptors.extend(insights::descriptors());
     descriptors.extend(care::descriptors());
     descriptors.extend(recommendations::descriptors());
     descriptors.extend(jobs::descriptors());
