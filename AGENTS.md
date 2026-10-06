@@ -16,3 +16,7 @@
 
 采用 single-context：根目录 GLOSSARY.md 和 docs/adr/。
 参见 `docs/agents/domain.md`。
+
+### UI design
+
+UI 设计、实现、审查与重设计使用 `hallmark` 技能。项目已安装固定版本；参见 `docs/04-UI设计与跨端适配.md`。Beta 只交付桌面端，但共享视觉语言和组件必须兼顾后续 Android；不得依赖 hover、拖拽或桌面窗口宽度完成关键流程。既有产品要求优先于技能默认值，已有视觉系统建立后保持全应用一致。
