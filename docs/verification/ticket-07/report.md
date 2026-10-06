@@ -7,7 +7,7 @@
 - `cargo test --workspace`：全部默认 Rust 测试通过；真实下载测试必须显式执行，未把忽略测试当成通过。
 - `cargo clippy --workspace --all-targets -- -D warnings` 和 `cargo fmt --all --check`。
 - `cd apps/desktop && npm run build && npm run test:e2e`：24项正常编辑、归并及既有全应用流程通过（31.7秒），1项需网络的真实模型烟测在该默认运行中跳过、已另行显式通过；公开模型 GUI 烟测按下方环境显式启用。
-- `WARDROBE_CUTOUT_PUBLIC_SAMPLE=crates/wardrobe-core/tests/fixtures/OKM_Shirt_Front.jpg cargo test --release -p wardrobe-core --test image_editing real_model_download_white_shirt_cutout_and_cached_offline_restart -- --ignored --nocapture`：本机成功。官方权重真实下载、校验，白衣1200×1600抠图，地面透明而衣物中部不透明，重启复用缓存，源图字节保持一致。
+- `WARDROBE_CUTOUT_PUBLIC_SAMPLE="$(pwd)/crates/wardrobe-core/tests/fixtures/OKM_Shirt_Front.jpg" cargo test --release -p wardrobe-core --test image_editing real_model_download_white_shirt_cutout_and_cached_offline_restart -- --ignored --nocapture`：本机成功。官方权重真实下载、校验，白衣1200×1600抠图，地面透明而衣物中部不透明，重启复用缓存，源图字节保持一致。
 - `WARDROBE_RUN_CUTOUT_GUI_SMOKE=1 npm run test:e2e -- --grep '公开白衣'`：实际 GUI 下载、抠图、展示预览、明确替换、重新载入显示离线缓存通过（30.9秒）。截图 `actual-white-shirt-cutout.png` 已人工查看。
 - `python3 scripts/verify-cutout-cli.py --help` 给出可重跑发布包烟测参数。本机 relocated release CLI 移除开发 loader 环境后，通过官方获取、独立 CLI 与全新 MCP 进程推理；获取完成后 HTTP 代理不可用仍成功复用缓存。具体结果见 `macos-relocated-cutout-runtime.json`。
 
@@ -24,3 +24,5 @@ TDD 记录：首先增加缺少 images 操作的契约测试得到 unsupported_o
 ## 发布验收界限
 
 五平台 CI 已添加显式真实权重下载/校验/服装推理与发布包 CLI/MCP 烟测（macOS Intel/ARM、Windows、Ubuntu22.04/24.04），网络失败会失败，不能用仅编译代替。此本机报告只证明 macOS ARM 发布 CLI 和开发 GUI 实际路径；其余平台权威 CI、各平台安装后原生 GUI 验收仍待根任务汇总，不能据此关闭票据。
+
+合并 #6/#8 后独立复验：workspace 76 passed / 2 ignored，fmt/clippy/build通过；完整GUI24 passed、1显式模型GUI烟测默认跳过。另行真实release模型下载/校验/白衣推理/离线重启测试已通过。报告原来的相对样本路径在Cargo测试工作目录报NotFound，以上重跑命令改为绝对路径。实际release CLI重新staging到独立portable目录，去开发loader环境后官方权重获取、CLI与全新MCP推理、禁用HTTP代理后的缓存重启、源图不变均通过；证据 merger-macos-cutout-runtime.json。DB最终max8、jobs/imports/outfits迁移与历史资产引用保留；未预设后续wear_asset_refs存在。跨平台实际推理与各平台原生GUI仍待权威验证。
