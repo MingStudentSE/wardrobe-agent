@@ -1,0 +1,11 @@
+import {test,expect} from '@playwright/test';
+test('离线推荐硬约束、替换换套、显式保存与重启不记穿着',async({page})=>{
+ await page.goto('/');await page.getByRole('link',{name:'推荐',exact:true}).click();const panel=page.locator('#recommendations');
+ const call=async(operation:string,input:object={})=>{const response=await page.request.post('/__wardrobe_dev_api',{data:{operation,input:{member_id:'default',...input}}});const body=await response.json();if(body.error)throw new Error(body.error.message);return body.result;};
+ const bottom=await call('clothing.create',{name:'推荐裤子',category:'bottom'});await call('clothing.create',{name:'推荐鞋',category:'shoes'});await panel.getByRole('button',{name:'刷新推荐库存',exact:true}).click();await panel.getByLabel('固定 推荐裤子').check();await panel.getByLabel('排除 分页单品 25').check();
+ await panel.getByRole('button',{name:'生成离线搭配',exact:true}).click();await expect(panel.locator('.recommendation-proposal')).toHaveCount(3);const first=panel.locator('.recommendation-proposal').first();await expect(first).toContainText('推荐裤子');await expect(first).not.toContainText('分页单品 25');
+ const before=await call('wear.list');await first.getByRole('button',{name:/替换 分页单品/}).click();await expect(panel.locator('.recommendation-proposal')).toHaveCount(1);await panel.getByRole('button',{name:'换一套',exact:true}).click();await expect(panel.locator('.recommendation-proposal')).toHaveCount(1);
+ await panel.getByLabel('搭配保存名称').fill('离线推荐保存');await panel.getByRole('button',{name:'保存为搭配',exact:true}).click();await expect(panel.getByRole('status')).toContainText('已保存为搭配');expect((await call('wear.list')).items).toEqual(before.items);expect((await call('outfit.list')).items.some((o:any)=>o.name==='离线推荐保存'&&o.items.some((i:any)=>i.clothing_id===bottom.id))).toBe(true);
+ await page.reload();await page.getByRole('link',{name:'推荐',exact:true}).click();await panel.getByRole('button',{name:/查看推荐/}).first().click();await expect(panel.locator('.recommendation-proposal')).toHaveCount(1);
+ for(const width of[320,375,414,768,1024,1280,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();if(width===320||width===1280)await panel.screenshot({path:`../../docs/verification/ticket-15/recommendations-${width}.png`});}
+});
