@@ -20,3 +20,8 @@ GitHub check-run112458992926 与112458973838 的 annotations 实际返回：近�
 ## c0c1737 加密白名单包联合源码
 
 自动run37525369115已completed/failure，五jobs实际steps=[]；check112480900247实际annotation仍为账户付款失败或支出上限不足、未启动任何runner步骤。重复run37525362835 cancelled。第一次jobs读取504为观测API暂时失败，随后相同run重读成功，不因此重启workflow。独立本机140Rust/9真实OS/42GUI不能证明当前五平台发行；未手动retry。
+
+
+## cf55e48 离线推荐联合源码
+
+自动run37526840740已completed/failure，五jobs steps=[]。首个macOS14检查实际annotation为付款失败或支出上限不足，另有macOSarm64容量提示；任何源构建步骤均未执行，不能计为平台通过。重复run37526835746 cancelled。没有手动retry；功能独立156Rust/9OS/去重45GUI不替代本源码平台发行验收。
