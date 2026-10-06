@@ -306,7 +306,7 @@ impl Application {
     }
     fn save_clothing(&self, mut doc: Value, operation: &str) -> Result<Value, ApiError> {
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        let tx = self.connection.unchecked_transaction()?;
+        let tx = self.begin_write()?;
         let serialized = doc.to_string();
         tx.execute(
             "UPDATE clothing SET document=?1 WHERE id=?2 AND member_id=?3",
