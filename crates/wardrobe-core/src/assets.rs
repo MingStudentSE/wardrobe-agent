@@ -128,18 +128,32 @@ impl Application {
     }
     pub(super) fn asset_sync_manifest(&self, input: Value) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
+        let mut references=self.connection.prepare("SELECT json_extract(item.value,'$.snapshot.display_asset_id') FROM outfit_versions v JOIN outfits o ON o.id=v.outfit_id JOIN json_each(v.document,'$.items') item WHERE o.member_id=?1 UNION SELECT a.value FROM outfit_versions v JOIN outfits o ON o.id=v.outfit_id JOIN json_each(v.document,'$.items') item JOIN json_each(item.value,'$.snapshot.asset_ids') a WHERE o.member_id=?1 UNION SELECT asset_id FROM wear_asset_refs WHERE member_id=?1 UNION SELECT asset_id FROM care_asset_refs WHERE member_id=?1")?;
+        let historical_ids = references
+            .query_map([&member], |r| r.get::<_, Option<String>>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect::<std::collections::HashSet<_>>();
         let mut statement = self
             .connection
             .prepare("SELECT document FROM assets WHERE member_id=?1")?;
-        let rows = statement.query_map([member], |r| r.get::<_, String>(0))?;
+        let rows = statement.query_map([&member], |r| r.get::<_, String>(0))?;
         let mut assets = Vec::new();
         for row in rows {
             let doc: Value = serde_json::from_str(&row?)
                 .map_err(|_| ApiError::new("storage_error", "图片记录损坏"))?;
             let display = &doc["display"];
+            // Immutable outfit snapshots can retain secondary images even after
+            // their current clothing association is removed. Only IDs previously
+            // adopted into domain snapshots authorize historical display bytes.
+            let historical = doc["id"]
+                .as_str()
+                .is_some_and(|id| historical_ids.contains(id));
             if display["role"] == "product_display"
-                && display["state"] == "adopted"
-                && display["sync_scope"] == "workspace"
+                && display["mime"] == "image/webp"
+                && ((display["state"] == "adopted" && display["sync_scope"] == "workspace")
+                    || historical)
             {
                 assets.push(json!({"id":doc["id"],"blob_hash":display["id"],"role":"product_display","state":"adopted","sync_scope":"workspace","mime":display["mime"],"bytes":display["bytes"],"width":display["width"],"height":display["height"]}));
             }

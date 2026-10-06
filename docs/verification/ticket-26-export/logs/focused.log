@@ -1,0 +1,27 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-26-export/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 3.67s
+     Running tests/assets.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/assets-773e493192c33ac7)
+
+running 9 tests
+test adopted_display_manifest_excludes_original_and_preview_assets ... ok
+test detaching_an_image_preserves_bytes_and_other_clothing_references ... ok
+test header_over_sixty_megapixels_is_rejected_before_pixel_decode ... ok
+test heic_decodes_real_container_without_external_model_and_preserves_bytes ... ok
+test image_capabilities_describe_required_references_and_real_preview_output ... ok
+test imported_png_survives_restart_with_a_local_original_and_display ... ok
+test jpeg_exif_rotation_is_applied_once_before_display_encoding ... ok
+test large_jpeg_shrinks_and_thumbnail_can_be_rebuilt_without_original ... ok
+test malformed_input_and_overlarge_file_do_not_become_display_assets ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.18s
+
+     Running tests/encrypted_package.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/encrypted_package-045f42afeeda4e33)
+
+running 4 tests
+test full_external_client_cannot_export_or_read_local_encryption_packages ... ok
+test oversized_real_fact_snapshot_fails_before_publishing_and_preserves_local_facts ... ok
+test paired_installation_reads_application_generated_ciphertext_package_without_original_or_local_secrets ... ok
+test secondary_display_referenced_by_immutable_outfit_version_remains_in_encrypted_package ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.72s
+

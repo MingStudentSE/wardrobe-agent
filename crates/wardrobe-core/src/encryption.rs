@@ -277,6 +277,16 @@ impl Application {
 }
 pub(crate) fn descriptors() -> Vec<Value> {
     let operations = [
+        (
+            "encryption.package.export",
+            vec!["directory"],
+            "将白名单事实与采用展示图导出为独立密文包",
+        ),
+        (
+            "encryption.package.read",
+            vec!["path"],
+            "验证并读取密文包，不导入事实",
+        ),
         ("encryption.status", vec![], "读取本机加密空间状态"),
         (
             "encryption.create",
@@ -350,7 +360,7 @@ pub(crate) fn descriptors() -> Vec<Value> {
         ),
     ];
     operations.into_iter().map(|(name,required,description)|{
- let mut properties=serde_json::Map::new();for field in ["password","device_name","old_password","new_password","pairing_secret","device_id","recovery_secret","kind","plaintext_base64"]{properties.insert(field.into(),json!({"type":"string"}));}for field in ["bundle","invitation","receipt","manifest","envelope"]{properties.insert(field.into(),json!({"type":"object"}));}
+ let mut properties=serde_json::Map::new();for field in ["directory","path","password","device_name","old_password","new_password","pairing_secret","device_id","recovery_secret","kind","plaintext_base64"]{properties.insert(field.into(),json!({"type":"string"}));}for field in ["bundle","invitation","receipt","manifest","envelope"]{properties.insert(field.into(),json!({"type":"object"}));}
  json!({"name":name,"description":description,"inputSchema":{"type":"object","required":required,"properties":properties},"outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}}})
  }).collect()
 }

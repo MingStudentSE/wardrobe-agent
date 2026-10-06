@@ -3,6 +3,7 @@ use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use rusqlite::{params, OptionalExtension};
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroize;
+mod package;
 struct Secret(Value);
 impl Drop for Secret {
     fn drop(&mut self) {
@@ -247,6 +248,7 @@ fn assert_owner(s: &Value) -> Result<(), ApiError> {
 }
 pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value, ApiError> {
     match op {
+        "encryption.package.export" | "encryption.package.read" => package::execute(app, op, input),
         "encryption.status" => {
             fields(&input, &[])?;
             Ok(status(state(app)?))
