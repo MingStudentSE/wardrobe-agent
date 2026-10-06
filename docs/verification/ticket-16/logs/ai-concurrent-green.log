@@ -1,0 +1,9 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-16/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 3.89s
+     Running tests/ai_recommendations.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/ai_recommendations-a8dd888404013697)
+
+running 1 test
+test two_public_connections_same_intent_have_only_one_provider_submission ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.01s
+

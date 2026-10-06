@@ -1,0 +1,84 @@
+{
+  "provider_posts_after_kill_and_same_key_restart": 2,
+  "restart": {
+    "result": {
+      "actual_count": 1,
+      "controls": {
+        "limit": 1,
+        "member_id": "01a112f6-9841-7754-8e6a-2eb19967a3dc",
+        "operation_key": "crash-paid-once",
+        "provider_id": "01a112f6-9872-7787-8f21-84a675ed9daf",
+        "strategy": "ai",
+        "timezone": "UTC"
+      },
+      "created_at": "2026-10-06T20:45:13.241576+00:00",
+      "creates_wear": false,
+      "generation": {
+        "attempts": 1,
+        "failure_codes": [],
+        "provider_id": "01a112f6-9872-7787-8f21-84a675ed9daf",
+        "source": "text_model"
+      },
+      "id": "01a112f6-9899-7186-ba0e-739532aa3a80",
+      "member_id": "01a112f6-9841-7754-8e6a-2eb19967a3dc",
+      "offline": true,
+      "proposals": [
+        {
+          "complete": true,
+          "items": [
+            {
+              "category": "top",
+              "clothing_id": "01a112f6-9858-7558-9770-dcb714634c23",
+              "layer": 0,
+              "name": "top",
+              "role": "top"
+            },
+            {
+              "category": "bottom",
+              "clothing_id": "01a112f6-9862-73ff-b7ca-dac8e29bdd1e",
+              "layer": 0,
+              "name": "bottom",
+              "role": "bottom"
+            },
+            {
+              "category": "shoes",
+              "clothing_id": "01a112f6-9869-7615-acd8-b641e61124e9",
+              "layer": 0,
+              "name": "shoes",
+              "role": "shoes"
+            }
+          ],
+          "missing_roles": [],
+          "occasion_verified": false,
+          "reasons": [
+            "离线角色规则：真实可用衣物，固定与排除约束已保留",
+            "文本模型选择已通过与离线规则相同的真实库存及角色检查",
+            "日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除",
+            "目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）"
+          ],
+          "repeat_relaxed": false
+        }
+      ],
+      "recent_window": {
+        "from": "2026-09-30",
+        "source": "actual_effective_wear",
+        "through": "2026-10-06",
+        "timezone": "UTC"
+      },
+      "requested_count": 1,
+      "schema_version": 1,
+      "shortage_reasons": [],
+      "updated_at": "2026-10-06T20:45:13.241576+00:00",
+      "weather_context": {
+        "mode": "off",
+        "network_requested": false,
+        "source": "disabled",
+        "stale": false
+      }
+    }
+  },
+  "rule_count": 1,
+  "wear_count": 0,
+  "temporary_data_removed": true,
+  "no_credential": true
+}
