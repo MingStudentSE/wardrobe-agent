@@ -14,3 +14,5 @@
 - cargo clippy --workspace --all-targets --locked -- -D warnings、cargo fmt --all -- --check、npm run build、git diff --check 通过。日志为本目录 merger-*。
 
 仅证明本机macOS和开发GUI链路。#26新代码五平台CI尚未push执行，不将旧CI或默认ignored当成完成；#20真实付费云生成仍未验收。未进行第三方产品密码协议审计。无push、issue关闭或远端同步宣称。
+
+父任务复核后将设置文案改为“空间密钥由本机系统安全存储保护”，与OS解锁钥/加密钱包架构一致。仅修改文字后重新实际执行 encryption.spec.ts：2 passed（真实Keychain），重拍七宽度截图并人工查看320宽，npm build重新通过。Tauri cargo metadata --locked --no-deps通过，只验证lock，不冒充新原生打包。
