@@ -1,0 +1,9 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-10/crates/wardrobe-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.23s
+     Running tests/care.rs (target/debug/deps/care-932fb77820f3f46a)
+
+running 1 test
+test positive_optional_threshold_and_manual_dirty_are_separate_from_lifecycle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

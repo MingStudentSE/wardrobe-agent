@@ -56,7 +56,13 @@ impl Application {
             params![member, asset_id],
             |r| r.get(0),
         )?;
-        if references == 0 && outfit_references == 0 && wear_references == 0 {
+        let care_references: u64 = tx.query_row(
+            "SELECT count(*) FROM care_asset_refs WHERE member_id=?1 AND asset_id=?2",
+            params![member, asset_id],
+            |r| r.get(0),
+        )?;
+        if references == 0 && outfit_references == 0 && wear_references == 0 && care_references == 0
+        {
             asset["state"] = json!("preview");
             asset["display"]["state"] = json!("preview");
             asset["display"]["sync_scope"] = json!("local_only");

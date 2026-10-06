@@ -22,7 +22,7 @@ fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
     }
     Ok(())
 }
-fn timing(input: &Value) -> Result<Value, ApiError> {
+pub(super) fn timing(input: &Value) -> Result<Value, ApiError> {
     let date = string(input, "local_date")?;
     let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d")
         .map_err(|_| invalid("日期须为有效YYYY-MM-DD"))?;

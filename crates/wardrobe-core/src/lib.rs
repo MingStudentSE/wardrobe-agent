@@ -1,5 +1,6 @@
 mod assets;
 mod authorization;
+mod care;
 mod clothing;
 mod cutout;
 mod encryption;
@@ -116,6 +117,7 @@ impl Application {
         outfits::migrate(&tx)?;
         wears::migrate(&tx)?;
         insights::migrate(&tx)?;
+        care::migrate(&tx)?;
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
         cutout::migrate(&tx)?;
@@ -234,6 +236,7 @@ impl Application {
             op if op.starts_with("wear.") => self.wear_execute(op, input),
             "insights.summary" => self.insights_summary(input),
             "insights.configure" => self.insights_configure(input),
+            op if op.starts_with("care.") => self.care_execute(op, input),
             "imports.update" => self.imports_update(input),
             "imports.group" => self.imports_group(input),
             "imports.commit" => self.imports_commit(input),
@@ -281,6 +284,7 @@ pub fn operations() -> Value {
     descriptors.extend(outfits::descriptors());
     descriptors.extend(wears::descriptors());
     descriptors.extend(insights::descriptors());
+    descriptors.extend(care::descriptors());
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());
     descriptors.extend(image_editing::descriptors());
