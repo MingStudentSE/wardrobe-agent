@@ -10,3 +10,8 @@ GitHub check-run112458992926 与112458973838 的 annotations 实际返回：近�
 
 - https://github.com/MingStudentSE/wardrobe-agent/actions/runs/37518939745
 - https://github.com/MingStudentSE/wardrobe-agent/actions/runs/37518936264
+
+
+## 52b4ae3 洗护与洞察联合源码
+
+2026-10-07 推送实际业务批次后，自动构建 run37523675603 已 completed/failure：macOS14、macOS15Intel、Ubuntu22.04/24.04、Windows 五个 jobs 全部 steps=[]。实际检查112475158686 annotation 仍为付款失败或支出上限不足、要求检查 Billing & plans；没有编译步骤、不是源码测试失败，也不证明新代码跨平台通过。并发重复 run37523669774 cancelled。本机独立139Rust/40GUI只能证明对应本机功能范围；未手动反复retry账户阻断。
