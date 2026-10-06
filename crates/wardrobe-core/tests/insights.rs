@@ -381,6 +381,6 @@ fn highest_version_repairs_both_care_and_insight_preferences_without_erasing_act
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        14
+        wardrobe_core::DATABASE_SCHEMA_VERSION
     );
 }
