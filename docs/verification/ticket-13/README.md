@@ -29,3 +29,5 @@
 模型服务在本轮证据完成后停止；权重、编译运行时与复现脚本保留在既有 /tmp/wardrobe-local-provider 与本目录。实际样本可用建议与错误结果并列保留，不以小样本推断准确率。
 
 独立预审发现：POST 前 submitted 状态 CAS 检查 running/token 但尚缺 lease_expires 到期约束；独立 merger 将补到期守卫与过期 lease 不发 POST 回归。此实现 tip 等待该修复及独立审查，不声明 Issue 已完成验收。
+
+上述POST expiry发现已在独立merger修复，实际红绿与#21联合终态见 [merger-report.md](merger-report.md)；建议来源版本也已在GUI显示并实际验证。原始模型质量/失败证据保留，新增独立CLI证据为 merger-actual-cli.json。

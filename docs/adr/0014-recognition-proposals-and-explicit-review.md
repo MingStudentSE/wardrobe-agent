@@ -20,3 +20,5 @@ POST 前持久化 submitted 并校验 lease。超时、截断响应、5xx或提�
 ## 验证与局限
 
 真实 SmolVLM256M 的 JSON分类曾将白衣识为鞋；WebP输入曾返回400；改为规范化PNG后黑白鞋和蓝牛仔裤描述实用，白衣仍猜测品牌。全部失败/原话保留，人工路径和来源提示为必须流程。小模型质量不宣称生产准确率；真实本地调用、外部HTTP边界fixture、Chrome真实Application bridge、原生Tauri未实测各自分开记录。
+
+独立审查修复：POST前 submitted CAS 同时校验当前租约未到期；到期任务不上传、不恢复旧lease。GUI建议卡显示冻结的来源数量/版本，避免当前发送选项改变后误认旧建议来源。独立红绿、实际模型及联合验收见 ticket-13/merger-report.md。
