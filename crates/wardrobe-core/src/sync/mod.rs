@@ -1,5 +1,7 @@
 //! Incremental workspace synchronization. No provider SDK or credentials here.
 mod assets;
+mod branches;
+mod conflicts;
 pub mod storage;
 use crate::{string, ApiError, Application};
 use rusqlite::{params, OptionalExtension, Transaction};
@@ -170,7 +172,7 @@ fn error(code: &str) -> ApiError {
 }
 pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     repair_immutable(tx)?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_reassert(op_id TEXT PRIMARY KEY,fields TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_resolution_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
     for table in TABLES {
         for kind in ["INSERT", "UPDATE"] {
             let key = entity_key(table, "NEW");
@@ -267,23 +269,26 @@ impl Application {
             materialize(&tx, table, entity, &op["after"], local)?;
         } else {
             for (field, value) in after {
-                if before.is_some_and(|b| b.get(field) == Some(value)) {
-                    continue;
-                }
-                let old:Option<String>=tx.query_row("SELECT variants FROM sync_fields WHERE entity_type=?1 AND entity_id=?2 AND field=?3",params![table,entity,field],|r|r.get(0)).optional()?;
-                let mut variants: Vec<Value> = old
-                    .map(|s| serde_json::from_str(&s).map_err(|_| error("storage_error")))
-                    .transpose()?
-                    .unwrap_or_default();
-                if variants
-                    .iter()
-                    .any(|v| dominates(&v["clock"], &op["clock"]))
+                if before.is_some_and(|b| b.get(field) == Some(value))
+                    && !op["reassert"]
+                        .as_array()
+                        .is_some_and(|fields| fields.iter().any(|v| v.as_str() == Some(field)))
                 {
                     continue;
                 }
-                variants.retain(|v| !dominates(&op["clock"], &v["clock"]));
-                variants.push(json!({"value":value,"clock":op["clock"],"op_id":id}));
-                tx.execute("INSERT INTO sync_fields VALUES(?1,?2,?3,?4) ON CONFLICT(entity_type,entity_id,field) DO UPDATE SET variants=excluded.variants",params![table,entity,field,serde_json::to_string(&variants).map_err(|_|error("sync_invalid"))?])?;
+                if conflicts::SETS.contains(&field.as_str()) {
+                    conflicts::set_register(
+                        &tx,
+                        table,
+                        entity,
+                        field,
+                        before.and_then(|b| b.get(field)).unwrap_or(&Value::Null),
+                        value,
+                        op,
+                    )?;
+                } else {
+                    conflicts::register(&tx, table, entity, field, value, op)?;
+                }
             }
             let mut doc = serde_json::Map::new();
             let mut stmt = tx.prepare(
@@ -295,9 +300,23 @@ impl Application {
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
             drop(stmt);
+            let mut sets: BTreeMap<String, Vec<Value>> = BTreeMap::new();
             for (field, variants) in rows {
                 let mut variants: Vec<Value> =
                     serde_json::from_str(&variants).map_err(|_| error("sync_invalid"))?;
+                if let Some((set, _)) = field.split_once('#') {
+                    let labels = sets.entry(set.into()).or_default();
+                    let mut present: Vec<_> = variants
+                        .iter()
+                        .filter(|v| v["value"]["present"] == true)
+                        .filter_map(|v| v["value"]["label"].as_str())
+                        .collect();
+                    present.sort();
+                    if let Some(label) = present.first() {
+                        labels.push(json!(label));
+                    }
+                    continue;
+                }
                 variants.sort_by(|a, b| a["op_id"].as_str().cmp(&b["op_id"].as_str()));
                 let winner = if field == "status" {
                     variants
@@ -310,6 +329,10 @@ impl Application {
                 if let Some(w) = winner {
                     doc.insert(field, w["value"].clone());
                 }
+            }
+            for (field, mut values) in sets {
+                values.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+                doc.insert(field, json!(values));
             }
             materialize(&tx, table, entity, &Value::Object(doc), local)?;
         }
@@ -332,6 +355,8 @@ impl Application {
     }
     pub(crate) fn sync_operation(&self, op: &str, input: Value) -> Result<Value, ApiError> {
         match op {
+            "sync.conflicts" => self.sync_conflicts(input),
+            "sync.resolve" => self.sync_resolve(input),
             "sync.history" => {
                 let member = self.member(&input)?;
                 let table = string(&input, "entity_type")?;
@@ -478,7 +503,20 @@ impl Application {
                     let parse = |s: &str| {
                         serde_json::from_str::<Value>(s).map_err(|_| error("storage_error"))
                     };
-                    let op = json!({"protocol_version":1,"op_id":id,"device_id":device,"entity_type":table,"entity_id":entity,"before":before.as_deref().map(parse).transpose()?,"after":parse(&after)?,"base":parse(&base)?,"clock":parse(&clock)?});
+                    let reassert: Option<String> = self
+                        .connection
+                        .query_row(
+                            "SELECT fields FROM sync_reassert WHERE op_id=?1",
+                            [&id],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    let reassert = reassert
+                        .as_deref()
+                        .map(parse)
+                        .transpose()?
+                        .unwrap_or_else(|| json!([]));
+                    let op = json!({"reassert":reassert,"protocol_version":1,"op_id":id,"device_id":device,"entity_type":table,"entity_id":entity,"before":before.as_deref().map(parse).transpose()?,"after":parse(&after)?,"base":parse(&base)?,"clock":parse(&clock)?});
                     self.sync_apply(&op, true)?;
                     if !published {
                         let cipher = self.sync_encrypt("changes", &op)?;
@@ -560,5 +598,5 @@ impl Application {
     }
 }
 pub(crate) fn descriptors() -> Vec<Value> {
-    ["configure","run","status"].into_iter().map(|op|json!({"name":format!("sync.{op}"),"description":"同步已配对加密空间","inputSchema":{"type":"object","properties":{"provider_kind":{"type":"string"},"directory":{"type":"string"}}},"outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}}})).collect()
+    ["configure","run","status","history","conflicts","resolve"].into_iter().map(|op|json!({"name":format!("sync.{op}"),"description":"同步已配对加密空间","inputSchema":{"type":"object","properties":{"provider_kind":{"type":"string"},"directory":{"type":"string"}}},"outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}}})).collect()
 }

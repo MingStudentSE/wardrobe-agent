@@ -249,15 +249,75 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
             .unwrap()["name"],
         "第二设备可编辑"
     );
+    owner.execute("clothing.update",json!({"member_id":member["member_id"],"id":garment["id"],"name":"源端待审核名称","tags":["owner tag"],"color":["blue"]})).unwrap();
+    peer.execute("clothing.update",json!({"member_id":member["member_id"],"id":garment["id"],"name":"第二设备待审核名称","tags":["peer tag"],"size_label":"M"})).unwrap();
+    for app in [&owner, &peer, &owner, &peer] {
+        app.execute("sync.run", json!({})).unwrap();
+    }
+    for app in [&owner, &peer] {
+        let doc = app
+            .execute(
+                "clothing.get",
+                json!({"member_id":member["member_id"],"id":garment["id"]}),
+            )
+            .unwrap();
+        assert!(doc["tags"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("owner tag")));
+        assert!(doc["tags"].as_array().unwrap().contains(&json!("peer tag")));
+        assert_eq!(doc["color"], json!(["blue"]));
+        assert_eq!(doc["size_label"], "M");
+    }
+    let conflicts = owner
+        .execute("sync.conflicts", json!({"member_id":member["member_id"]}))
+        .unwrap();
+    let conflict = conflicts["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["entity_id"] == garment["id"] && v["field"] == "name")
+        .unwrap();
+    assert_eq!(conflict["variants"].as_array().unwrap().len(), 2);
+    let chosen = owner
+        .execute(
+            "clothing.get",
+            json!({"member_id":member["member_id"],"id":garment["id"]}),
+        )
+        .unwrap()["name"]
+        .clone();
+    owner.execute("sync.resolve",json!({"member_id":member["member_id"],"entity_type":"clothing","entity_id":garment["id"],"field":"name","value":chosen,"expected_token":conflict["token"],"operation_key":"choose shared name"})).unwrap();
+    owner.execute("sync.run", json!({})).unwrap();
+    peer.execute("sync.run", json!({})).unwrap();
+    assert_eq!(
+        peer.execute(
+            "clothing.get",
+            json!({"member_id":member["member_id"],"id":garment["id"]})
+        )
+        .unwrap()["name"],
+        chosen
+    );
+    assert!(peer
+        .execute("sync.conflicts", json!({"member_id":member["member_id"]}))
+        .unwrap()["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|v| v["entity_id"] != garment["id"] || v["field"] != "name"));
     let root=owner.execute("wear.record",json!({"member_id":member["member_id"],"clothing_ids":[garment["id"]],"local_date":"2026-10-03","timezone":"Asia/Shanghai","operation_key":"concurrent root"})).unwrap();
     owner.execute("sync.run", json!({})).unwrap();
     peer.execute("sync.run", json!({})).unwrap();
+    let care_root=owner.execute("care.record",json!({"member_id":member["member_id"],"clothing_id":garment["id"],"action":"wash","local_date":"2026-10-03","timezone":"Asia/Shanghai","operation_key":"concurrent care root"})).unwrap();
+    owner.execute("sync.run", json!({})).unwrap();
+    peer.execute("sync.run", json!({})).unwrap();
+    let mut care_branches = vec![];
     let mut branches = vec![];
     for (app, date, key) in [
         (&owner, "2026-10-04", "owner correction"),
         (&peer, "2026-10-05", "peer correction"),
     ] {
         branches.push(app.execute("wear.correct",json!({"member_id":member["member_id"],"root_event_id":root["root_event_id"],"expected_revision":1,"clothing_ids":[garment["id"]],"local_date":date,"timezone":"Asia/Shanghai","operation_key":key})).unwrap());
+        care_branches.push(app.execute("care.correct",json!({"member_id":member["member_id"],"root_event_id":care_root["root_event_id"],"expected_revision":1,"action":"wash","local_date":date,"timezone":"Asia/Shanghai","operation_key":format!("care {key}")})).unwrap());
         app.execute("outfit.update",json!({"member_id":member["member_id"],"id":look["id"],"expected_version":1,"name":key,"items":[{"clothing_id":garment["id"],"role":"top","layer":0}]})).unwrap();
     }
     for app in [&owner, &peer, &owner, &peer] {
@@ -281,6 +341,91 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         let versions=app.execute("sync.history",json!({"member_id":member["member_id"],"entity_type":"outfit_versions","entity_id":format!("{}:2",look["id"].as_str().unwrap())})).unwrap();
         assert_eq!(versions["items"].as_array().unwrap().len(), 2);
     }
+    let branch_conflicts = owner
+        .execute("sync.conflicts", json!({"member_id":member["member_id"]}))
+        .unwrap();
+    for (table, entity) in [
+        ("wear_events", root["root_event_id"].as_str().unwrap()),
+        ("care_events", care_root["root_event_id"].as_str().unwrap()),
+        ("outfit_versions", look["id"].as_str().unwrap()),
+    ] {
+        let conflict = branch_conflicts["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| {
+                v["entity_type"] == table && v["entity_id"] == entity && v["field"] == "branch"
+            })
+            .expect("immutable branches require explicit review");
+        let selected = &conflict["variants"][0];
+        let request = json!({"member_id":member["member_id"],"entity_type":table,"entity_id":entity,"field":"branch","branch_id":selected["branch_id"],"expected_token":conflict["token"],"operation_key":format!("review {table}")});
+        let result = owner.execute("sync.resolve", request.clone()).unwrap();
+        assert_eq!(owner.execute("sync.resolve", request).unwrap(), result);
+        assert_eq!(
+            result["document"][if table == "outfit_versions" {
+                "version"
+            } else {
+                "revision"
+            }],
+            3
+        );
+    }
+    for app in [&owner, &peer, &owner, &peer] {
+        app.execute("sync.run", json!({})).unwrap();
+    }
+    for app in [&owner, &peer] {
+        let history = app
+            .execute(
+                "wear.history",
+                json!({"member_id":member["member_id"],"root_event_id":root["root_event_id"]}),
+            )
+            .unwrap();
+        assert_eq!(history["items"].as_array().unwrap().len(), 4);
+        for branch in &branches {
+            assert!(history["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == branch));
+        }
+        let care_history = app
+            .execute(
+                "care.history",
+                json!({"member_id":member["member_id"],"root_event_id":care_root["root_event_id"]}),
+            )
+            .unwrap();
+        assert_eq!(care_history["items"].as_array().unwrap().len(), 4);
+        for branch in &care_branches {
+            assert!(care_history["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == branch));
+        }
+        let old=app.execute("sync.history",json!({"member_id":member["member_id"],"entity_type":"outfit_versions","entity_id":format!("{}:2",look["id"].as_str().unwrap())})).unwrap();
+        assert_eq!(old["items"].as_array().unwrap().len(), 2);
+        let conflicts = app
+            .execute("sync.conflicts", json!({"member_id":member["member_id"]}))
+            .unwrap();
+        assert!(conflicts["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v["field"] != "branch"));
+    }
+    assert_eq!(
+        owner
+            .execute(
+                "outfit.get",
+                json!({"member_id":member["member_id"],"id":look["id"]})
+            )
+            .unwrap(),
+        peer.execute(
+            "outfit.get",
+            json!({"member_id":member["member_id"],"id":look["id"]})
+        )
+        .unwrap()
+    );
     let a = owner
         .execute("wear.summary", json!({"member_id":member["member_id"]}))
         .unwrap();
@@ -288,4 +433,129 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .execute("wear.summary", json!({"member_id":member["member_id"]}))
         .unwrap();
     assert_eq!(a, b);
+}
+
+#[test]
+fn legacy_schema_keeps_actual_history_asset_foreign_keys_and_repairs_sync_tables_without_downgrade()
+{
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("wardrobe.sqlite");
+    let app = Application::open(&path).unwrap();
+    let garment = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"legacy retained coat","category":"top"}),
+        )
+        .unwrap();
+    let source = dir.path().join("generated.png");
+    image::RgbImage::from_pixel(32, 32, image::Rgb([12, 34, 56]))
+        .save(&source)
+        .unwrap();
+    let asset = app
+        .execute(
+            "assets.import",
+            json!({"member_id":"default","path":source}),
+        )
+        .unwrap();
+    app.execute(
+        "assets.adopt",
+        json!({"member_id":"default","clothing_id":garment["id"],"asset_id":asset["id"]}),
+    )
+    .unwrap();
+    let outfit=app.execute("outfit.create",json!({"member_id":"default","name":"legacy look","items":[{"clothing_id":garment["id"],"role":"top","layer":0}]})).unwrap();
+    let wear=app.execute("wear.record",json!({"member_id":"default","source_outfit_id":outfit["id"],"source_version":1,"local_date":"2026-10-01","timezone":"Asia/Shanghai","operation_key":"legacy wear"})).unwrap();
+    let care=app.execute("care.record",json!({"member_id":"default","clothing_id":garment["id"],"action":"wash","local_date":"2026-10-02","timezone":"Asia/Shanghai","operation_key":"legacy care"})).unwrap();
+    drop(app);
+    // Fixture is the documented old schema; facts and referenced bytes came from public APIs.
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch("PRAGMA foreign_keys=OFF;PRAGMA legacy_alter_table=ON;")
+        .unwrap();
+    for table in ["wear_events", "care_events", "outfit_versions"] {
+        for kind in ["INSERT", "UPDATE"] {
+            db.execute_batch(&format!("DROP TRIGGER IF EXISTS sync_{table}_{kind}"))
+                .unwrap();
+        }
+        db.execute_batch(&format!("ALTER TABLE {table} RENAME TO fixture_saved"))
+            .unwrap();
+        let ddl = if table == "outfit_versions" {
+            "outfit_id TEXT NOT NULL REFERENCES outfits(id),version INTEGER NOT NULL,document TEXT NOT NULL,PRIMARY KEY(outfit_id,version)"
+        } else {
+            "id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_event_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL,UNIQUE(root_event_id,revision)"
+        };
+        db.execute_batch(&format!("CREATE TABLE {table}({ddl});INSERT INTO {table} SELECT * FROM fixture_saved;DROP TABLE fixture_saved")).unwrap();
+    }
+    db.execute_batch(
+        "DROP TABLE sync_fields;PRAGMA user_version=14;PRAGMA legacy_alter_table=OFF;",
+    )
+    .unwrap();
+    drop(db);
+    let app = Application::open(&path).unwrap();
+    assert_eq!(
+        app.execute(
+            "wear.history",
+            json!({"member_id":"default","root_event_id":wear["root_event_id"]})
+        )
+        .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        app.execute(
+            "care.history",
+            json!({"member_id":"default","root_event_id":care["root_event_id"]})
+        )
+        .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        app.execute(
+            "outfit.version",
+            json!({"member_id":"default","id":outfit["id"],"version":1})
+        )
+        .unwrap()["name"],
+        "legacy look"
+    );
+    assert!(app
+        .execute(
+            "assets.preview",
+            json!({"member_id":"default","id":asset["id"],"variant":"thumbnail"})
+        )
+        .is_ok());
+    let db = rusqlite::Connection::open(&path).unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
+            .unwrap(),
+        wardrobe_core::DATABASE_SCHEMA_VERSION
+    );
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM wear_asset_refs", [], |r| r
+            .get::<_, u32>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM care_asset_refs", [], |r| r
+            .get::<_, u32>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r
+            .get::<_, u32>(
+            0
+        ))
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM sync_fields", [], |r| r
+            .get::<_, u32>(0))
+            .unwrap(),
+        0
+    );
 }
