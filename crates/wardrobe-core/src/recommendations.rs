@@ -232,6 +232,12 @@ impl Application {
         let request = input.to_string();
         let tx = self.begin_write()?;
         if let Some((old,doc))=tx.query_row("SELECT request,document FROM recommendation_intents WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?{if old!=request{return Err(ApiError::new("idempotency_conflict","同一标识不能替换推荐约束"));}return parse(doc);}
+        if input.get("source_intent").is_some() {
+            self.recommendation_execute(
+                "recommendation.get",
+                json!({"member_id":member,"id":string(&input,"source_intent")?}),
+            )?;
+        }
         for id in fixed.iter().chain(excluded.iter()) {
             self.clothing_get(json!({"member_id":member,"id":id}))?;
         }
@@ -398,7 +404,7 @@ impl Application {
             priority: &priority,
             replacement,
         };
-        let mut proposals = plan(&clothes, &rules);
+        let (mut proposals, capacity_blocked) = plan(&clothes, &rules);
 
         for proposal in &mut proposals {
             if let Some(retained) = retained {
@@ -485,6 +491,10 @@ impl Application {
         } else {
             vec![]
         };
+        if capacity_blocked {
+            shortage_reasons
+                .push("固定与所需角色超出单套100件搭配限制；没有移除固定衣物".to_owned());
+        }
         let mut missing = std::collections::BTreeSet::new();
         for proposal in &proposals {
             for role in proposal["missing_roles"].as_array().unwrap() {
@@ -519,7 +529,7 @@ struct PlanningRules<'a> {
     priority: &'a std::collections::HashSet<String>,
     replacement: Option<&'a str>,
 }
-fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> Vec<Value> {
+fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> (Vec<Value>, bool) {
     let PlanningRules {
         fixed,
         limit,
@@ -602,7 +612,7 @@ fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> Vec<Value> {
             vec![category]
         };
         if !exists(&categories) {
-            return vec![];
+            return (vec![], false);
         }
         if ["top", "bottom", "body", "shoes"].contains(&role) {
             patterns.retain(|p| p.iter().any(|(name, _)| *name == role));
@@ -635,6 +645,7 @@ fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> Vec<Value> {
         .map(|(i, c)| (c["id"].as_str().unwrap(), i))
         .collect();
     let mut compiled = vec![];
+    let mut capacity_blocked = false;
     for pattern in patterns {
         let mut slots = vec![];
         let mut missing = vec![];
@@ -652,6 +663,10 @@ fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> Vec<Value> {
                 candidates.push(None);
             }
             slots.push(candidates);
+        }
+        if mandatory.len() + slots.iter().filter(|slot| slot[0].is_some()).count() > 100 {
+            capacity_blocked = true;
+            continue;
         }
         compiled.push((slots, missing));
     }
@@ -715,7 +730,7 @@ fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> Vec<Value> {
                 result.push(proposal);
             }
             if result.len() == limit {
-                return result;
+                return (result, false);
             }
         }
         for slot in 0..slots.len() {
@@ -727,7 +742,8 @@ fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> Vec<Value> {
         }
     }
     result.extend(repeated.into_iter().take(limit - result.len()));
-    result
+    let blocked = capacity_blocked && result.is_empty();
+    (result, blocked)
 }
 fn role(category: &str) -> (&str, i32) {
     match category {
@@ -832,7 +848,7 @@ fn entry(c: &Value, role: &str, layer: i32) -> Value {
 pub(super) fn descriptors() -> Vec<Value> {
     ["generate","get","list","replace","change","save"].into_iter().map(|op|{
  let mut properties=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
- if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids","retained_ids","action_excluded_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"uniqueItems":true});}properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["replacement_category"]=json!({"enum":crate::CATEGORIES});properties["retained_items"]=json!({"type":"array","maxItems":100,"items":{"type":"object","required":["clothing_id","role","layer"],"properties":{"clothing_id":{"type":"string"},"role":{"type":"string"},"layer":{"type":"integer"}},"additionalProperties":false}});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}
+ if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids","retained_ids","action_excluded_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true});}properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["replacement_category"]=json!({"enum":crate::CATEGORIES});properties["retained_items"]=json!({"type":"array","maxItems":100,"items":{"type":"object","required":["clothing_id","role","layer"],"properties":{"clothing_id":{"type":"string"},"role":{"type":"string"},"layer":{"type":"integer"}},"additionalProperties":false}});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}
 if op=="save"{properties["name"]=json!({"type":"string","minLength":1,"maxLength":120});required.push("name");}}}}
  json!({"name":format!("recommendation.{op}"),"description":format!("本地离线搭配 {op}；仅使用同成员真实可用衣物，生成与保存均不记录穿着"),"inputSchema":{"type":"object","required":required,"properties":properties,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"id":{"type":"string"},"proposals":{"type":"array"},"items":{"type":"array"}}}})
  }).collect()

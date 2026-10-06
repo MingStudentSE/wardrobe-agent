@@ -651,3 +651,17 @@ fn single_replacement_of_optional_roles_or_shoes_preserves_other_ids_roles_layer
         original
     );
 }
+#[test]
+fn valid_recommendations_respect_template_capacity_without_removing_fixed_items() {
+    let d = tempfile::tempdir().unwrap();
+    let a = Application::open(&d.path().join("db")).unwrap();
+    let fixed: Vec<Value> = (0..100)
+        .map(|i| item(&a, &format!("固定物件{i}"), "underwear")["id"].clone())
+        .collect();
+    item(&a, "上衣", "top");
+    item(&a, "裤子", "bottom");
+    item(&a, "鞋", "shoes");
+    let r=a.execute("recommendation.generate",json!({"member_id":"default","operation_key":"capacity","timezone":"UTC","fixed_ids":fixed,"limit":1})).unwrap();
+    assert_eq!(r["actual_count"], 0);
+    assert!(r["shortage_reasons"].to_string().contains("100"));
+}
