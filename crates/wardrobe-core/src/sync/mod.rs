@@ -1,4 +1,5 @@
 //! Incremental workspace synchronization. No provider SDK or credentials here.
+mod assets;
 pub mod storage;
 use crate::{string, ApiError, Application};
 use rusqlite::{params, OptionalExtension, Transaction};
@@ -41,7 +42,9 @@ fn materialize(
         )?;
         return Ok(());
     }
-    let member = string(doc, "member_id")?;
+    let member = doc["member_id"]
+        .as_str()
+        .ok_or_else(|| error("sync_dependency"))?;
     if !tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM members WHERE id=?1)",
         [member],
@@ -119,6 +122,7 @@ fn materialize(
         }
         _ => return Err(error("sync_invalid")),
     }
+    assets::ensure_references(tx, table, doc)?;
     Ok(())
 }
 fn repair_immutable(tx: &Transaction<'_>) -> Result<(), ApiError> {
@@ -166,7 +170,7 @@ fn error(code: &str) -> ApiError {
 }
 pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     repair_immutable(tx)?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
     for table in TABLES {
         for kind in ["INSERT", "UPDATE"] {
             let key = entity_key(table, "NEW");
@@ -413,6 +417,15 @@ impl Application {
                 Ok(json!({"schema_version":1,"target":target}))
             }
             "sync.status" => {
+                let mut state = self
+                    .connection
+                    .prepare("SELECT id,state FROM sync_asset_queue WHERE state!='ready'")?;
+                let asset_errors = state
+                    .query_map([], |r| {
+                        Ok(json!({"id":r.get::<_,String>(0)?,"code":r.get::<_,String>(1)?}))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+
                 let target: Option<String> = self
                     .connection
                     .query_row(
@@ -422,7 +435,7 @@ impl Application {
                     )
                     .optional()?;
                 Ok(
-                    json!({"schema_version":1,"target":target.map(|s|serde_json::from_str::<Value>(&s)).transpose().map_err(|_|error("storage_error"))?}),
+                    json!({"schema_version":1,"asset_errors":asset_errors,"target":target.map(|s|serde_json::from_str::<Value>(&s)).transpose().map_err(|_|error("storage_error"))?}),
                 )
             }
             "sync.run" => {
@@ -439,6 +452,8 @@ impl Application {
                     serde_json::from_str(&target).map_err(|_| error("storage_error"))?;
                 let storage = LocalFolder::new(Path::new(string(&target, "directory")?))?;
                 let prefix = format!("{}/changes", string(&identity, "space_id")?);
+                self.sync_publish_assets(&storage, &identity)?;
+                self.sync_discover_assets(&storage, &identity)?;
                 let mut stmt=self.connection.prepare("SELECT id,op_id,device,entity_type,entity_id,before_doc,after_doc,base,clock,published FROM sync_journal ORDER BY id")?;
                 let rows = stmt
                     .query_map([], |r| {
@@ -535,7 +550,10 @@ impl Application {
                         break;
                     }
                 }
-                Ok(json!({"schema_version":1,"sent":sent,"received":received}))
+                let missing_assets = self.sync_fetch_assets(&storage)?;
+                Ok(
+                    json!({"schema_version":1,"sent":sent,"received":received,"missing_assets":missing_assets}),
+                )
             }
             _ => Err(error("unsupported_operation")),
         }

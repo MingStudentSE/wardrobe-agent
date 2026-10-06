@@ -56,6 +56,21 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
             json!({"member_id":member["member_id"],"name":"同步蓝衬衫","category":"top"}),
         )
         .unwrap();
+    let source = a.path().join("private-local-original.png");
+    let mut image = image::RgbImage::new(1200, 1200);
+    let mut seed = 42u32;
+    for pixel in image.pixels_mut() {
+        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        *pixel = image::Rgb([(seed >> 24) as u8, (seed >> 16) as u8, (seed >> 8) as u8]);
+    }
+    image.save(&source).unwrap();
+    let imported = owner
+        .execute(
+            "assets.import",
+            json!({"member_id":member["member_id"],"path":source}),
+        )
+        .unwrap();
+    owner.execute("assets.adopt",json!({"member_id":member["member_id"],"clothing_id":garment["id"],"asset_id":imported["id"]})).unwrap();
     let look=owner.execute("outfit.create",json!({"member_id":member["member_id"],"name":"跨设备搭配历史","items":[{"clothing_id":garment["id"],"role":"top","layer":0}]})).unwrap();
     let wear=owner.execute("wear.record",json!({"member_id":member["member_id"],"source_outfit_id":look["id"],"source_version":1,"local_date":"2026-10-01","timezone":"Asia/Shanghai","operation_key":"sync wear"})).unwrap();
     let wear=owner.execute("wear.correct",json!({"member_id":member["member_id"],"root_event_id":wear["root_event_id"],"expected_revision":1,"clothing_ids":[garment["id"]],"local_date":"2026-10-02","timezone":"Asia/Shanghai","operation_key":"sync correction"})).unwrap();
@@ -77,7 +92,51 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .unwrap();
     }
     owner.execute("sync.run", json!({})).unwrap();
-    peer.execute("sync.run", json!({})).unwrap();
+    fn chunk(path: &std::path::Path) -> Option<std::path::PathBuf> {
+        for entry in std::fs::read_dir(path).unwrap() {
+            let p = entry.unwrap().path();
+            if p.is_dir() {
+                if let Some(found) = chunk(&p) {
+                    return Some(found);
+                }
+            } else if p.extension().is_some_and(|s| s == "object")
+                && p.parent().unwrap().file_name().unwrap() == "blobs"
+            {
+                return Some(p);
+            }
+        }
+        None
+    }
+    let chunk_path = chunk(remote.path()).unwrap();
+    let backup = a.path().join("interrupted-download-block");
+    std::fs::rename(&chunk_path, &backup).unwrap();
+    let interrupted = peer.execute("sync.run", json!({})).unwrap();
+    assert_eq!(interrupted["missing_assets"], 1);
+    assert_eq!(
+        peer.execute(
+            "clothing.get",
+            json!({"member_id":member["member_id"],"id":garment["id"]})
+        )
+        .unwrap()["name"],
+        "同步蓝衬衫"
+    );
+    let placeholder = peer
+        .execute(
+            "assets.get",
+            json!({"member_id":member["member_id"],"id":imported["id"]}),
+        )
+        .unwrap();
+    assert_eq!(placeholder["display"]["pending"], true);
+    let missing_wear=peer.execute("wear.record",json!({"member_id":member["member_id"],"clothing_ids":[garment["id"]],"local_date":"2026-10-03","timezone":"Asia/Shanghai","operation_key":"wear without original or display"})).unwrap();
+    assert!(missing_wear["id"].is_string());
+    std::fs::rename(&backup, &chunk_path).unwrap();
+    let received = peer.execute("sync.run", json!({})).unwrap();
+    assert_eq!(
+        received["missing_assets"],
+        0,
+        "{}",
+        peer.execute("sync.status", json!({})).unwrap()
+    );
     assert_eq!(
         peer.execute(
             "clothing.get",
@@ -125,6 +184,39 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .unwrap()["wash_after_wears"],
         3
     );
+    let remote_asset = peer
+        .execute(
+            "assets.get",
+            json!({"member_id":member["member_id"],"id":imported["id"]}),
+        )
+        .unwrap();
+    assert!(remote_asset["original"].is_null());
+    let preview = peer
+        .execute(
+            "assets.preview",
+            json!({"member_id":member["member_id"],"id":imported["id"],"variant":"thumbnail"}),
+        )
+        .unwrap();
+    assert!(preview["data_url"]
+        .as_str()
+        .unwrap()
+        .starts_with("data:image/webp;base64,"));
+    let source_original = std::fs::read(&source).unwrap();
+    fn scan(path: &std::path::Path, original: &[u8]) {
+        for entry in std::fs::read_dir(path).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                scan(&path, original);
+            } else {
+                let bytes = std::fs::read(path).unwrap();
+                assert!(!bytes
+                    .windows(b"private-local-original".len())
+                    .any(|v| v == b"private-local-original"));
+                assert!(!bytes.windows(original.len()).any(|v| v == original));
+            }
+        }
+    }
+    scan(remote.path(), &source_original);
     let got = peer
         .execute(
             "clothing.get",

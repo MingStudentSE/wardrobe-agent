@@ -717,6 +717,18 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
 }
 
 impl Application {
+    pub(crate) fn sync_object_key(&self, identity: &str) -> Result<String, ApiError> {
+        let (s, w) = existing(self)?;
+        let epoch = s["epoch"].as_u64().ok_or_else(invalid)?;
+        let master = master(&w, epoch)?;
+        let key = derive(
+            master.as_ref(),
+            string(&s, "space_id")?,
+            epoch,
+            &format!("object-name:{identity}"),
+        )?;
+        Ok(key.iter().map(|b| format!("{b:02x}")).collect())
+    }
     pub(crate) fn sync_identity(&self) -> Result<Value, ApiError> {
         let (mut s, w) = existing(self)?;
         if s["pending"] == true || s["revoked"] == true {

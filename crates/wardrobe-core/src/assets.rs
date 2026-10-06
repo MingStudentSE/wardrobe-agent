@@ -150,7 +150,8 @@ impl Application {
             let historical = doc["id"]
                 .as_str()
                 .is_some_and(|id| historical_ids.contains(id));
-            if display["role"] == "product_display"
+            if display["pending"] != true
+                && display["role"] == "product_display"
                 && display["mime"] == "image/webp"
                 && ((display["state"] == "adopted" && display["sync_scope"] == "workspace")
                     || historical)
@@ -250,6 +251,12 @@ impl Application {
             return Err(ApiError::new("invalid_input", "仅可预览展示图或缩略图"));
         }
         let mut doc = self.asset_get(input.clone())?;
+        if doc["display"]["pending"] == true {
+            return Err(ApiError::new(
+                "asset_missing",
+                "展示图尚未下载，可继续编辑和记录穿着，请重试同步",
+            ));
+        }
         if variant == "thumbnail"
             && !Path::new(doc["thumbnail"]["local_path"].as_str().unwrap_or("")).is_file()
         {
