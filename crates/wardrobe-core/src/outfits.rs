@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS outfits(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS outfit_items(outfit_id TEXT NOT NULL REFERENCES outfits(id),position INTEGER NOT NULL,clothing_id TEXT NOT NULL REFERENCES clothing(id),role TEXT NOT NULL,layer INTEGER NOT NULL,PRIMARY KEY(outfit_id,position),UNIQUE(outfit_id,clothing_id)); CREATE TABLE IF NOT EXISTS outfit_versions(outfit_id TEXT NOT NULL REFERENCES outfits(id),version INTEGER NOT NULL,document TEXT NOT NULL,PRIMARY KEY(outfit_id,version)); CREATE INDEX IF NOT EXISTS outfits_member ON outfits(member_id,id);")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS outfits(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS outfit_items(outfit_id TEXT NOT NULL REFERENCES outfits(id),position INTEGER NOT NULL,clothing_id TEXT NOT NULL REFERENCES clothing(id),role TEXT NOT NULL,layer INTEGER NOT NULL,PRIMARY KEY(outfit_id,position),UNIQUE(outfit_id,clothing_id)); CREATE TABLE IF NOT EXISTS outfit_versions(outfit_id TEXT NOT NULL REFERENCES outfits(id),version INTEGER NOT NULL,document TEXT NOT NULL); CREATE INDEX IF NOT EXISTS outfits_member ON outfits(member_id,id);")?;
     Ok(())
 }
 fn invalid(message: &str) -> ApiError {
@@ -58,7 +58,7 @@ impl Application {
             let serialized: Option<String> = self
                 .connection
                 .query_row(
-                    "SELECT document FROM outfit_versions WHERE outfit_id=?1 AND version=?2",
+                    "SELECT document FROM outfit_versions WHERE outfit_id=?1 AND version=?2 ORDER BY document DESC LIMIT 1",
                     params![id, version],
                     |r| r.get(0),
                 )

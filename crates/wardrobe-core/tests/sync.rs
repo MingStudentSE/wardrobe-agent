@@ -56,6 +56,19 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
             json!({"member_id":member["member_id"],"name":"同步蓝衬衫","category":"top"}),
         )
         .unwrap();
+    let look=owner.execute("outfit.create",json!({"member_id":member["member_id"],"name":"跨设备搭配历史","items":[{"clothing_id":garment["id"],"role":"top","layer":0}]})).unwrap();
+    let wear=owner.execute("wear.record",json!({"member_id":member["member_id"],"source_outfit_id":look["id"],"source_version":1,"local_date":"2026-10-01","timezone":"Asia/Shanghai","operation_key":"sync wear"})).unwrap();
+    let wear=owner.execute("wear.correct",json!({"member_id":member["member_id"],"root_event_id":wear["root_event_id"],"expected_revision":1,"clothing_ids":[garment["id"]],"local_date":"2026-10-02","timezone":"Asia/Shanghai","operation_key":"sync correction"})).unwrap();
+    owner.execute("wear.revoke",json!({"member_id":member["member_id"],"root_event_id":wear["root_event_id"],"expected_revision":2,"reason":"实际没有穿","operation_key":"sync revocation"})).unwrap();
+    owner.execute("care.configure",json!({"member_id":member["member_id"],"clothing_id":garment["id"],"wash_after_wears":3,"expected_revision":0,"operation_key":"sync care config"})).unwrap();
+    let care=owner.execute("care.record",json!({"member_id":member["member_id"],"clothing_id":garment["id"],"action":"wash","local_date":"2026-10-01","timezone":"Asia/Shanghai","operation_key":"sync care"})).unwrap();
+    owner.execute("care.revoke",json!({"member_id":member["member_id"],"root_event_id":care["root_event_id"],"expected_revision":1,"reason":"记错了","operation_key":"sync care revoke"})).unwrap();
+    owner
+        .execute(
+            "insights.configure",
+            json!({"member_id":member["member_id"],"stale_days":89,"expected_revision":0}),
+        )
+        .unwrap();
     for app in [&owner, &peer] {
         app.execute(
             "sync.configure",
@@ -72,6 +85,45 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         )
         .unwrap()["name"],
         "启用同步之前的外套"
+    );
+    assert_eq!(
+        peer.execute(
+            "outfit.version",
+            json!({"member_id":member["member_id"],"id":look["id"],"version":1})
+        )
+        .unwrap()["name"],
+        "跨设备搭配历史"
+    );
+    assert_eq!(
+        peer.execute(
+            "wear.history",
+            json!({"member_id":member["member_id"],"root_event_id":wear["root_event_id"]})
+        )
+        .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(
+        peer.execute(
+            "care.history",
+            json!({"member_id":member["member_id"],"root_event_id":care["root_event_id"]})
+        )
+        .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(peer.execute("insights.summary",json!({"member_id":member["member_id"],"as_of_date":"2026-10-03","timezone":"Asia/Shanghai"})).unwrap()["preferences"]["stale_days"],89);
+    assert_eq!(
+        peer.execute(
+            "care.status",
+            json!({"member_id":member["member_id"],"clothing_id":garment["id"]})
+        )
+        .unwrap()["wash_after_wears"],
+        3
     );
     let got = peer
         .execute(
@@ -105,4 +157,43 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
             .unwrap()["name"],
         "第二设备可编辑"
     );
+    let root=owner.execute("wear.record",json!({"member_id":member["member_id"],"clothing_ids":[garment["id"]],"local_date":"2026-10-03","timezone":"Asia/Shanghai","operation_key":"concurrent root"})).unwrap();
+    owner.execute("sync.run", json!({})).unwrap();
+    peer.execute("sync.run", json!({})).unwrap();
+    let mut branches = vec![];
+    for (app, date, key) in [
+        (&owner, "2026-10-04", "owner correction"),
+        (&peer, "2026-10-05", "peer correction"),
+    ] {
+        branches.push(app.execute("wear.correct",json!({"member_id":member["member_id"],"root_event_id":root["root_event_id"],"expected_revision":1,"clothing_ids":[garment["id"]],"local_date":date,"timezone":"Asia/Shanghai","operation_key":key})).unwrap());
+        app.execute("outfit.update",json!({"member_id":member["member_id"],"id":look["id"],"expected_version":1,"name":key,"items":[{"clothing_id":garment["id"],"role":"top","layer":0}]})).unwrap();
+    }
+    for app in [&owner, &peer, &owner, &peer] {
+        app.execute("sync.run", json!({})).unwrap();
+    }
+    for app in [&owner, &peer] {
+        let history = app
+            .execute(
+                "wear.history",
+                json!({"member_id":member["member_id"],"root_event_id":root["root_event_id"]}),
+            )
+            .unwrap();
+        assert_eq!(history["items"].as_array().unwrap().len(), 3);
+        for branch in &branches {
+            assert!(history["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v["id"] == branch["id"] && v["local_date"] == branch["local_date"]));
+        }
+        let versions=app.execute("sync.history",json!({"member_id":member["member_id"],"entity_type":"outfit_versions","entity_id":format!("{}:2",look["id"].as_str().unwrap())})).unwrap();
+        assert_eq!(versions["items"].as_array().unwrap().len(), 2);
+    }
+    let a = owner
+        .execute("wear.summary", json!({"member_id":member["member_id"]}))
+        .unwrap();
+    let b = peer
+        .execute("wear.summary", json!({"member_id":member["member_id"]}))
+        .unwrap();
+    assert_eq!(a, b);
 }

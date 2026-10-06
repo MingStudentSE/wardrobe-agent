@@ -4,7 +4,7 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS care_config(member_id TEXT NOT NULL REFERENCES members(id),clothing_id TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(member_id,clothing_id));CREATE TABLE IF NOT EXISTS care_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_event_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL,UNIQUE(root_event_id,revision));CREATE INDEX IF NOT EXISTS care_member_root ON care_events(member_id,root_event_id,revision);CREATE TABLE IF NOT EXISTS care_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key));CREATE TABLE IF NOT EXISTS care_asset_refs(event_id TEXT NOT NULL REFERENCES care_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS care_config(member_id TEXT NOT NULL REFERENCES members(id),clothing_id TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(member_id,clothing_id));CREATE TABLE IF NOT EXISTS care_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_event_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL);CREATE INDEX IF NOT EXISTS care_member_root ON care_events(member_id,root_event_id,revision);CREATE TABLE IF NOT EXISTS care_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key));CREATE TABLE IF NOT EXISTS care_asset_refs(event_id TEXT NOT NULL REFERENCES care_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
     Ok(())
 }
 fn invalid(s: &str) -> ApiError {
@@ -146,7 +146,7 @@ impl Application {
             return parse(d.ok_or_else(|| ApiError::new("not_found", "洗护事件不存在"))?);
         }
         if op == "care.list" || op == "care.history" {
-            let mut st=self.connection.prepare(if op=="care.history"{"SELECT document FROM care_events WHERE member_id=?1 ORDER BY root_event_id,revision"}else{"SELECT document FROM care_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM care_events WHERE root_event_id=e.root_event_id) ORDER BY json_extract(document,'$.occurred_at') DESC,root_event_id DESC"})?;
+            let mut st=self.connection.prepare(if op=="care.history"{"SELECT document FROM care_events WHERE member_id=?1 ORDER BY root_event_id,revision"}else{"SELECT document FROM care_events e WHERE member_id=?1 AND id=(SELECT id FROM care_events WHERE root_event_id=e.root_event_id ORDER BY revision DESC,id DESC LIMIT 1) ORDER BY json_extract(document,'$.occurred_at') DESC,root_event_id DESC"})?;
             let revoked = input
                 .get("include_revoked")
                 .map(|v| v.as_bool().ok_or_else(|| invalid("撤销筛选须为布尔值")))
@@ -234,7 +234,7 @@ impl Application {
             tx.execute("INSERT INTO care_config VALUES(?1,?2,?3) ON CONFLICT(member_id,clothing_id) DO UPDATE SET document=excluded.document",params![member,id,result.to_string()])?;
         } else {
             let previous = if ["care.correct", "care.revoke"].contains(&op) {
-                let d:Option<String>=tx.query_row("SELECT document FROM care_events WHERE member_id=?1 AND root_event_id=?2 ORDER BY revision DESC LIMIT 1",params![member,string(&input,"root_event_id")?],|r|r.get(0)).optional()?;
+                let d:Option<String>=tx.query_row("SELECT document FROM care_events WHERE member_id=?1 AND root_event_id=?2 ORDER BY revision DESC,id DESC LIMIT 1",params![member,string(&input,"root_event_id")?],|r|r.get(0)).optional()?;
                 let p = parse(d.ok_or_else(|| ApiError::new("not_found", "洗护记录不存在"))?)?;
                 if input["expected_revision"].as_u64() != p["revision"].as_u64() {
                     return Err(ApiError::new("version_conflict", "洗护记录已改变"));

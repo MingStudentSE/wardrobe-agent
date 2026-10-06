@@ -6,13 +6,170 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Read, path::Path};
 use storage::{LocalFolder, SyncStorage, WriteCondition};
+const TABLES: [&str; 8] = [
+    "members",
+    "clothing",
+    "outfits",
+    "outfit_versions",
+    "wear_events",
+    "care_config",
+    "care_events",
+    "insights_preferences",
+];
+fn entity_key(table: &str, prefix: &str) -> String {
+    match table {
+        "outfit_versions" => format!("{prefix}.outfit_id||':'||{prefix}.version"),
+        "care_config" => format!("{prefix}.clothing_id"),
+        "insights_preferences" => format!("{prefix}.member_id"),
+        _ => format!("{prefix}.id"),
+    }
+}
+fn materialize(
+    tx: &Transaction<'_>,
+    table: &str,
+    id: &str,
+    doc: &Value,
+    local: bool,
+) -> Result<(), ApiError> {
+    if local {
+        return Ok(());
+    }
+    if table == "members" {
+        tx.execute(
+            "INSERT INTO members VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET name=excluded.name",
+            params![id, string(doc, "name")?],
+        )?;
+        return Ok(());
+    }
+    let member = string(doc, "member_id")?;
+    if !tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM members WHERE id=?1)",
+        [member],
+        |r| r.get::<_, bool>(0),
+    )? {
+        return Err(error("sync_dependency"));
+    }
+    let serialized = doc.to_string();
+    match table {
+        "clothing" => {
+            if doc.get("category").is_none() || doc.get("name").is_none() {
+                return Err(error("sync_dependency"));
+            }
+            tx.execute("INSERT INTO clothing VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,member,serialized])?;
+        }
+        "outfits" => {
+            let items = doc["items"]
+                .as_array()
+                .ok_or_else(|| error("sync_dependency"))?;
+            for item in items {
+                let clothing = string(item, "clothing_id")?;
+                if !tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM clothing WHERE id=?1 AND member_id=?2)",
+                    params![clothing, member],
+                    |r| r.get::<_, bool>(0),
+                )? {
+                    return Err(error("sync_dependency"));
+                }
+            }
+            tx.execute("INSERT INTO outfits VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,member,serialized])?;
+            tx.execute("DELETE FROM outfit_items WHERE outfit_id=?1", [id])?;
+            for (position, item) in items.iter().enumerate() {
+                tx.execute(
+                    "INSERT INTO outfit_items VALUES(?1,?2,?3,?4,?5)",
+                    params![
+                        id,
+                        position,
+                        string(item, "clothing_id")?,
+                        string(item, "role")?,
+                        item["layer"]
+                            .as_i64()
+                            .ok_or_else(|| error("sync_invalid"))?
+                    ],
+                )?;
+            }
+        }
+        "outfit_versions" => {
+            let outfit = string(doc, "id")?;
+            if !tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM outfits WHERE id=?1)",
+                [outfit],
+                |r| r.get::<_, bool>(0),
+            )? {
+                return Err(error("sync_dependency"));
+            }
+            tx.execute("INSERT INTO outfit_versions SELECT ?1,?2,?3 WHERE NOT EXISTS(SELECT 1 FROM outfit_versions WHERE outfit_id=?1 AND version=?2 AND document=?3)",params![outfit,doc["version"].as_u64(),serialized])?;
+        }
+        "wear_events" | "care_events" => {
+            tx.execute(
+                &format!("INSERT OR IGNORE INTO {table} VALUES(?1,?2,?3,?4,?5)"),
+                params![
+                    id,
+                    member,
+                    string(doc, "root_event_id")?,
+                    doc["revision"].as_u64(),
+                    serialized
+                ],
+            )?;
+        }
+        "care_config" => {
+            tx.execute("INSERT INTO care_config VALUES(?1,?2,?3) ON CONFLICT(member_id,clothing_id) DO UPDATE SET document=excluded.document",params![member,string(doc,"clothing_id")?,serialized])?;
+        }
+        "insights_preferences" => {
+            tx.execute("INSERT INTO insights_preferences VALUES(?1,?2) ON CONFLICT(member_id) DO UPDATE SET document=excluded.document",params![member,serialized])?;
+        }
+        _ => return Err(error("sync_invalid")),
+    }
+    Ok(())
+}
+fn repair_immutable(tx: &Transaction<'_>) -> Result<(), ApiError> {
+    for (table, refs) in [
+        ("wear_events", Some("wear_asset_refs")),
+        ("care_events", Some("care_asset_refs")),
+        ("outfit_versions", None),
+    ] {
+        let sql: String = tx.query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?1",
+            [table],
+            |r| r.get(0),
+        )?;
+        if !sql.contains("UNIQUE(root_event_id,revision)")
+            && !sql.contains("PRIMARY KEY(outfit_id,version)")
+        {
+            continue;
+        }
+        for kind in ["INSERT", "UPDATE"] {
+            tx.execute_batch(&format!("DROP TRIGGER IF EXISTS sync_{table}_{kind}"))?;
+        }
+        if let Some(refs) = refs {
+            tx.execute_batch(&format!("ALTER TABLE {refs} RENAME TO {refs}_legacy"))?;
+        }
+        tx.execute_batch(&format!("ALTER TABLE {table} RENAME TO {table}_legacy"))?;
+        if table == "outfit_versions" {
+            tx.execute_batch("CREATE TABLE outfit_versions(outfit_id TEXT NOT NULL REFERENCES outfits(id),version INTEGER NOT NULL,document TEXT NOT NULL)")?;
+        } else {
+            tx.execute_batch(&format!("CREATE TABLE {table}(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_event_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL)"))?;
+        }
+        tx.execute_batch(&format!("INSERT INTO {table} SELECT * FROM {table}_legacy"))?;
+        if let Some(refs) = refs {
+            tx.execute_batch(&format!("CREATE TABLE {refs}(event_id TEXT NOT NULL REFERENCES {table}(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id)); INSERT INTO {refs} SELECT * FROM {refs}_legacy; DROP TABLE {refs}_legacy"))?;
+        }
+        tx.execute_batch(&format!("DROP TABLE {table}_legacy"))?;
+    }
+    tx.execute_batch("CREATE INDEX IF NOT EXISTS sync_wear_root ON wear_events(root_event_id,revision,id);CREATE INDEX IF NOT EXISTS sync_care_root ON care_events(root_event_id,revision,id);CREATE INDEX IF NOT EXISTS sync_outfit_versions ON outfit_versions(outfit_id,version)")?;
+    Ok(())
+}
+fn immutable(table: &str) -> bool {
+    ["wear_events", "care_events", "outfit_versions"].contains(&table)
+}
 fn error(code: &str) -> ApiError {
     ApiError::new(code, "同步未完成，保留本地事实后重试")
 }
 pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
-    for table in ["members", "clothing"] {
+    repair_immutable(tx)?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
+    for table in TABLES {
         for kind in ["INSERT", "UPDATE"] {
+            let key = entity_key(table, "NEW");
             let after = if table == "members" {
                 "json_object('id',NEW.id,'name',NEW.name)"
             } else {
@@ -25,7 +182,7 @@ pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
             } else {
                 "OLD.document"
             };
-            tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS sync_{table}_{kind} AFTER {kind} ON {table} WHEN (SELECT applying FROM sync_control WHERE id=1)=0 AND EXISTS(SELECT 1 FROM encryption_state) BEGIN INSERT INTO sync_journal(op_id,device,entity_type,entity_id,before_doc,after_doc,base) VALUES(lower(hex(randomblob(16))),(SELECT json_extract(document,'$.device_id') FROM encryption_state),'{table}',NEW.id,{before},{after},COALESCE((SELECT json_group_object(device,seq) FROM sync_clock),'{{}}')); INSERT INTO sync_clock(device,seq) VALUES((SELECT json_extract(document,'$.device_id') FROM encryption_state),1) ON CONFLICT(device) DO UPDATE SET seq=seq+1; UPDATE sync_journal SET clock=(SELECT json_group_object(device,seq) FROM sync_clock) WHERE id=(SELECT max(id) FROM sync_journal); END;"))?;
+            tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS sync_{table}_{kind} AFTER {kind} ON {table} WHEN (SELECT applying FROM sync_control WHERE id=1)=0 AND EXISTS(SELECT 1 FROM encryption_state) BEGIN INSERT INTO sync_journal(op_id,device,entity_type,entity_id,before_doc,after_doc,base) VALUES(lower(hex(randomblob(16))),(SELECT json_extract(document,'$.device_id') FROM encryption_state),'{table}',{key},{before},{after},COALESCE((SELECT json_group_object(device,seq) FROM sync_clock),'{{}}')); INSERT INTO sync_clock(device,seq) VALUES((SELECT json_extract(document,'$.device_id') FROM encryption_state),1) ON CONFLICT(device) DO UPDATE SET seq=seq+1; UPDATE sync_journal SET clock=(SELECT json_group_object(device,seq) FROM sync_clock) WHERE id=(SELECT max(id) FROM sync_journal); END;"))?;
         }
     }
     Ok(())
@@ -74,7 +231,7 @@ impl Application {
             return Ok(());
         }
         let table = string(op, "entity_type")?;
-        if !["members", "clothing"].contains(&table) {
+        if !TABLES.contains(&table) {
             return Err(error("sync_invalid"));
         }
         let entity = string(op, "entity_id")?;
@@ -84,69 +241,79 @@ impl Application {
         let before = op["before"].as_object();
         let tx = self.begin_write()?;
         tx.execute("UPDATE sync_control SET applying=1 WHERE id=1", [])?;
-        for (field, value) in after {
-            if before.is_some_and(|b| b.get(field) == Some(value)) {
-                continue;
+        if immutable(table) {
+            if !op["before"].is_null() {
+                return Err(error("sync_identity_conflict"));
             }
-            let old:Option<String>=tx.query_row("SELECT variants FROM sync_fields WHERE entity_type=?1 AND entity_id=?2 AND field=?3",params![table,entity,field],|r|r.get(0)).optional()?;
-            let mut variants: Vec<Value> = old
-                .map(|s| serde_json::from_str(&s).map_err(|_| error("storage_error")))
-                .transpose()?
-                .unwrap_or_default();
-            if variants
-                .iter()
-                .any(|v| dominates(&v["clock"], &op["clock"]))
-            {
-                continue;
+            let canonical = op["after"].to_string();
+            let branch = digest(canonical.as_bytes());
+            if table != "outfit_versions" {
+                if op["after"]["id"] != entity {
+                    return Err(error("sync_invalid"));
+                }
+                let prior:Option<String>=tx.query_row("SELECT document FROM sync_immutable WHERE entity_type=?1 AND entity_id=?2 LIMIT 1",params![table,entity],|r|r.get(0)).optional()?;
+                if prior.is_some_and(|s| s != canonical) {
+                    return Err(error("sync_identity_conflict"));
+                }
             }
-            variants.retain(|v| !dominates(&op["clock"], &v["clock"]));
-            variants.push(json!({"value":value,"clock":op["clock"],"op_id":id}));
-            tx.execute("INSERT INTO sync_fields VALUES(?1,?2,?3,?4) ON CONFLICT(entity_type,entity_id,field) DO UPDATE SET variants=excluded.variants",params![table,entity,field,serde_json::to_string(&variants).map_err(|_|error("sync_invalid"))?])?;
-        }
-        let mut doc = serde_json::Map::new();
-        let mut stmt = tx.prepare(
-            "SELECT field,variants FROM sync_fields WHERE entity_type=?1 AND entity_id=?2",
-        )?;
-        let rows = stmt
-            .query_map(params![table, entity], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        drop(stmt);
-        for (field, variants) in rows {
-            let mut variants: Vec<Value> =
-                serde_json::from_str(&variants).map_err(|_| error("sync_invalid"))?;
-            variants.sort_by(|a, b| a["op_id"].as_str().cmp(&b["op_id"].as_str()));
-            let winner = if field == "status" {
-                variants
-                    .iter()
-                    .find(|v| v["value"] == "deleted")
-                    .or_else(|| variants.last())
-            } else {
-                variants.last()
-            };
-            if let Some(w) = winner {
-                doc.insert(field, w["value"].clone());
-            }
-        }
-        if table == "members" {
-            tx.execute("INSERT INTO members(id,name) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET name=excluded.name",params![entity,doc.get("name").and_then(Value::as_str).ok_or_else(||error("sync_invalid"))?])?;
-        } else {
-            let member = doc
-                .get("member_id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| error("sync_invalid"))?;
-            let known: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM members WHERE id=?1)",
-                [member],
-                |r| r.get(0),
+            tx.execute(
+                "INSERT OR IGNORE INTO sync_immutable VALUES(?1,?2,?3,?4,?5)",
+                params![table, entity, branch, canonical, op["clock"].to_string()],
             )?;
-            if !known {
-                return Err(error("sync_dependency"));
+            materialize(&tx, table, entity, &op["after"], local)?;
+        } else {
+            for (field, value) in after {
+                if before.is_some_and(|b| b.get(field) == Some(value)) {
+                    continue;
+                }
+                let old:Option<String>=tx.query_row("SELECT variants FROM sync_fields WHERE entity_type=?1 AND entity_id=?2 AND field=?3",params![table,entity,field],|r|r.get(0)).optional()?;
+                let mut variants: Vec<Value> = old
+                    .map(|s| serde_json::from_str(&s).map_err(|_| error("storage_error")))
+                    .transpose()?
+                    .unwrap_or_default();
+                if variants
+                    .iter()
+                    .any(|v| dominates(&v["clock"], &op["clock"]))
+                {
+                    continue;
+                }
+                variants.retain(|v| !dominates(&op["clock"], &v["clock"]));
+                variants.push(json!({"value":value,"clock":op["clock"],"op_id":id}));
+                tx.execute("INSERT INTO sync_fields VALUES(?1,?2,?3,?4) ON CONFLICT(entity_type,entity_id,field) DO UPDATE SET variants=excluded.variants",params![table,entity,field,serde_json::to_string(&variants).map_err(|_|error("sync_invalid"))?])?;
             }
-            if !local {
-                tx.execute("INSERT INTO clothing(id,member_id,document) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET member_id=excluded.member_id,document=excluded.document",params![entity,member,Value::Object(doc.clone()).to_string()])?;
+            let mut doc = serde_json::Map::new();
+            let mut stmt = tx.prepare(
+                "SELECT field,variants FROM sync_fields WHERE entity_type=?1 AND entity_id=?2",
+            )?;
+            let rows = stmt
+                .query_map(params![table, entity], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            drop(stmt);
+            for (field, variants) in rows {
+                let mut variants: Vec<Value> =
+                    serde_json::from_str(&variants).map_err(|_| error("sync_invalid"))?;
+                variants.sort_by(|a, b| a["op_id"].as_str().cmp(&b["op_id"].as_str()));
+                let winner = if field == "status" {
+                    variants
+                        .iter()
+                        .find(|v| v["value"] == "deleted")
+                        .or_else(|| variants.last())
+                } else {
+                    variants.last()
+                };
+                if let Some(w) = winner {
+                    doc.insert(field, w["value"].clone());
+                }
             }
+            materialize(&tx, table, entity, &Value::Object(doc), local)?;
+        }
+        if !local {
+            tx.execute(
+                "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.apply',?2)",
+                params![entity, op.to_string()],
+            )?;
         }
         for (device, seq) in vector(&op["clock"]) {
             tx.execute("INSERT INTO sync_clock VALUES(?1,?2) ON CONFLICT(device) DO UPDATE SET seq=max(seq,excluded.seq)",params![device,seq])?;
@@ -161,6 +328,26 @@ impl Application {
     }
     pub(crate) fn sync_operation(&self, op: &str, input: Value) -> Result<Value, ApiError> {
         match op {
+            "sync.history" => {
+                let member = self.member(&input)?;
+                let table = string(&input, "entity_type")?;
+                let id = string(&input, "entity_id")?;
+                let mut st=self.connection.prepare("SELECT branch_id,document FROM sync_immutable WHERE entity_type=?1 AND entity_id=?2 ORDER BY branch_id")?;
+                let rows = st
+                    .query_map(params![table, id], |r| {
+                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                let mut items = vec![];
+                for (branch, doc) in rows {
+                    let doc: Value =
+                        serde_json::from_str(&doc).map_err(|_| error("storage_error"))?;
+                    if doc["member_id"] == member {
+                        items.push(json!({"branch_id":branch,"document":doc}));
+                    }
+                }
+                Ok(json!({"schema_version":1,"items":items}))
+            }
             "sync.configure" => {
                 if input["provider_kind"] != "local_folder" {
                     return Err(error("storage_unsupported"));
@@ -184,13 +371,14 @@ impl Application {
                     [],
                     |r| r.get(0),
                 )?;
-                for table in ["members", "clothing"] {
+                for table in TABLES {
+                    let key = entity_key(table, table);
                     let sql = if table == "members" {
-                        "SELECT id,json_object('id',id,'name',name) FROM members WHERE ?1 OR EXISTS(SELECT 1 FROM clothing c WHERE c.member_id=members.id)"
+                        "SELECT id,json_object('id',id,'name',name) FROM members WHERE ?1 OR EXISTS(SELECT 1 FROM clothing c WHERE c.member_id=members.id)".to_string()
                     } else {
-                        "SELECT id,document FROM clothing WHERE ?1 OR 1"
+                        format!("SELECT {key},document FROM {table} WHERE ?1 OR 1")
                     };
-                    let mut stmt = tx.prepare(sql)?;
+                    let mut stmt = tx.prepare(&sql)?;
                     let rows = stmt
                         .query_map([owner], |r| {
                             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))

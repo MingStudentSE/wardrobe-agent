@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS wear_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_event_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL,UNIQUE(root_event_id,revision)); CREATE INDEX IF NOT EXISTS wear_member_root ON wear_events(member_id,root_event_id,revision); CREATE TABLE IF NOT EXISTS wear_receipts(member_id TEXT NOT NULL REFERENCES members(id),operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS wear_asset_refs(event_id TEXT NOT NULL REFERENCES wear_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS wear_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_event_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL); CREATE INDEX IF NOT EXISTS wear_member_root ON wear_events(member_id,root_event_id,revision); CREATE TABLE IF NOT EXISTS wear_receipts(member_id TEXT NOT NULL REFERENCES members(id),operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS wear_asset_refs(event_id TEXT NOT NULL REFERENCES wear_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
     Ok(())
 }
 fn invalid(message: &str) -> ApiError {
@@ -169,7 +169,7 @@ impl Application {
         }
         let previous = if operation != "wear.record" {
             let root = string(&input, "root_event_id")?;
-            let serialized:Option<String>=tx.query_row("SELECT document FROM wear_events WHERE member_id=?1 AND root_event_id=?2 ORDER BY revision DESC LIMIT 1",params![member,root],|r|r.get(0)).optional()?;
+            let serialized:Option<String>=tx.query_row("SELECT document FROM wear_events WHERE member_id=?1 AND root_event_id=?2 ORDER BY revision DESC,id DESC LIMIT 1",params![member,root],|r|r.get(0)).optional()?;
             let previous: Value = serde_json::from_str(
                 &serialized.ok_or_else(|| ApiError::new("not_found", "穿着记录不存在"))?,
             )
@@ -398,7 +398,7 @@ impl Application {
             .get("cursor")
             .map(|v| v.as_str().ok_or_else(|| invalid("游标须为字符串")))
             .transpose()?;
-        let mut statement=self.connection.prepare("SELECT document FROM wear_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM wear_events WHERE root_event_id=e.root_event_id) ORDER BY json_extract(document,'$.occurred_at') DESC,root_event_id DESC")?;
+        let mut statement=self.connection.prepare("SELECT document FROM wear_events e WHERE member_id=?1 AND id=(SELECT id FROM wear_events WHERE root_event_id=e.root_event_id ORDER BY revision DESC,id DESC LIMIT 1) ORDER BY json_extract(document,'$.occurred_at') DESC,root_event_id DESC")?;
         let mut events = vec![];
         for row in statement.query_map([member], |r| r.get::<_, String>(0))? {
             let event: Value = serde_json::from_str(&row?)
@@ -434,7 +434,7 @@ impl Application {
     }
     // One stable projection shared by downstream care and insights; never materialized counters.
     pub(super) fn effective_wears(&self, member: &str) -> Result<Vec<Value>, ApiError> {
-        let mut statement=self.connection.prepare("SELECT document FROM wear_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM wear_events WHERE root_event_id=e.root_event_id) ORDER BY json_extract(document,'$.occurred_at'),root_event_id")?;
+        let mut statement=self.connection.prepare("SELECT document FROM wear_events e WHERE member_id=?1 AND id=(SELECT id FROM wear_events WHERE root_event_id=e.root_event_id ORDER BY revision DESC,id DESC LIMIT 1) ORDER BY json_extract(document,'$.occurred_at'),root_event_id")?;
         let mut result = vec![];
         for row in statement.query_map([member], |r| r.get::<_, String>(0))? {
             let event: Value = serde_json::from_str(&row?)
