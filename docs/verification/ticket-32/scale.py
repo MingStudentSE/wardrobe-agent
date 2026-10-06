@@ -35,11 +35,17 @@ with tempfile.TemporaryDirectory(prefix='wardrobe32-scale-') as raw:
  garment=command(db,'clothing.create',{'member_id':'default','name':'capacity seed','category':'top'})
  command(db,'assets.adopt',{'member_id':'default','clothing_id':garment['id'],'asset_id':assets[0]['id']})
  garment=command(db,'clothing.get',{'member_id':'default','id':garment['id']})
+ companions=[command(db,'clothing.create',{'member_id':'default','name':category,'category':category}) for category in ['bottom','shoes']]
+ intent=command(db,'recommendation.generate',{'member_id':'default','operation_key':'scale-feedback-intent','timezone':'UTC','fixed_ids':[garment['id']]})
+ feedback=command(db,'feedback.record',{'member_id':'default','operation_key':'scale-feedback','intent_id':intent['id'],'proposal_index':0,'reaction':'like'})
+ command(db,'feedback.correct',{'member_id':'default','operation_key':'scale-feedback-correct','root_id':feedback['root_id'],'expected_revision':1,'reaction':'dislike','scores':{'comfort':2}})
+ command(db,'feedback.revoke',{'member_id':'default','operation_key':'scale-feedback-revoke','root_id':feedback['root_id'],'expected_revision':2,'reason':'capacity observation fixture'})
+ feedback_history=command(db,'feedback.history',{'member_id':'default','root_id':feedback['root_id']})
  event=command(db,'wear.record',{'member_id':'default','clothing_ids':[garment['id']],'local_date':'2020-01-01','timezone':'UTC','operation_key':'scale-seed'})
- member=garment['member_id'];ids=[garment['id']]+[str(uuid.uuid4()) for _ in range(9999)]
+ member=garment['member_id'];ids=[garment['id']]+[c['id'] for c in companions]+[str(uuid.uuid4()) for _ in range(9997)]
  connection=sqlite3.connect(db);connection.execute('PRAGMA foreign_keys=ON')
  with connection:
-  for n,id in enumerate(ids[1:],1):
+  for n,id in enumerate(ids[3:],3):
    document=copy.deepcopy(garment);document.update(id=id,name=f'capacity garment {n}')
    connection.execute('INSERT INTO clothing VALUES(?,?,?)',(id,member,encoded(document)))
   request=json.loads(connection.execute("SELECT request FROM wear_receipts WHERE operation_key='scale-seed'").fetchone()[0])
@@ -64,6 +70,7 @@ with tempfile.TemporaryDirectory(prefix='wardrobe32-scale-') as raw:
  preview=command(target,'backup.preview',{'directory':str(package)});assert preview['current']['clothing']==10000 and preview['current']['wear_events']==100000
  assert command(target,'clothing.get',{'member_id':member,'id':ids[-1]})['id']==ids[-1]
  assert command(target,'wear.get',{'member_id':member,'id':event['id']})==event
+ assert command(target,'feedback.history',{'member_id':member,'root_id':feedback['root_id']})==feedback_history
  for asset in assets:
   read=command(target,'assets.get',{'member_id':member,'id':asset['id']});original=pathlib.Path(read['original']['local_path']);assert original.exists() and original.stat().st_size>30000000
- print(json.dumps({'clothing':10000,'wear_events':100000,'originals':9,'package_bytes':payload,'source_removed_before_restore':True,'restart_public_reads':True,'fixture_seed':'public API shapes expanded by explicit synthetic SQL transaction','seconds':elapsed},indent=2))
+ print(json.dumps({'clothing':10000,'wear_events':100000,'originals':9,'feedback_revisions_and_observation_restored':True,'package_bytes':payload,'source_removed_before_restore':True,'restart_public_reads':True,'fixture_seed':'public API shapes expanded by explicit synthetic SQL transaction','seconds':elapsed},indent=2))

@@ -1351,6 +1351,7 @@ fn assert_rejects_corrupted_domain_document(
     let intent=app.execute_and_wait("recommendation.generate",json!({"member_id":"default","operation_key":"intent-fixture","timezone":"UTC","avoid_recent":false})).unwrap();
     app.execute_and_wait("recommendation.save",json!({"member_id":"default","id":intent["id"],"proposal_index":0,"name":"saved fixture","operation_key":"save-fixture"})).unwrap();
     app.execute("weather.configure", json!({"member_id":"default","mode":"automatic","location":"fixture","latitude":31.2,"longitude":121.4,"usage":"noncommercial"})).unwrap();
+    app.execute("feedback.record",json!({"member_id":"default","operation_key":"feedback-domain-fixture","intent_id":intent["id"],"proposal_index":0,"reaction":"like"})).unwrap();
     let directory = archive.path().join("backup");
     app.execute_and_wait("backup.create", json!({"directory":directory}))
         .unwrap();
@@ -1369,6 +1370,13 @@ fn assert_rejects_corrupted_domain_document(
         [document.to_string()],
     )
     .unwrap();
+    if table == "feedback_events" {
+        db.execute(
+            "UPDATE feedback_receipts SET result=?1 WHERE json_extract(result,'$.id')=?2",
+            rusqlite::params![document.to_string(), document["id"].as_str().unwrap()],
+        )
+        .unwrap();
+    }
     drop(db);
     let mut manifest: serde_json::Value =
         serde_json::from_slice(&std::fs::read(directory.join("manifest.json")).unwrap()).unwrap();
@@ -1625,4 +1633,252 @@ fn preview_rejects_weather_config_with_embedded_endpoint_credentials() {
         doc["config"]["endpoint"] =
             json!("https://secret-user:secret-password@example.com/forecast");
     });
+}
+
+#[test]
+fn portable_feedback_revisions_and_observed_display_survive_source_removal_without_originals() {
+    let source = tempfile::tempdir().unwrap();
+    let archive = tempfile::tempdir().unwrap();
+    let app = Application::open(&source.path().join("wardrobe.sqlite")).unwrap();
+    let top = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"observed top","category":"top"}),
+        )
+        .unwrap();
+    let path = source.path().join("original.png");
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([255, 0, 0, 255]))
+        .save(&path)
+        .unwrap();
+    let asset = app
+        .execute("assets.import", json!({"member_id":"default","path":path}))
+        .unwrap();
+    app.execute(
+        "assets.adopt",
+        json!({"member_id":"default","clothing_id":top["id"],"asset_id":asset["id"]}),
+    )
+    .unwrap();
+    for category in ["bottom", "shoes"] {
+        app.execute(
+            "clothing.create",
+            json!({"member_id":"default","name":category,"category":category}),
+        )
+        .unwrap();
+    }
+    let intent=app.execute("recommendation.generate",json!({"member_id":"default","operation_key":"observed-intent","timezone":"UTC","fixed_ids":[top["id"]]})).unwrap();
+    let record_input = json!({"member_id":"default","operation_key":"feedback","intent_id":intent["id"],"proposal_index":0,"reaction":"like"});
+    let initial = app
+        .execute("feedback.record", record_input.clone())
+        .unwrap();
+    let corrected=app.execute("feedback.correct",json!({"member_id":"default","operation_key":"feedback-correct","root_id":initial["root_id"],"expected_revision":1,"reaction":"dislike","scores":{"comfort":2}})).unwrap();
+    app.execute("feedback.revoke",json!({"member_id":"default","operation_key":"feedback-revoke","root_id":initial["root_id"],"expected_revision":2,"reason":"synthetic correction"})).unwrap();
+    let history_input = json!({"member_id":"default","root_id":initial["root_id"]});
+    let history = app
+        .execute("feedback.history", history_input.clone())
+        .unwrap();
+    app.execute(
+        "assets.detach",
+        json!({"member_id":"default","clothing_id":top["id"],"asset_id":asset["id"]}),
+    )
+    .unwrap();
+    app.execute(
+        "clothing.archive",
+        json!({"member_id":"default","id":top["id"]}),
+    )
+    .unwrap();
+    app.execute(
+        "clothing.delete",
+        json!({"member_id":"default","id":top["id"]}),
+    )
+    .unwrap();
+    let directory = archive.path().join("portable");
+    app.execute_and_wait(
+        "backup.create",
+        json!({"directory":directory,"include_originals":false}),
+    )
+    .unwrap();
+    drop(app);
+    source.close().unwrap();
+    let destination = tempfile::tempdir().unwrap();
+    let database = destination.path().join("wardrobe.sqlite");
+    let restored = Application::open(&database).unwrap();
+    restored
+        .execute_and_wait(
+            "backup.restore",
+            json!({"directory":directory,"confirm_overwrite":true}),
+        )
+        .unwrap();
+    assert_eq!(
+        restored
+            .execute("feedback.history", history_input.clone())
+            .unwrap(),
+        history
+    );
+    assert_eq!(
+        restored.execute("feedback.record", record_input).unwrap(),
+        initial
+    );
+    let adopted = restored
+        .execute(
+            "assets.get",
+            json!({"member_id":"default","id":asset["id"]}),
+        )
+        .unwrap();
+    assert_eq!(adopted["state"], "adopted");
+    assert!(adopted["original"]["local_path"].is_null());
+    assert!(std::path::Path::new(adopted["display"]["local_path"].as_str().unwrap()).is_file());
+    assert_eq!(
+        restored
+            .execute("wear.list", json!({"member_id":"default"}))
+            .unwrap()["items"],
+        json!([])
+    );
+    assert_eq!(history["items"][1], corrected);
+    drop(restored);
+    assert_eq!(
+        Application::open(&database)
+            .unwrap()
+            .execute("feedback.history", history_input)
+            .unwrap(),
+        history
+    );
+}
+
+#[test]
+fn preview_rejects_feedback_root_identity_with_valid_transport_and_sql_references() {
+    assert_rejects_corrupted_domain_document("feedback_events", "document", |doc| {
+        doc["root_id"] = json!(uuid::Uuid::now_v7().to_string());
+    });
+}
+#[test]
+fn preview_rejects_feedback_receipt_disagreeing_with_original_observation() {
+    assert_rejects_corrupted_domain_document("feedback_receipts", "result", |doc| {
+        doc["reaction"] = json!("dislike");
+    });
+}
+
+#[test]
+fn preview_rejects_feedback_domain_even_when_receipt_and_transport_agree() {
+    for case in 0..9 {
+        assert_rejects_corrupted_domain_document("feedback_events", "document", |doc| match case {
+            0 => doc["reaction"] = json!("unrecognized"),
+            1 => doc["scores"]["comfort"] = json!(0),
+            2 => doc["scores"]["comfort"] = json!(1.5),
+            3 => {
+                doc["reaction"] = json!("actual_wore");
+                doc["wear_event_id"] = json!(uuid::Uuid::now_v7().to_string());
+            }
+            4 => {
+                doc["reaction"] = json!("changed");
+                doc["wear_event_id"] = json!(uuid::Uuid::now_v7().to_string());
+            }
+            5..=8 => {
+                doc["reaction"] = json!("day_exclude");
+                doc["clothing_ids"] = if case == 5 {
+                    json!([uuid::Uuid::now_v7().to_string()])
+                } else {
+                    json!([doc["proposal"]["items"][0]["clothing_id"]])
+                };
+                doc["day_scope"] = json!({"timezone":if case==6 {"invalid/zone"} else {"UTC"},"local_date":if case==7 {"2020-99-99"} else {"2020-01-01"},"expires_at":if case==8 {"2020-01-03T00:00:00Z"} else {"2020-01-02T00:00:00Z"}});
+            }
+            _ => unreachable!(),
+        });
+    }
+}
+
+#[test]
+fn feedback_portable_valid_day_and_confirmed_wear_reject_cross_member_wear_reference() {
+    use sha2::{Digest, Sha256};
+    let source = tempfile::tempdir().unwrap();
+    let archive = tempfile::tempdir().unwrap();
+    let app = Application::open(&source.path().join("wardrobe.sqlite")).unwrap();
+    let mut stock = vec![];
+    for category in ["top", "bottom", "shoes", "top"] {
+        stock.push(
+            app.execute(
+                "clothing.create",
+                json!({"member_id":"default","name":category,"category":category}),
+            )
+            .unwrap(),
+        );
+    }
+    let intent=app.execute("recommendation.generate",json!({"member_id":"default","operation_key":"portable-day-wear","timezone":"UTC","fixed_ids":[stock[0]["id"]]})).unwrap();
+    let day=app.execute("feedback.record",json!({"member_id":"default","operation_key":"portable-day","intent_id":intent["id"],"proposal_index":0,"reaction":"day_exclude","timezone":"Pacific/Kiritimati","clothing_ids":[stock[0]["id"]]})).unwrap();
+    let wore=app.execute("feedback.record",json!({"member_id":"default","operation_key":"portable-wore","intent_id":intent["id"],"proposal_index":0,"reaction":"actual_wore","wear":{"confirmed":true,"local_date":"2020-01-01","timezone":"UTC"}})).unwrap();
+    let changed=app.execute("feedback.record",json!({"member_id":"default","operation_key":"portable-changed","intent_id":intent["id"],"proposal_index":0,"reaction":"changed","wear":{"confirmed":true,"local_date":"2020-01-02","timezone":"UTC","clothing_ids":[stock[3]["id"],stock[1]["id"],stock[2]["id"]]}})).unwrap();
+    let other = app
+        .execute("member.create", json!({"name":"foreign temporary member"}))
+        .unwrap();
+    let foreign = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":other["member_id"],"name":"foreign","category":"top"}),
+        )
+        .unwrap();
+    let foreign_wear=app.execute("wear.record",json!({"member_id":other["member_id"],"clothing_ids":[foreign["id"]],"local_date":"2020-01-01","timezone":"UTC","operation_key":"foreign-wear"})).unwrap();
+    let package = archive.path().join("valid");
+    app.execute_and_wait("backup.create", json!({"directory":package}))
+        .unwrap();
+    let destination = tempfile::tempdir().unwrap();
+    let restored = Application::open(&destination.path().join("wardrobe.sqlite")).unwrap();
+    restored
+        .execute_and_wait(
+            "backup.restore",
+            json!({"directory":package,"confirm_overwrite":true}),
+        )
+        .unwrap();
+    for observed in [&day, &wore, &changed] {
+        assert_eq!(
+            restored
+                .execute(
+                    "feedback.get",
+                    json!({"member_id":"default","id":observed["id"]})
+                )
+                .unwrap(),
+            *observed
+        );
+    }
+    assert_eq!(
+        restored
+            .execute("wear.list", json!({"member_id":"default"}))
+            .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let db = rusqlite::Connection::open(package.join("facts.sqlite")).unwrap();
+    let mut corrupted = wore.clone();
+    corrupted["wear_event_id"] = foreign_wear["id"].clone();
+    db.execute(
+        "UPDATE feedback_events SET document=?1 WHERE id=?2",
+        rusqlite::params![corrupted.to_string(), wore["id"].as_str().unwrap()],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE feedback_receipts SET result=?1 WHERE operation_key='portable-wore'",
+        [corrupted.to_string()],
+    )
+    .unwrap();
+    drop(db);
+    let bytes = std::fs::read(package.join("facts.sqlite")).unwrap();
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(package.join("manifest.json")).unwrap()).unwrap();
+    for entry in manifest["files"].as_array_mut().unwrap() {
+        if entry["path"] == "facts.sqlite" {
+            entry["bytes"] = json!(bytes.len());
+            entry["sha256"] = json!(Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>());
+        }
+    }
+    std::fs::write(package.join("manifest.json"), manifest.to_string()).unwrap();
+    assert_eq!(
+        restored
+            .execute_and_wait("backup.preview", json!({"directory":package}))
+            .unwrap_err()
+            .code,
+        "backup_invalid"
+    );
 }

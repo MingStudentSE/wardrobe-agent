@@ -13,5 +13,5 @@ test highest_database_version_repairs_missing_encryption_tables_without_downgrad
 test external_full_scope_cannot_manage_space_secrets_even_with_member_argument ... ok
 test encrypted_envelopes_roundtrip_and_authenticate_workspace_kind_version_and_bytes ... ok
 
-test result: ok. 3 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 7.69s
+test result: ok. 3 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 7.59s
 

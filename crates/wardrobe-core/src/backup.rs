@@ -29,6 +29,9 @@ const TABLES: &[&str] = &[
     "recommendation_intents",
     "recommendation_saves",
     "weather_preferences",
+    "feedback_events",
+    "feedback_receipts",
+    "feedback_asset_refs",
 ];
 pub(super) fn migrate(tx: &rusqlite::Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS backup_preferences(id INTEGER PRIMARY KEY CHECK(id=1),document TEXT NOT NULL);CREATE TABLE IF NOT EXISTS local_installation_state(id INTEGER PRIMARY KEY CHECK(id=1),generation INTEGER NOT NULL);INSERT OR IGNORE INTO local_installation_state VALUES(1,0);CREATE TABLE IF NOT EXISTS local_submission_guards(space_id TEXT NOT NULL,member_id TEXT NOT NULL,kind TEXT NOT NULL,operation_key TEXT NOT NULL,payload_hash TEXT NOT NULL,submitted_at TEXT NOT NULL,submission_count INTEGER NOT NULL,last_outcome TEXT NOT NULL,PRIMARY KEY(space_id,member_id,kind,operation_key));")?;
@@ -243,7 +246,8 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
             | "outfits"
             | "wear_events"
             | "care_events"
-            | "recommendation_intents" => Some(("id", "id")),
+            | "recommendation_intents"
+            | "feedback_events" => Some(("id", "id")),
             "care_config" => Some(("clothing_id", "clothing_id")),
             "outfit_versions" => Some(("outfit_id", "id")),
             _ => None,
@@ -255,13 +259,19 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
         } else {
             "NULL"
         };
-        let history = matches!(*table, "wear_events" | "care_events");
+        let history = matches!(*table, "wear_events" | "care_events" | "feedback_events");
         let query = format!(
             "SELECT {owner},document,{},{},{},{},{},{} FROM \"{table}\" AS entity",
             identity
                 .map(|(column, _)| format!("entity.{column}"))
                 .unwrap_or("NULL".into()),
-            if history { "root_event_id" } else { "NULL" },
+            if *table == "feedback_events" {
+                "root_id"
+            } else if history {
+                "root_event_id"
+            } else {
+                "NULL"
+            },
             if history { "revision" } else { "NULL" },
             if *table == "outfit_versions" {
                 "version"
@@ -303,7 +313,11 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
             if history {
                 let root: String = row.get(3)?;
                 let revision: i64 = row.get(4)?;
-                if document["root_event_id"] != root
+                if document[if *table == "feedback_events" {
+                    "root_id"
+                } else {
+                    "root_event_id"
+                }] != root
                     || document["revision"] != revision
                     || revision < 1
                 {
@@ -327,6 +341,10 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
                         "推荐意图与幂等请求身份不一致",
                     ));
                 }
+            }
+            if *table == "feedback_events" {
+                crate::feedback::validate_stored_document(db, &document)
+                    .map_err(|_| ApiError::new("backup_invalid", "反馈领域格式或事实引用不支持"))?;
             }
             if *table == "weather_preferences" {
                 crate::weather::validate_portable_document(&document)
@@ -352,7 +370,12 @@ fn validate_receipts(db: &Connection) -> Result<(), ApiError> {
         [],
         |row| row.get(0),
     )?;
-    for table in ["wear_receipts", "care_receipts", "recommendation_saves"] {
+    for table in [
+        "wear_receipts",
+        "care_receipts",
+        "recommendation_saves",
+        "feedback_receipts",
+    ] {
         let mut statement = db.prepare(&format!(
             "SELECT member_id,operation_key,request,result FROM {table}"
         ))?;
@@ -366,7 +389,9 @@ fn validate_receipts(db: &Connection) -> Result<(), ApiError> {
                 .map_err(|_| ApiError::new("backup_invalid", "保存请求格式损坏"))?;
             let result: Value = serde_json::from_str(&result)
                 .map_err(|_| ApiError::new("backup_invalid", "保存结果格式损坏"))?;
-            let input = if table == "recommendation_saves" {
+            let input = if table == "recommendation_saves"
+                || (table == "feedback_receipts" && request.get("operation").is_none())
+            {
                 &request
             } else {
                 &request["input"]
@@ -407,6 +432,8 @@ fn validate_receipts(db: &Connection) -> Result<(), ApiError> {
             } else {
                 let entity = if table == "wear_receipts" {
                     "wear_events"
+                } else if table == "feedback_receipts" {
+                    "feedback_events"
                 } else {
                     "care_events"
                 };

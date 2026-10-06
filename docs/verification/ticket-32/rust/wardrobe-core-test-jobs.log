@@ -1,10 +1,10 @@
    Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
-    Finished `test` profile [unoptimized] target(s) in 0.79s
+    Finished `test` profile [unoptimized] target(s) in 0.80s
      Running tests/jobs.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/jobs-de3e70e0e134969b)
 
 running 2 tests
 test concurrent_workers_have_one_lease_cancel_prevents_late_finish_and_expiry_recovers ... ok
 test transient_retries_are_bounded_delayed_and_permanent_errors_stay_failed ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.14s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.13s
 

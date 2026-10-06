@@ -1,5 +1,5 @@
    Compiling wardrobe-cli v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-cli)
-    Finished `test` profile [unoptimized] target(s) in 0.61s
+    Finished `test` profile [unoptimized] target(s) in 0.58s
      Running unittests src/main.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wardrobe_cli-c63706bd91c01edb)
 
 running 0 tests

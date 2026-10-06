@@ -1,15 +1,15 @@
    Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
-    Finished `test` profile [unoptimized] target(s) in 0.81s
+    Finished `test` profile [unoptimized] target(s) in 0.98s
      Running tests/authorization.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/authorization-fe956f04a592cf83)
 
 running 7 tests
-test trusted_gui_can_authorize_a_limited_client_with_a_one_time_token ... ok
 test authorization_requires_an_explicit_member_scope_instead_of_silently_granting_all ... ok
 test damaged_grant_does_not_silently_expand_member_scope ... ok
+test trusted_gui_can_authorize_a_limited_client_with_a_one_time_token ... ok
 test client_cannot_remove_credentials_indirectly_by_changing_a_provider_binding ... ok
 test limited_client_can_read_one_member_but_cannot_write_or_read_another ... ok
 test full_client_does_not_need_repeat_confirmation_and_revocation_survives_restart_without_token_leak ... ok
 test expired_token_is_refused_and_discovery_and_member_list_hide_ungranted_data ... ok
 
-test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.18s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.20s
 

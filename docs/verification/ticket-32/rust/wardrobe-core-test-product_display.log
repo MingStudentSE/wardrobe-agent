@@ -1,14 +1,14 @@
    Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
-    Finished `test` profile [unoptimized] target(s) in 0.86s
+    Finished `test` profile [unoptimized] target(s) in 0.87s
      Running tests/product_display.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/product_display-a18da5aa75ef9413)
 
 running 6 tests
 test dedicated_image_provider_preserves_adapter_and_rejects_chat_validation ... ok
 test product_job_requires_explicit_upload_and_keeps_old_display ... ok
-test cancelled_inflight_generation_never_creates_result_or_changes_clothing ... ok
 test lost_provider_response_persists_unknown_and_refuses_same_job_after_restart ... ok
+test cancelled_inflight_generation_never_creates_result_or_changes_clothing ... ok
 test limited_client_requires_explicit_generation_scope_and_member ... ok
 test real_http_generation_is_preview_until_adopted_and_never_blindly_resubmits ... ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
 

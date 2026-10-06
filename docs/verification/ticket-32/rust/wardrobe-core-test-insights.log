@@ -1,5 +1,5 @@
    Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
-    Finished `test` profile [unoptimized] target(s) in 0.90s
+    Finished `test` profile [unoptimized] target(s) in 0.84s
      Running tests/insights.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/insights-41d6aa0ff75cbf66)
 
 running 6 tests

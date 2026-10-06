@@ -19,7 +19,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wardrobe_core-1455b102a1d64765",
-        "bytes": 108882064
+        "bytes": 109231056
       }
     ]
   },
@@ -44,7 +44,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/ai_recommendations-a8dd888404013697",
-        "bytes": 110381232
+        "bytes": 110753872
       }
     ]
   },
@@ -69,7 +69,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/application-ffdc02d1fe195a3e",
-        "bytes": 109828848
+        "bytes": 110234800
       }
     ]
   },
@@ -94,7 +94,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/assets-773e493192c33ac7",
-        "bytes": 109958576
+        "bytes": 110347984
       }
     ]
   },
@@ -119,7 +119,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/authorization-fe956f04a592cf83",
-        "bytes": 109821808
+        "bytes": 110211680
       }
     ]
   },
@@ -135,7 +135,7 @@
     "exit": 0,
     "totals": [
       [
-        31,
+        36,
         0,
         0
       ]
@@ -144,7 +144,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/backup-cbbda9a3225d5625",
-        "bytes": 110753584
+        "bytes": 111366544
       }
     ]
   },
@@ -169,7 +169,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/care-3f096b7d4977dc9a",
-        "bytes": 109979424
+        "bytes": 110368640
       }
     ]
   },
@@ -194,7 +194,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/clothing_management-84e697d05a982bad",
-        "bytes": 109814608
+        "bytes": 110187520
       }
     ]
   },
@@ -219,7 +219,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/encrypted_package-045f42afeeda4e33",
-        "bytes": 110033296
+        "bytes": 110406480
       }
     ]
   },
@@ -244,7 +244,32 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/encryption-e7ed1076601f67ba",
-        "bytes": 110047392
+        "bytes": 110420784
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "feedback"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        9,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-feedback.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/feedback-41f093acb406b2a6",
+        "bytes": 110731872
       }
     ]
   },
@@ -269,7 +294,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/flatlay-5d698fcfee5160b0",
-        "bytes": 110082096
+        "bytes": 110455264
       }
     ]
   },
@@ -294,7 +319,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/image_editing-8a2dcdd82019f0c5",
-        "bytes": 110377072
+        "bytes": 110749952
       }
     ]
   },
@@ -319,7 +344,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/imports-fdde2689a15efba1",
-        "bytes": 110103872
+        "bytes": 110476656
       }
     ]
   },
@@ -344,7 +369,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/insights-41d6aa0ff75cbf66",
-        "bytes": 109915072
+        "bytes": 110305008
       }
     ]
   },
@@ -369,7 +394,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/jobs-de3e70e0e134969b",
-        "bytes": 109820416
+        "bytes": 110193264
       }
     ]
   },
@@ -394,7 +419,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/maintenance_jobs-7947377bffcf498f",
-        "bytes": 109801680
+        "bytes": 110175008
       }
     ]
   },
@@ -419,7 +444,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/members-8f049ded7e2d3f06",
-        "bytes": 109759024
+        "bytes": 110131840
       }
     ]
   },
@@ -444,7 +469,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/outfits-c96ed020993d761c",
-        "bytes": 110026704
+        "bytes": 110399904
       }
     ]
   },
@@ -469,7 +494,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/product_display-a18da5aa75ef9413",
-        "bytes": 110209872
+        "bytes": 110599472
       }
     ]
   },
@@ -494,7 +519,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/providers-3ea6371799df229d",
-        "bytes": 109865904
+        "bytes": 110255344
       }
     ]
   },
@@ -519,7 +544,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recognition-2f4b64dc71cadf25",
-        "bytes": 110289792
+        "bytes": 110662432
       }
     ]
   },
@@ -544,7 +569,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recommendations-4b434e0f15914463",
-        "bytes": 110037824
+        "bytes": 110410352
       }
     ]
   },
@@ -569,7 +594,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/tryon-f5da9cae3915c061",
-        "bytes": 110296496
+        "bytes": 110702608
       }
     ]
   },
@@ -594,7 +619,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wears-1550ba0bb9fb26ec",
-        "bytes": 110119312
+        "bytes": 110492448
       }
     ]
   },
@@ -619,7 +644,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/weather-b40e0cbe55c61bdb",
-        "bytes": 109856736
+        "bytes": 110229632
       }
     ]
   },
@@ -688,7 +713,7 @@
     "removed_terminal_executables": [
       {
         "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/entrypoints-95eae7cede4a3832",
-        "bytes": 110300912
+        "bytes": 110690320
       }
     ]
   }
