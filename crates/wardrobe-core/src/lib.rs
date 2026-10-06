@@ -95,7 +95,28 @@ impl Application {
         tx.commit()?;
         Ok(Self { connection })
     }
+    fn check_schema(&self) -> Result<(), ApiError> {
+        let version: u32 = self
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if version > DATABASE_SCHEMA_VERSION {
+            return Err(ApiError::new(
+                "unsupported_schema",
+                "数据库由更新版本创建，请升级应用后再打开",
+            ));
+        }
+        Ok(())
+    }
+    fn begin_write(&self) -> Result<rusqlite::Transaction<'_>, ApiError> {
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        self.check_schema()?;
+        Ok(tx)
+    }
     pub fn execute(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
+        self.check_schema()?;
         if !input.is_object() {
             return Err(ApiError::new("invalid_input", "输入必须是 JSON 对象"));
         }
