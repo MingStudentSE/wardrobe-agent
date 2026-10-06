@@ -276,7 +276,7 @@ impl Application {
         Ok(json!({"schema_version":1,"items":items}))
     }
 }
-fn credential_entry_for(p: &Value) -> Result<keyring::Entry, ApiError> {
+pub(super) fn credential_entry_for(p: &Value) -> Result<keyring::Entry, ApiError> {
     let account = format!(
         "{}:{}",
         p["id"].as_str().unwrap(),

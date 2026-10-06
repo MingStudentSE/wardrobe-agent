@@ -8,6 +8,7 @@ mod jobs;
 mod members;
 mod outfits;
 mod providers;
+mod recognition;
 mod wears;
 
 use rusqlite::{params, Connection};
@@ -16,7 +17,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 9;
+pub const DATABASE_SCHEMA_VERSION: u32 = 12;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -112,6 +113,7 @@ impl Application {
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
         cutout::migrate(&tx)?;
+        recognition::migrate(&tx)?;
         tx.execute_batch(&format!(
             "PRAGMA user_version={};",
             version.max(DATABASE_SCHEMA_VERSION)
@@ -178,6 +180,12 @@ impl Application {
             "capabilities" => Ok(
                 json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES,"taxonomy":clothing::taxonomy()}),
             ),
+            "recognition.create" => self.recognition_create(input),
+            "recognition.process" => self.recognition_process(input),
+            "recognition.get" => self.recognition_get(input),
+            "recognition.list" => self.recognition_list(input),
+            "recognition.review" => self.recognition_review(input,false),
+            "recognition.dismiss" => self.recognition_review(input,true),
             "client.list" => self.client_list(input),
             "client.revoke" => self.client_revoke(input),
             "client.authorize" => self.client_authorize(input),
@@ -239,6 +247,7 @@ pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
     descriptors.extend(clothing::descriptors());
     descriptors.extend(providers::descriptors());
+    descriptors.extend(recognition::descriptors());
     descriptors.extend(authorization::descriptors());
     descriptors.extend(assets::descriptors());
     descriptors.extend(outfits::descriptors());
