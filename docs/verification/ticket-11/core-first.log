@@ -1,0 +1,11 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-11/crates/wardrobe-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.53s
+     Running tests/insights.rs (/tmp/wardrobe-ticket-07/target/debug/deps/insights-635746c80a6b3ce0)
+
+running 3 tests
+test inventory_multicolor_and_actual_frequency_match_hand_calculation ... ok
+test stale_boundaries_preferences_and_combinations_recompute_after_correction_and_revoke ... ok
+test empty_denominators_member_preferences_authorization_and_timezone_cutoff_are_explicit ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
