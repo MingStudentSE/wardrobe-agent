@@ -1,0 +1,51 @@
+{
+  "runtime_source_commit": "abeada335e2e78bd3fe63febafab7e900ce75810",
+  "model_repository": "ggml-org/SmolVLM-256M-Instruct-GGUF",
+  "model_revision": "b9e4379657e1450d04d02eec8e345667265b0a00",
+  "license": "apache-2.0",
+  "weights": [
+    {
+      "filename": "SmolVLM-256M-Instruct-Q8_0.gguf",
+      "sha256": "2a31195d3769c0b0fd0a4906201666108834848db768af11de1d2cef7cd35e65",
+      "size": 175054528,
+      "pointerSize": 134
+    },
+    {
+      "filename": "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf",
+      "sha256": "7e943f7c53f0382a6fc41b6ee0c2def63ba4fded9ab8ed039cc9e2ab905e0edd",
+      "size": 103769856,
+      "pointerSize": 134
+    }
+  ],
+  "build": {
+    "type": "Release",
+    "jobs": 2,
+    "GGML_METAL": false,
+    "GGML_BLAS": false,
+    "LLAMA_BUILD_UI": false,
+    "LLAMA_USE_PREBUILT_UI": false
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 18081,
+    "alias": "wardrobe-smolvlm",
+    "threads": 2,
+    "threads_batch": 2,
+    "context": 2048,
+    "parallel": 1,
+    "gpu_layers": 0,
+    "mmproj_offload": false
+  },
+  "platform": "macOS 26.6.2 arm64",
+  "source_archive_sha256": "9d5bfc27b3c3c3fc9fef962587381f071c44c4b216e2c32a12b69b7d20165b32",
+  "runtime_version": "0.6.0-dev (archive build 0, commit unknown; fixed source archive commit above)",
+  "runtime_license": "MIT",
+  "runtime_root": "/tmp/wardrobe-local-provider",
+  "retained_disk_allocated": "569492 KiB",
+  "cleanup": {
+    "server_stopped": true,
+    "runner_database_removed": true,
+    "gui_database_removed": true,
+    "credentials_created": false
+  }
+}
