@@ -141,3 +141,37 @@ fn expired_token_is_refused_and_discovery_and_member_list_hide_ungranted_data() 
         "authorization_expired"
     );
 }
+#[test]
+fn damaged_grant_does_not_silently_expand_member_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let app = Application::open(&path).unwrap();
+    let a = app.execute("space.default", json!({})).unwrap();
+    let grant=app.execute("client.authorize",json!({"name":"损坏文件fixture","mode":"full","operations":[],"member_ids":[a["member_id"]],"expires_at":null})).unwrap();
+    let mut damaged = grant.clone();
+    damaged.as_object_mut().unwrap().remove("member_ids");
+    damaged.as_object_mut().unwrap().remove("token");
+    let fixture = rusqlite::Connection::open(&path).unwrap();
+    fixture
+        .execute(
+            "UPDATE clients SET document=?1 WHERE id=?2",
+            rusqlite::params![damaged.to_string(), grant["id"].as_str().unwrap()],
+        )
+        .unwrap();
+    drop(fixture);
+    let result = app.execute_as_client(
+        grant["token"].as_str().unwrap(),
+        "clothing.list",
+        json!({"member_id":a["member_id"]}),
+    );
+    assert!(matches!(result,Err(error) if error.code=="storage_error"));
+}
+#[test]
+fn client_cannot_remove_credentials_indirectly_by_changing_a_provider_binding() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let provider=app.execute("provider.save",json!({"name":"配置","endpoint":"https://example.com/v1","model":"test","capabilities":["text"],"authentication":"bearer"})).unwrap();
+    let grant=app.execute("client.authorize",json!({"name":"完整客户端","mode":"full","operations":[],"member_ids":null,"expires_at":null})).unwrap();
+    let result=app.execute_as_client(grant["token"].as_str().unwrap(),"provider.save",json!({"id":provider["id"],"name":"改绑定","endpoint":"https://other.example.com/v1","model":"test","capabilities":["text"],"authentication":"bearer"}));
+    assert!(matches!(result,Err(error) if error.code=="scope_denied"));
+}

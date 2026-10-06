@@ -11,6 +11,47 @@ fn hash(token: &str) -> String {
 fn privileged(operation: &str) -> bool {
     operation.starts_with("client.") || operation.starts_with("provider.credential.")
 }
+fn parse_grant(stored: &str) -> Result<Value, ApiError> {
+    let grant: Value = serde_json::from_str(stored)
+        .map_err(|_| ApiError::new("storage_error", "客户端授权损坏"))?;
+    let required = [
+        "schema_version",
+        "id",
+        "name",
+        "mode",
+        "operations",
+        "member_ids",
+        "expires_at",
+        "revoked",
+        "created_at",
+    ];
+    let valid = grant.as_object().is_some_and(|object| {
+        required.iter().all(|field| object.contains_key(*field))
+            && object
+                .keys()
+                .all(|field| required.contains(&field.as_str()) || field == "revoked_at")
+    }) && grant["schema_version"] == 1
+        && grant["id"].is_string()
+        && grant["name"].is_string()
+        && matches!(grant["mode"].as_str(), Some("full" | "limited"))
+        && grant["operations"]
+            .as_array()
+            .is_some_and(|values| values.iter().all(Value::is_string))
+        && (grant["member_ids"].is_null()
+            || grant["member_ids"]
+                .as_array()
+                .is_some_and(|values| !values.is_empty() && values.iter().all(Value::is_string)))
+        && (grant["expires_at"].is_null() || grant["expires_at"].is_string())
+        && grant["revoked"].is_boolean()
+        && grant["created_at"].is_string();
+    if !valid {
+        return Err(ApiError::new(
+            "storage_error",
+            "客户端授权字段损坏，未扩大授权范围",
+        ));
+    }
+    Ok(grant)
+}
 fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
     if input
         .as_object()
@@ -52,8 +93,7 @@ impl Application {
                 }
                 _ => e.into(),
             })?;
-        let grant: Value = serde_json::from_str(&stored)
-            .map_err(|_| ApiError::new("storage_error", "客户端授权损坏"))?;
+        let grant = parse_grant(&stored)?;
         if grant["revoked"] == true {
             return Err(ApiError::new("authorization_revoked", "客户端授权已撤销"));
         }
@@ -120,6 +160,9 @@ impl Application {
             });
             return Ok(result);
         }
+        if operation == "provider.save" {
+            return self.provider_save_from_client(input);
+        }
         self.execute(operation, input)
     }
 
@@ -131,10 +174,7 @@ impl Application {
         let rows = statement.query_map([], |r| r.get::<_, String>(0))?;
         let mut items = vec![];
         for row in rows {
-            items.push(
-                serde_json::from_str::<Value>(&row?)
-                    .map_err(|_| ApiError::new("storage_error", "客户端授权损坏"))?,
-            );
+            items.push(parse_grant(&row?)?);
         }
         Ok(json!({"schema_version":1,"items":items}))
     }
@@ -152,8 +192,7 @@ impl Application {
                 }
                 _ => e.into(),
             })?;
-        let mut doc: Value = serde_json::from_str(&stored)
-            .map_err(|_| ApiError::new("storage_error", "客户端授权损坏"))?;
+        let mut doc = parse_grant(&stored)?;
         doc["revoked"] = json!(true);
         doc["revoked_at"] = json!(chrono::Utc::now().to_rfc3339());
         tx.execute(
@@ -253,12 +292,20 @@ impl Application {
         Ok(output)
     }
 }
+fn grant_schema() -> Value {
+    json!({"type":"object","required":["schema_version","id","name","mode","operations","member_ids","expires_at","revoked","created_at"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"name":{"type":"string"},"mode":{"enum":["full","limited"]},"operations":{"type":"array","items":{"type":"string"}},"member_ids":{"type":["array","null"],"items":{"type":"string"}},"expires_at":{"type":["string","null"]},"revoked":{"type":"boolean"},"created_at":{"type":"string"},"revoked_at":{"type":"string"}}})
+}
 pub(super) fn descriptors() -> Vec<Value> {
-    let mut result = vec![
-        json!({"name":"client.authorize","description":"仅可信本机入口登记客户端授权，一次性返回连接令牌","inputSchema":{"type":"object","required":["name","mode","operations","member_ids","expires_at"],"properties":{"name":{"type":"string"},"mode":{"enum":["full","limited"]},"operations":{"type":"array","items":{"type":"string"}},"member_ids":{"type":["array","null"],"items":{"type":"string"}},"expires_at":{"type":["string","null"]}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","id","name","mode","operations","member_ids","expires_at","revoked","created_at","token"],"properties":{"schema_version":{"type":"integer","const":1},"token":{"type":"string","writeOnly":true}}}}),
-    ];
-    for name in ["client.list", "client.revoke"] {
-        result.push(json!({"name":name,"description":"仅可信本机入口列出或撤销客户端授权","inputSchema":{"type":"object","required":if name.ends_with("revoke"){vec!["id"]}else{vec![]},"properties":{"id":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}}}));
-    }
-    result
+    let mut issued_schema = grant_schema();
+    issued_schema["required"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("token"));
+    issued_schema["properties"]["token"] =
+        json!({"type":"string","readOnly":true,"description":"一次性连接令牌，不落普通配置或日志"});
+    vec![
+        json!({"name":"client.authorize","description":"仅可信本机入口登记客户端授权，一次性返回连接令牌","inputSchema":{"type":"object","required":["name","mode","operations","member_ids","expires_at"],"properties":{"name":{"type":"string"},"mode":{"enum":["full","limited"]},"operations":{"type":"array","items":{"type":"string"}},"member_ids":{"type":["array","null"],"items":{"type":"string"}},"expires_at":{"type":["string","null"]}},"additionalProperties":false},"outputSchema":issued_schema}),
+        json!({"name":"client.list","description":"仅可信本机入口列出客户端，无连接令牌或hash","inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":grant_schema()}}}}),
+        json!({"name":"client.revoke","description":"仅可信本机入口撤销客户端授权","inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false},"outputSchema":grant_schema()}),
+    ]
 }

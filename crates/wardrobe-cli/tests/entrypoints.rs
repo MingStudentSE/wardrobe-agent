@@ -297,4 +297,52 @@ fn external_cli_and_mcp_enforce_same_operation_and_member_grant() {
     assert_eq!(results[2]["result"]["isError"], false);
 }
 #[test]
-fn mcp_initialized_full_authorization_is_reused_for_multiple_writes_without_reauthorization(){let dir=tempfile::tempdir().unwrap();let path=dir.path().join("db");cli(&path,"space.default",json!({}));let token=client_token(&path);let mut child=Command::new(env!("CARGO_BIN_EXE_wardrobe-cli")).args(["--db",path.to_str().unwrap(),"mcp"]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();let mut stdin=child.stdin.take().unwrap();writeln!(stdin,"{}",json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"authorization_token":token}})).unwrap();for id in [2,3]{writeln!(stdin,"{}",json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"clothing.create","arguments":{"member_id":"default","name":format!("授权后写入{id}"),"category":"top"}}})).unwrap();}writeln!(stdin,"{}",json!({"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}})).unwrap();drop(stdin);let output=child.wait_with_output().unwrap();let body=String::from_utf8(output.stdout).unwrap();assert!(!body.contains(&token));let responses:Vec<Value>=body.lines().map(|line|serde_json::from_str(line).unwrap()).collect();assert_eq!(responses.len(),4);assert_eq!(responses[1]["result"]["isError"],false);assert_eq!(responses[2]["result"]["isError"],false);let tools=responses[3]["result"]["tools"].as_array().unwrap();assert!(tools.iter().any(|tool|tool["name"]=="assets.import"));assert!(!tools.iter().any(|tool|tool["name"]=="client.authorize"));assert_eq!(cli(&path,"clothing.list",json!({"member_id":"default"}))["result"]["items"].as_array().unwrap().len(),2);}
+fn mcp_initialized_full_authorization_is_reused_for_multiple_writes_without_reauthorization() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    cli(&path, "space.default", json!({}));
+    let token = client_token(&path);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(
+        stdin,
+        "{}",
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"authorization_token":token}})
+    )
+    .unwrap();
+    for id in [2, 3] {
+        writeln!(stdin,"{}",json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"clothing.create","arguments":{"member_id":"default","name":format!("授权后写入{id}"),"category":"top"}}})).unwrap();
+    }
+    writeln!(
+        stdin,
+        "{}",
+        json!({"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}})
+    )
+    .unwrap();
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    let body = String::from_utf8(output.stdout).unwrap();
+    assert!(!body.contains(&token));
+    let responses: Vec<Value> = body
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(responses.len(), 4);
+    assert_eq!(responses[1]["result"]["isError"], false);
+    assert_eq!(responses[2]["result"]["isError"], false);
+    let tools = responses[3]["result"]["tools"].as_array().unwrap();
+    assert!(tools.iter().any(|tool| tool["name"] == "assets.import"));
+    assert!(!tools.iter().any(|tool| tool["name"] == "client.authorize"));
+    assert_eq!(
+        cli(&path, "clothing.list", json!({"member_id":"default"}))["result"]["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+}

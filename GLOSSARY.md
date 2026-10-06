@@ -12,3 +12,6 @@
 - **模型配置（Provider Configuration）**：本机保存的模型端点、模型名、声明能力和认证方式；配置不包含实际凭据。
 - **安全凭据（Credential）**：由操作系统安全存储保存的供应商密钥；业务 API 只暴露是否已配置。
 - **已验证能力（Verified Capability）**：真实请求验证成功的能力；与用户按供应商文档选择的声明能力分开，文本连接成功不能证明视觉、生成或试穿成功。
+- **本机客户端授权（Client Grant）**：可信本机用户登记的外部客户端权限，包含实际 operation scope、明确成员范围和到期时间；不等于空间协作角色。
+- **连接令牌（Client Token）**：256bit 随机本机授权凭据，一次性返回，SQLite仅保留hash；与供应商API key分开。
+- **可信本机维护（Trusted Local Maintenance）**：GUI及显式 --trusted-local 人工维护入口，等同于拥有本机数据目录的权限；不用于外部客户端连接。
