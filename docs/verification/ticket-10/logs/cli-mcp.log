@@ -1,0 +1,9 @@
+   Compiling wardrobe-cli v0.1.0 (/private/tmp/wardrobe-ticket-10/crates/wardrobe-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.00s
+     Running tests/entrypoints.rs (target/debug/deps/entrypoints-ecb1bef7f9d63e74)
+
+running 1 test
+test cli_mcp_share_durable_care_threshold_chronology_and_reminder_availability ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.16s
+

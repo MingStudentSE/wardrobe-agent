@@ -1,5 +1,6 @@
 mod assets;
 mod authorization;
+mod care;
 mod clothing;
 mod cutout;
 mod encryption;
@@ -21,7 +22,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 12;
+pub const DATABASE_SCHEMA_VERSION: u32 = 13;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -114,6 +115,7 @@ impl Application {
         tx.execute_batch("CREATE TABLE IF NOT EXISTS clients(id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, document TEXT NOT NULL);")?;
         outfits::migrate(&tx)?;
         wears::migrate(&tx)?;
+        care::migrate(&tx)?;
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
         cutout::migrate(&tx)?;
@@ -230,6 +232,7 @@ impl Application {
             "clothing.list" => self.clothing_list(input),
             op if op.starts_with("outfit.") => self.outfit_execute(op, input),
             op if op.starts_with("wear.") => self.wear_execute(op, input),
+            op if op.starts_with("care.") => self.care_execute(op, input),
             "imports.update" => self.imports_update(input),
             "imports.group" => self.imports_group(input),
             "imports.commit" => self.imports_commit(input),
@@ -276,6 +279,7 @@ pub fn operations() -> Value {
     descriptors.extend(assets::descriptors());
     descriptors.extend(outfits::descriptors());
     descriptors.extend(wears::descriptors());
+    descriptors.extend(care::descriptors());
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());
     descriptors.extend(image_editing::descriptors());
