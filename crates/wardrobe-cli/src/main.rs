@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 use std::{
-    io::{self, BufRead},
+    io::{self, BufRead, Read},
     path::PathBuf,
 };
 use wardrobe_core::{ApiError, Application};
@@ -38,7 +38,8 @@ fn main() {
         .map(|(_, a)| a.as_str())
         .collect();
     let command = positional.first().copied().unwrap_or("capabilities");
-    let input = match positional.get(1) {
+    let stdin_input = if positional.get(1)==Some(&"--input-stdin") {let mut body=String::new();if io::stdin().take(1_048_577).read_to_string(&mut body).is_err()||body.len()>1_048_576{fail(ApiError{code:"invalid_input".into(),message:"无法读取标准输入或输入过大".into()});}Some(body)}else{None};
+    let input = match stdin_input.as_deref().or_else(||positional.get(1).copied()) {
         Some(s) => serde_json::from_str(s),
         None => Ok(json!({})),
     };

@@ -1,5 +1,6 @@
 mod clothing;
 mod members;
+mod providers;
 
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -91,6 +92,9 @@ impl Application {
             tx.execute_batch("PRAGMA user_version=2;")?;
         }
         members::migrate(&tx)?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS providers(id TEXT PRIMARY KEY, document TEXT NOT NULL);",
+        )?;
         tx.execute_batch("PRAGMA user_version=3;")?;
         tx.commit()?;
         Ok(Self { connection })
@@ -125,6 +129,12 @@ impl Application {
             "member.create" => self.member_create(input),
             "member.update" => self.member_update(input),
             "member.select" => self.member_select(input),
+            "provider.credential.set"
+            | "provider.credential.remove"
+            | "provider.credential.status" => self.provider_credential(operation, input),
+            "provider.validate" => self.provider_validate(input),
+            "provider.save" => self.provider_save(input),
+            "provider.list" => self.provider_list(input),
             "clothing.create" => self.clothing_create(input),
             "clothing.get" => self.clothing_get(input),
             "clothing.list" => self.clothing_list(input),
@@ -141,6 +151,7 @@ fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
 pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
     descriptors.extend(clothing::descriptors());
+    descriptors.extend(providers::descriptors());
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );
