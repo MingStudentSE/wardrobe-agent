@@ -29,3 +29,8 @@ coverage/
 *.sqlite-shm
 *.sqlite-wal
 .DS_Store
+
+# Generated Tauri command schemas and browser verification outputs
+/apps/desktop/src-tauri/gen/
+/apps/desktop/test-results/
+/apps/desktop/playwright-report/

@@ -1,9 +1,10 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
+pub const DATABASE_SCHEMA_VERSION: u32 = 2;
 pub const CATEGORIES: &[&str] = &[
     "top",
     "bottom",
@@ -49,13 +50,55 @@ impl Application {
         connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
         let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let version: u32 = tx.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version > SCHEMA_VERSION {
+        if version > DATABASE_SCHEMA_VERSION {
             return Err(ApiError::new(
                 "unsupported_schema",
                 "数据库由更新版本创建，请升级应用后再打开",
             ));
         }
-        tx.execute_batch("CREATE TABLE IF NOT EXISTS members (id TEXT PRIMARY KEY, name TEXT NOT NULL); CREATE TABLE IF NOT EXISTS clothing (id TEXT PRIMARY KEY, member_id TEXT NOT NULL REFERENCES members(id), document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, entity_id TEXT NOT NULL, operation TEXT NOT NULL, document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, entity_id TEXT NOT NULL, document TEXT NOT NULL); PRAGMA user_version=1;")?;
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS members (id TEXT PRIMARY KEY, name TEXT NOT NULL); CREATE TABLE IF NOT EXISTS clothing (id TEXT PRIMARY KEY, member_id TEXT NOT NULL REFERENCES members(id), document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, entity_id TEXT NOT NULL, operation TEXT NOT NULL, document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, entity_id TEXT NOT NULL, document TEXT NOT NULL);")?;
+        if version < 2 {
+            for table in ["clothing", "audit", "outbox"] {
+                let entries = {
+                    let mut statement =
+                        tx.prepare(&format!("SELECT rowid, document FROM {table}"))?;
+                    let entries = statement
+                        .query_map([], |row| {
+                            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                        })?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    entries
+                };
+                for (rowid, serialized) in entries {
+                    let mut document: Value = serde_json::from_str(&serialized).map_err(|_| {
+                        ApiError::new("storage_error", "迁移遇到无效单品数据，未修改数据库")
+                    })?;
+                    let object = document.as_object_mut().ok_or_else(|| {
+                        ApiError::new("storage_error", "迁移遇到无效单品数据，未修改数据库")
+                    })?;
+                    if !object.contains_key("purchase_price_minor") {
+                        let price = object.remove("price_minor").unwrap_or(Value::Null);
+                        object.insert("purchase_price_minor".into(), price);
+                    }
+                    if object.get("category") == Some(&json!("jumpsuit")) {
+                        object.insert("category".into(), json!("one_piece"));
+                    }
+                    if !object.contains_key("price_exponent") {
+                        let exponent = object
+                            .get("currency")
+                            .and_then(Value::as_str)
+                            .and_then(iso_currency::Currency::from_code)
+                            .and_then(|currency| currency.exponent());
+                        object.insert("price_exponent".into(), json!(exponent));
+                    }
+                    tx.execute(
+                        &format!("UPDATE {table} SET document=?1 WHERE rowid=?2"),
+                        params![document.to_string(), rowid],
+                    )?;
+                }
+            }
+            tx.execute_batch("PRAGMA user_version=2;")?;
+        }
         tx.commit()?;
         Ok(Self { connection })
     }
@@ -102,7 +145,12 @@ impl Application {
                 if !(1..=100).contains(&limit) {
                     return Err(ApiError::new("invalid_input", "每页数量必须为 1–100"));
                 }
-                let cursor = input.get("cursor").and_then(Value::as_str).unwrap_or("");
+                let cursor = match input.get("cursor") {
+                    None => "",
+                    Some(value) => value
+                        .as_str()
+                        .ok_or_else(|| ApiError::new("invalid_input", "分页游标必须为字符串"))?,
+                };
                 let mut statement = self.connection.prepare("SELECT document FROM clothing WHERE member_id=?1 AND id>?2 ORDER BY id LIMIT ?3")?;
                 let mut rows = statement
                     .query_map(params![member, cursor, limit + 1], |r| {
@@ -218,11 +266,53 @@ fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
         .ok_or_else(|| ApiError::new("invalid_input", &format!("缺少字符串字段 {key}")))
 }
 pub fn operations() -> Value {
-    json!([
+    let mut descriptors = json!([
         {"name":"space.default","description":"创建或读取默认本地空间","inputSchema":{"type":"object","properties":{},"additionalProperties":false}},
         {"name":"clothing.create","description":"保存无图单品","inputSchema":{"type":"object","required":["member_id","name","category"],"properties":{"member_id":{"type":"string"},"name":{"type":"string","minLength":1,"maxLength":120},"category":{"type":"string","enum":CATEGORIES},"seasons":{"type":"array","items":{"type":"string","enum":["spring","summer","autumn","winter"]}},"purchase_price_minor":{"type":["integer","null"],"minimum":0},"currency":{"type":["string","null"]}}}},
         {"name":"clothing.get","description":"读取成员单品","inputSchema":{"type":"object","required":["member_id","id"],"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}}},
         {"name":"clothing.list","description":"分页浏览成员单品","inputSchema":{"type":"object","required":["member_id"],"properties":{"member_id":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"string"}}}},
         {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
-    ])
+    ]);
+    for descriptor in descriptors.as_array_mut().unwrap() {
+        descriptor["outputSchema"] = output_schema(descriptor["name"].as_str().unwrap());
+    }
+    descriptors
+}
+fn output_schema(operation: &str) -> Value {
+    let item = json!({"type":"object","required":["schema_version","id","member_id","name","category","seasons","purchase_price_minor","price_exponent","currency","size_label","status","favorite","created_at","updated_at"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"member_id":{"type":"string"},"name":{"type":"string"},"category":{"type":"string","enum":CATEGORIES},"seasons":{"type":"array","items":{"type":"string","enum":["spring","summer","autumn","winter"]}},"purchase_price_minor":{"type":["integer","null"],"minimum":0},"price_exponent":{"type":["integer","null"]},"currency":{"type":["string","null"]},"size_label":{"type":["string","null"]},"status":{"type":"string","enum":["active","archived","deleted"]},"favorite":{"type":"boolean"},"created_at":{"type":"string"},"updated_at":{"type":"string"}}});
+    match operation {
+        "clothing.create" | "clothing.get" => item,
+        "space.default" => {
+            json!({"type":"object","required":["schema_version","space_id","member_id","name"],"properties":{"schema_version":{"type":"integer","const":1},"space_id":{"type":"string"},"member_id":{"type":"string"},"name":{"type":"string"}}})
+        }
+        "clothing.list" => {
+            json!({"type":"object","required":["schema_version","items","next_cursor"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":item},"next_cursor":{"type":["string","null"]}}})
+        }
+        _ => {
+            json!({"type":"object","required":["schema_version","operations","categories"],"properties":{"schema_version":{"type":"integer","const":1},"operations":{"type":"array","items":{"type":"object","required":["name","description","inputSchema","outputSchema"]}},"categories":{"type":"array","items":{"type":"string"}}}})
+        }
+    }
+}
+
+pub fn default_database_path() -> PathBuf {
+    if let Some(path) = std::env::var_os("WARDROBE_DATA_DIR") {
+        return PathBuf::from(path).join("wardrobe.sqlite");
+    }
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    #[cfg(target_os = "macos")]
+    let root = home.join("Library/Application Support/wardrobe-agent");
+    #[cfg(target_os = "windows")]
+    let root = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or(home)
+        .join("wardrobe-agent");
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let root = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/share"))
+        .join("wardrobe-agent");
+    root.join("wardrobe.sqlite")
 }

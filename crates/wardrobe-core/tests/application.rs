@@ -110,3 +110,86 @@ fn newer_database_version_is_refused_instead_of_downgraded() {
     drop(fixture);
     assert!(matches!(Application::open(&path),Err(error) if error.code=="unsupported_schema"));
 }
+#[test]
+fn wrong_type_cursor_is_rejected_instead_of_restarting_page() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    assert_eq!(
+        app.execute("clothing.list", json!({"member_id":"default","cursor":123}))
+            .unwrap_err()
+            .code,
+        "invalid_input"
+    );
+}
+#[test]
+fn discovered_operations_describe_output_required_fields_for_consumers() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let capabilities = app.execute("capabilities", json!({})).unwrap();
+    for operation in capabilities["operations"].as_array().unwrap() {
+        assert_eq!(operation["outputSchema"]["type"], "object");
+        assert!(operation["outputSchema"]["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("schema_version")));
+    }
+    let schema = &capabilities["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["name"] == "clothing.create")
+        .unwrap()["outputSchema"];
+    let doc = app.execute("space.default", json!({})).unwrap();
+    let item = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":doc["member_id"],"name":"羊毛外套","category":"outerwear"}),
+        )
+        .unwrap();
+    for field in schema["required"].as_array().unwrap() {
+        assert!(item.get(field.as_str().unwrap()).is_some());
+    }
+    assert_eq!(
+        schema["properties"]["purchase_price_minor"]["type"],
+        json!(["integer", "null"])
+    );
+}
+#[test]
+fn supported_early_database_migrates_price_and_category_without_losing_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("early.sqlite");
+    let fixture = rusqlite::Connection::open(&path).unwrap();
+    fixture.execute_batch("CREATE TABLE members(id TEXT PRIMARY KEY,name TEXT NOT NULL); CREATE TABLE clothing(id TEXT PRIMARY KEY,member_id TEXT NOT NULL,document TEXT NOT NULL); INSERT INTO members VALUES('default','我的衣橱'); PRAGMA user_version=1;").unwrap();
+    let original = json!({"schema_version":1,"id":"early-shirt","member_id":"default","name":"白色衬衫","category":"jumpsuit","seasons":["spring","autumn"],"price_minor":19990,"currency":"CNY","size_label":null,"status":"active","favorite":false,"created_at":"2026-10-07T00:00:00Z","updated_at":"2026-10-07T00:00:00Z"});
+    fixture
+        .execute(
+            "INSERT INTO clothing VALUES('early-shirt','default',?1)",
+            [original.to_string()],
+        )
+        .unwrap();
+    drop(fixture);
+    let app = Application::open(&path).unwrap();
+    let item = app
+        .execute(
+            "clothing.get",
+            json!({"id":"early-shirt","member_id":"default"}),
+        )
+        .unwrap();
+    assert_eq!(item["purchase_price_minor"], 19990);
+    assert_eq!(item["price_exponent"], 2);
+    assert_eq!(item["category"], "one_piece");
+    assert_eq!(item["id"], "early-shirt");
+    assert_eq!(item["created_at"], "2026-10-07T00:00:00Z");
+    drop(app);
+    let reopened = Application::open(&path).unwrap();
+    assert_eq!(
+        reopened
+            .execute(
+                "clothing.get",
+                json!({"id":"early-shirt","member_id":"default"})
+            )
+            .unwrap(),
+        item
+    );
+}
