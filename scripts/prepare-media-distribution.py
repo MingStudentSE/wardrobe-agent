@@ -71,6 +71,14 @@ else:
         destination.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2((args.prefix.parent/project/'COPYING').resolve(strict=True),destination)
         resources[str(destination)]=f'licenses/{destination.name}'
+third_party=pathlib.Path(__file__).resolve().parent.parent/'third-party'
+for source in sorted(third_party.rglob('*')):
+    if source.is_file():
+        relative=source.relative_to(third_party)
+        destination=portable/'third-party'/relative
+        destination.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,destination)
+        if linux:files[f'/usr/share/doc/wardrobe-agent/third-party/{relative.as_posix()}']=str(destination)
+        else:resources[str(destination)]=f'third-party/{relative.as_posix()}'
 shutil.copy2(cli,sidecar/f'wardrobe-cli-{args.target}{extension}')
 bundle={'externalBin':[str(sidecar/'wardrobe-cli')]}
 if windows:

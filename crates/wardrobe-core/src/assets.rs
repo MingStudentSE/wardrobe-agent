@@ -334,7 +334,7 @@ fn dimensions(width: u32, height: u32) -> Result<(), ApiError> {
     }
     Ok(())
 }
-fn decode(bytes: &[u8]) -> Result<image::DynamicImage, ApiError> {
+pub(super) fn decode(bytes: &[u8]) -> Result<image::DynamicImage, ApiError> {
     if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
         use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
         let lib = LibHeif::new();
@@ -417,7 +417,7 @@ fn decode(bytes: &[u8]) -> Result<image::DynamicImage, ApiError> {
     Ok(image)
 }
 
-fn thumbnail(image: &image::DynamicImage) -> image::DynamicImage {
+pub(super) fn thumbnail(image: &image::DynamicImage) -> image::DynamicImage {
     if image.width() > 320 || image.height() > 320 {
         image.thumbnail(320, 320)
     } else {
