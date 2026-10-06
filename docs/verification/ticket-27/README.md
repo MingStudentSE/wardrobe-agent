@@ -140,3 +140,8 @@ Same-revision feedback history pagination:7150 initial fixture compilation faile
 
 
 Unresolved feedback projection:28332 actualred exit101/4.12s (`sync-feedback-unresolved-planner-red.log`) demonstrated recommendation.generate treating divergent feedback as definitive.75306 confirmed exit0/8.22s (`sync-feedback-unresolved-planner-green.log`): explicit effective feedback projections reject unresolved latest-root branches with sync_conflict and a review instruction; both historical variants remain readable. This does not yet establish equivalent wear/care/learning projection contracts.
+
+
+Temporary formal backup-review slot release checkpoint
+
+4552 confirmed exit101/12.46s (`sync-unresolved-wear-care-projections-red.log`). This run added wear.summary/care.status conflict expectations, but failed earlier at the existing public peer clothing edit convergence assertion, sync.rs256: owner name remained the old value after one peer and owner bounded step. The new projection assertions were not reached, so this is not evidence of a reproduced projection failure. Preserve and diagnose the actual earlier convergence failure before classifying the new contract. No own live processes at release; source test additions preserved. #27 remains unfinished, no candidate/acceptance.

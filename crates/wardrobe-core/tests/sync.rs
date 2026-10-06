@@ -354,6 +354,23 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         let versions=app.execute("sync.history",json!({"member_id":member["member_id"],"entity_type":"outfit_versions","entity_id":format!("{}:2",look["id"].as_str().unwrap())})).unwrap();
         assert_eq!(versions["items"].as_array().unwrap().len(), 2);
     }
+    assert_eq!(
+        owner
+            .execute("wear.summary", json!({"member_id":member["member_id"]}))
+            .expect_err("unresolved wear branches cannot become a definitive count")
+            .code,
+        "sync_conflict"
+    );
+    assert_eq!(
+        owner
+            .execute(
+                "care.status",
+                json!({"member_id":member["member_id"],"clothing_id":garment["id"]})
+            )
+            .expect_err("unresolved histories cannot produce definitive wash availability")
+            .code,
+        "sync_conflict"
+    );
     let branch_conflicts = owner
         .execute("sync.conflicts", json!({"member_id":member["member_id"]}))
         .unwrap();
