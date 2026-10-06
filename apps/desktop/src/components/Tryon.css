@@ -1,0 +1,3 @@
+/* Hallmark · macrostructure: Workbench component · tone: Atelier · anchor hue: deep green
+ * Pre-emit critique: P4 H4 E4 S5 R5 V4. Existing tokens, narrow stacked comparison, visible actions. */
+.tryon-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tryon-pair figure{margin:0;min-width:0}.tryon-pair img{width:100%;max-height:560px;object-fit:contain;background:var(--color-surface)}.tryon-pair figcaption{overflow-wrap:anywhere;font-size:14px;line-height:1.6}.tryon-comparisons>section{border-top:1px solid var(--color-rule);padding:16px 0}.tryon{min-width:0}.tryon select{max-width:100%}@media(max-width:480px){.tryon-pair{grid-template-columns:1fr}}

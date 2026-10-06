@@ -1,0 +1,50 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5181 --strictPort
+[WebServer] (node:34105) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 35 tests using 1 worker
+
+(node:34107) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+  ✓   1 tests/authorization.spec.ts:2:1 › 可信设置登记限定客户端，一次性令牌关闭后不再展示且可撤销 (1.0s)
+  ✓   2 tests/authorization.spec.ts:3:1 › 过期时间错误可修改，完整业务与全部成员授权需明确选择 (527ms)
+  ✓   3 tests/clothing-management.spec.ts:2:1 › details edit, archive, recycle and restore clothing without losing facts (841ms)
+  ✓   4 tests/clothing-management.spec.ts:14:1 › management controls remain reachable at supported narrow and desktop widths (2.2s)
+  ✓   5 tests/clothing-management.spec.ts:17:1 › large minor-unit prices display and edit without floating-point rounding (653ms)
+  ✓   6 tests/encryption.spec.ts:3:1 › 加密空间设置展示恢复与配对流程，窄屏没有溢出 (562ms)
+  -   7 tests/encryption.spec.ts:4:1 › 真实系统安全存储建立空间，换密码后解除配对，再用恢复码恢复
+  ✓   8 tests/flatlay.spec.ts:6:1 › 全部两件商品图真实接口生成、预览本机保存、七宽度与重读，不产生穿着 (1.7s)
+  ✓   9 tests/image-editing.spec.ts:4:1 › 真实单品图片旋转预览替换恢复及重启保留 (1.5s)
+  ✓  10 tests/image-editing.spec.ts:10:1 › 归并真实来源图片保留来源单品和当前主图 (859ms)
+  -  11 tests/image-editing.spec.ts:15:1 › 公开白衣真实本地模型下载抠图采用并在重启后显示离线缓存
+  ✓  12 tests/imports.spec.ts:6:1 › durable batch drafts merge save reload and show corrupt file independently (2.4s)
+  ✓  13 tests/imports.spec.ts:11:1 › cancelled perfile queue survives reload and explicit retry resumes only that file (1.2s)
+  -  14 tests/local-provider.spec.ts:3:1 › 本地真实 SmolVLM 文本与视觉连接通过 GUI 和共享 CLI
+  ✓  15 tests/media.spec.ts:5:1 › real images preview adopt reorder detach and retain references after editing (1.2s)
+  ✓  16 tests/media.spec.ts:13:1 › image controls remain accessible at all specified widths (2.2s)
+  ✓  17 tests/media.spec.ts:17:1 › pending native picker blocks member switching and simultaneous save (1.7s)
+  ✓  18 tests/media.spec.ts:22:1 › a failed image stays separate from valid previews and can be retried (593ms)
+  ✓  19 tests/members.spec.ts:2:1 › create edit switch and reload an independent member wardrobe (873ms)
+  ✓  20 tests/members.spec.ts:19:1 › member controls stay usable at every required viewport (331ms)
+  ✓  21 tests/members.spec.ts:29:1 › saving cannot race a pending member switch (1.9s)
+  ✓  22 tests/outfits.spec.ts:2:1 › 离线Lookbook保存角色层次、克隆、收藏及回收站恢复 (2.2s)
+  ✓  23 tests/outfits.spec.ts:6:1 › 读取Lookbook时显示真实加载状态，列表完成后可编辑 (1.1s)
+  ✓  24 tests/pagination.spec.ts:2:1 › repeated load-more clicks show every real item once (607ms)
+  ✓  25 tests/pagination.spec.ts:13:1 › fresh save invalidates an older pending page response (1.6s)
+  ✓  26 tests/pagination.spec.ts:26:1 › manual price input preserves a three-decimal currency exactly (476ms)
+  ✓  27 tests/pagination.spec.ts:37:1 › load-more stays unavailable during post-save replacement query (1.7s)
+  ✓  28 tests/product-display.spec.ts:6:1 › 真实图片接口商品图预览、采用、重启及七宽度 (1.4s)
+  ✓  29 tests/product-display.spec.ts:15:1 › 专用图片模型通过真实设置保存并重读，不伪装文本验证 (505ms)
+  ✓  30 tests/providers.spec.ts:2:1 › 模型配置可重读，无密钥不会阻断已有衣橱 (674ms)
+  ✓  31 tests/providers.spec.ts:4:1 › 视觉专用配置仅在明确点击后发送内置测试图 (703ms)
+  ✓  32 tests/tryon.spec.ts:7:1 › 人物和全部衣物真实HTTP、多方案前后对比、本机保存及七宽度 (1.8s)
+  ✓  33 tests/wears.spec.ts:2:1 › 穿着补记、同日换装、改穿及撤销保留事件历史 (1.1s)
+  ✓  34 tests/wears.spec.ts:12:1 › 模板今天穿与单品穿过均需显式确认，保存模板不产生穿着 (1.1s)
+  ✓  35 tests/wears.spec.ts:19:1 › 提交中阻止换成员，失败重试复用已提交幂等键 (1.4s)
+
+  3 skipped
+  32 passed (40.4s)

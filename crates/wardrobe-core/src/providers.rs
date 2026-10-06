@@ -3,7 +3,7 @@ use rusqlite::params;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
-const CAPABILITIES: &[&str] = &["text", "vision", "image_generation"];
+const CAPABILITIES: &[&str] = &["text", "vision", "image_generation", "virtual_tryon"];
 impl Application {
     pub(crate) fn provider_credential(
         &self,
@@ -218,7 +218,7 @@ impl Application {
         if capabilities.is_empty()
             || capabilities.iter().any(|v| {
                 if adapter == "ark_seedream" {
-                    v != "image_generation"
+                    !["image_generation", "virtual_tryon"].contains(&v.as_str().unwrap_or(""))
                 } else {
                     !["text", "vision"].contains(&v.as_str().unwrap_or(""))
                 }
