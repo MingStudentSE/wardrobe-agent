@@ -21,6 +21,7 @@ impl Application {
             tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.bootstrap_identity',?2)",params![string(op,"entity_id")?,json!({"op_id":op["op_id"]}).to_string()])?;
         }
         tx.execute("INSERT INTO sync_pending(target_id,marker_key,op_id,document,reason,attempts) VALUES(?1,?2,?3,?4,?5,0) ON CONFLICT(target_id,marker_key) DO NOTHING",params![target,key,string(op,"op_id")?,op.to_string(),reason])?;
+        tx.execute("INSERT OR IGNORE INTO sync_publications(target_id,op_id,locally_published) VALUES(?1,?2,0)",params![target,string(op,"op_id")?])?;
         tx.execute(
             "INSERT OR IGNORE INTO sync_cursors VALUES(?1,?2)",
             params![target, key],

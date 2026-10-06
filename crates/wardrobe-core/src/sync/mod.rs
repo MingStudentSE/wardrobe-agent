@@ -4,6 +4,7 @@ mod branches;
 mod conflicts;
 mod index;
 mod pending;
+mod publication;
 mod schema;
 pub mod storage;
 mod worker;
@@ -177,6 +178,10 @@ fn error(code: &str) -> ApiError {
 pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     repair_immutable(tx)?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_index_read(target_id TEXT NOT NULL,epoch INTEGER NOT NULL,publisher TEXT NOT NULL,next_page INTEGER NOT NULL,observed_head INTEGER NOT NULL,previous_digest TEXT,PRIMARY KEY(target_id,epoch,publisher)); CREATE TABLE IF NOT EXISTS sync_index_batches(target_id TEXT NOT NULL,epoch INTEGER NOT NULL,page INTEGER NOT NULL,document TEXT NOT NULL,published INTEGER NOT NULL,PRIMARY KEY(target_id,epoch,page)); CREATE TABLE IF NOT EXISTS sync_index_entries(target_id TEXT NOT NULL,epoch INTEGER NOT NULL,op_id TEXT NOT NULL,page INTEGER NOT NULL,PRIMARY KEY(target_id,epoch,op_id)); CREATE TABLE IF NOT EXISTS sync_bootstrap_ids(op_id TEXT PRIMARY KEY); CREATE TABLE IF NOT EXISTS sync_publications(target_id TEXT NOT NULL,op_id TEXT NOT NULL,PRIMARY KEY(target_id,op_id)); CREATE TABLE IF NOT EXISTS sync_pending(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,document TEXT NOT NULL,reason TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_quarantine(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,code TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_reassert(op_id TEXT PRIMARY KEY,fields TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_resolution_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
+    let has_local_receipt_flag: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('sync_publications') WHERE name='locally_published')",[],|r|r.get(0))?;
+    if !has_local_receipt_flag {
+        tx.execute_batch("ALTER TABLE sync_publications ADD COLUMN locally_published INTEGER NOT NULL DEFAULT 1 CHECK(locally_published IN (0,1))")?;
+    }
     for table in TABLES {
         for kind in ["INSERT", "UPDATE"] {
             let key = entity_key(table, "NEW");
@@ -195,6 +200,7 @@ pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
             tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS sync_{table}_{kind} AFTER {kind} ON {table} WHEN (SELECT applying FROM sync_control WHERE id=1)=0 AND EXISTS(SELECT 1 FROM encryption_state) BEGIN INSERT INTO sync_journal(op_id,device,entity_type,entity_id,before_doc,after_doc,base) VALUES(lower(hex(randomblob(16))),(SELECT json_extract(document,'$.device_id') FROM encryption_state),'{table}',{key},{before},{after},COALESCE((SELECT json_group_object(device,seq) FROM sync_clock),'{{}}')); INSERT INTO sync_clock(device,seq) VALUES((SELECT json_extract(document,'$.device_id') FROM encryption_state),1) ON CONFLICT(device) DO UPDATE SET seq=seq+1; UPDATE sync_journal SET clock=(SELECT json_group_object(device,seq) FROM sync_clock) WHERE id=(SELECT max(id) FROM sync_journal); END;"))?;
         }
     }
+    tx.execute_batch("CREATE INDEX IF NOT EXISTS sync_journal_entity ON sync_journal(entity_type,entity_id); CREATE INDEX IF NOT EXISTS sync_inbox_entity ON sync_inbox(json_extract(document,'$.entity_type'),json_extract(document,'$.entity_id'));")?;
     Ok(())
 }
 fn vector(v: &Value) -> BTreeMap<String, u64> {
@@ -254,6 +260,9 @@ impl Application {
         }
         let entity = string(op, "entity_id")?;
         schema::validate(table, entity, &op["after"])?;
+        if !op["before"].is_null() {
+            schema::validate(table, entity, &op["before"])?;
+        }
         let after = op["after"]
             .as_object()
             .ok_or_else(|| error("sync_invalid"))?;
@@ -469,7 +478,7 @@ impl Application {
                         .collect::<Result<Vec<_>, _>>()?;
                     drop(stmt);
                     for (id, document) in rows {
-                        let seen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal WHERE entity_type=?1 AND entity_id=?2 AND (?1<>'members' OR EXISTS(SELECT 1 FROM sync_bootstrap_ids b WHERE b.op_id=sync_journal.op_id)))",params![table,id],|r|r.get(0))?;
+                        let seen = publication::has_original(&tx, table, &id, &document)?;
                         if seen {
                             continue;
                         }
@@ -624,31 +633,19 @@ impl Application {
             self.connection
                 .execute("UPDATE sync_journal SET registered=1 WHERE id=?1", [row])?;
             if !published {
-                let cipher = self.sync_encrypt("changes", &op)?;
-                let bytes = serde_json::to_vec(&cipher).map_err(|_| error("sync_invalid"))?;
-                let key = format!("{prefix}/{id}.object");
-                if !storage.stat(&key).is_ok() {
-                    storage.put(&key, &mut bytes.as_slice(), WriteCondition::CreateOnly)?;
-                }
-                let stored = bounded(&storage, &key)?;
-                let marker = json!({"key":key,"sha256":digest(&stored),"bytes":stored.len()});
-                let marker = self.sync_encrypt("changes", &marker)?;
-                let marker_bytes =
-                    serde_json::to_vec(&marker).map_err(|_| error("sync_invalid"))?;
-                let marker_key = format!("{prefix}/{id}.commit");
-                if storage.stat(&marker_key).is_err() {
-                    storage.put(
-                        &marker_key,
-                        &mut marker_bytes.as_slice(),
-                        WriteCondition::CreateOnly,
-                    )?;
-                }
-                self.connection.execute(
-                    "INSERT OR IGNORE INTO sync_publications VALUES(?1,?2)",
-                    params![target_key, id],
-                )?;
+                self.sync_publish_operation(&storage, &prefix, &target_key, &op)?;
                 sent += 1;
             }
+        }
+        let mut forwarded = self.connection.prepare("SELECT op_id,document FROM sync_inbox i WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=i.op_id) ORDER BY rowid LIMIT ?2")?;
+        let original_ops = forwarded
+            .query_map(params![target_key, 256 - sent], |r| r.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(forwarded);
+        for document in original_ops {
+            let op: Value = serde_json::from_str(&document).map_err(|_| error("sync_invalid"))?;
+            self.sync_publish_operation(&storage, &prefix, &target_key, &op)?;
+            sent += 1;
         }
         self.sync_publish_index(&storage, &identity, &target_key, &prefix)?;
         let (indexed_objects, indexed_more) =
@@ -730,10 +727,13 @@ impl Application {
                         }
                         Err(e) => return Err(e),
                     }
-                    self.connection.execute(
+                    let tx = self.begin_write()?;
+                    tx.execute("INSERT OR IGNORE INTO sync_publications(target_id,op_id,locally_published) VALUES(?1,?2,0)",params![target_key,string(&op,"op_id")?])?;
+                    tx.execute(
                         "INSERT OR IGNORE INTO sync_cursors VALUES(?1,?2)",
                         params![target_key, object.key],
                     )?;
+                    tx.commit()?;
                     received += 1;
                 }
                 cursor = page.cursor;
@@ -750,7 +750,7 @@ impl Application {
         received += replayed;
         quarantined += replay_quarantined;
         let missing_assets = self.sync_fetch_assets(&storage)?;
-        let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0 OR NOT EXISTS(SELECT 1 FROM sync_index_entries e WHERE e.target_id=?1 AND e.epoch=?2 AND e.op_id=j.op_id))", params![target_key, identity["epoch"].as_u64().ok_or_else(||error("sync_invalid"))?], |r| r.get(0))?;
+        let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0) OR EXISTS(SELECT 1 FROM sync_inbox i WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=i.op_id)) OR EXISTS(SELECT 1 FROM sync_publications p JOIN sync_inbox i ON i.op_id=p.op_id WHERE p.target_id=?1 AND p.locally_published=1 AND NOT EXISTS(SELECT 1 FROM sync_index_entries e WHERE e.target_id=?1 AND e.epoch=?2 AND e.op_id=p.op_id))", params![target_key,identity["epoch"].as_u64().ok_or_else(||error("sync_invalid"))?],|r|r.get(0))?;
         Ok(
             json!({"schema_version":1,"sent":sent,"received":received,"pending":pending,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":has_more || incoming_more || (pending > 0 && replayed + replay_quarantined == (256 - incoming_count) as u64 && incoming_count < 256)}),
         )

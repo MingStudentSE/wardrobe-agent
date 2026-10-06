@@ -46,7 +46,7 @@ impl Application {
         let page: Value = if let Some(prepared) = prepared {
             serde_json::from_str(&prepared).map_err(|_| error("storage_corrupt"))?
         } else {
-            let mut statement = self.connection.prepare("SELECT j.op_id FROM sync_journal j JOIN sync_publications p ON p.op_id=j.op_id AND p.target_id=?1 WHERE NOT EXISTS(SELECT 1 FROM sync_index_entries e WHERE e.target_id=?1 AND e.epoch=?2 AND e.op_id=j.op_id) ORDER BY j.id LIMIT 256")?;
+            let mut statement = self.connection.prepare("SELECT i.op_id FROM sync_inbox i JOIN sync_publications p ON p.op_id=i.op_id AND p.target_id=?1 AND p.locally_published=1 WHERE NOT EXISTS(SELECT 1 FROM sync_index_entries e WHERE e.target_id=?1 AND e.epoch=?2 AND e.op_id=i.op_id) ORDER BY i.rowid LIMIT 256")?;
             let ids = statement
                 .query_map(params![target, epoch], |r| r.get::<_, String>(0))?
                 .collect::<Result<Vec<_>, _>>()?;
