@@ -1,14 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from './api';
 import './styles.css';
 type Clothing={id:string;name:string;category:string;seasons:string[];purchase_price_minor:number|null;price_exponent:number|null;currency:string|null};
 const categories:Record<string,string>={top:'上装',bottom:'下装',outerwear:'外套',dress:'连衣裙',one_piece:'连体',shoes:'鞋',bag:'包',accessory:'配饰',underwear:'内衣',sportswear:'运动服',other:'其他'};
 const seasons:Record<string,string>={spring:'春',summer:'夏',autumn:'秋',winter:'冬'};
-async function api<T>(operation:string,input:object={}):Promise<T>{
- if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) { const response=await fetch('/__wardrobe_dev_api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation,input})}); const body=await response.json();if(body.error)throw body.error;return body.result; }
- return invoke('application',{operation,input});
-}
 function moneyExponent(currency:string){try{return new Intl.NumberFormat('zh-CN',{style:'currency',currency}).resolvedOptions().maximumFractionDigits??2;}catch{return 2;}}
 function moneyMinor(price:string,currency:string){
  const exponent=moneyExponent(currency),[whole,fraction='']=price.split('.');
