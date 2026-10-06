@@ -22,8 +22,8 @@ args=p.parse_args()
 output=args.output.resolve();output.mkdir(parents=True,exist_ok=True)
 portable=output/'portable';portable.mkdir(exist_ok=True)
 sidecar=output/'sidecar';sidecar.mkdir(exist_ok=True)
-windows=sys.platform=='win32';linux=sys.platform.startswith('linux')
-if not windows and not linux:raise SystemExit('This staging command targets native Windows/Linux runners')
+windows=sys.platform=='win32';linux=sys.platform.startswith('linux');macos=sys.platform=='darwin'
+if not windows and not linux and not macos:raise SystemExit('Unsupported native staging platform')
 extension='.exe' if windows else ''
 cli=portable/f'wardrobe-cli{extension}'
 shutil.copy2(args.cli.resolve(strict=True),cli)
@@ -45,7 +45,7 @@ if windows:
     for source in sorted((args.prefix/'share').glob('*/copyright')):
         destination=portable/'licenses'/source.parent.name/'copyright';destination.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,destination)
         resources[str(destination)]=f'licenses/{source.parent.name}/copyright'
-else:
+elif linux:
     for name in ('libheif.so.1','libde265.so.0'):
         source=(args.prefix/'lib'/name).resolve(strict=True)
         destination=runtime/name;shutil.copy2(source,destination)
@@ -57,10 +57,26 @@ else:
         source=args.prefix.parent/project/'COPYING'
         destination=portable/'licenses'/f'{project}-COPYING';destination.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source.resolve(strict=True),destination)
         files[f'/usr/share/doc/wardrobe-agent/{destination.name}']=str(destination)
+else:
+    for name in ('libheif.1.dylib','libde265.0.dylib'):
+        destination=runtime/name
+        shutil.copy2((args.prefix/'lib'/name).resolve(strict=True),destination)
+        subprocess.run(['install_name_tool','-add_rpath','@loader_path',str(destination)],check=True)
+        subprocess.run(['codesign','--force','--sign','-',str(destination)],check=True)
+    for rpath in ('@executable_path/lib','@executable_path/../Frameworks'):
+        subprocess.run(['install_name_tool','-add_rpath',rpath,str(cli)],check=True)
+    subprocess.run(['codesign','--force','--sign','-',str(cli)],check=True)
+    for project in ('libheif','libde265'):
+        destination=portable/'licenses'/f'{project}-COPYING'
+        destination.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copy2((args.prefix.parent/project/'COPYING').resolve(strict=True),destination)
+        resources[str(destination)]=f'licenses/{destination.name}'
 shutil.copy2(cli,sidecar/f'wardrobe-cli-{args.target}{extension}')
 bundle={'externalBin':[str(sidecar/'wardrobe-cli')]}
 if windows:
     bundle.update({'targets':['nsis'],'resources':resources})
+elif macos:
+    bundle.update({'targets':['app'],'macOS':{'minimumSystemVersion':'13.0','frameworks':[str(runtime/name) for name in ('libheif.1.dylib','libde265.0.dylib')]},'resources':resources})
 else:
     bundle.update({'targets':['deb','appimage'],'linux':{'deb':{'files':files},'appimage':{'files':{k.lstrip('/'):v for k,v in files.items()}}}})
 (output/'tauri-media.json').write_text(json.dumps({'bundle':bundle},indent=2)+'\n')

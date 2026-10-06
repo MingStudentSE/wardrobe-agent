@@ -21,3 +21,7 @@
 因此建议合入基础实现但保留 #12 的跨平台、供应商、授权验收项。scope基础由独立slice继续实现，不为等待#27造成循环依赖而取消该验收。完整 Beta 继续依赖后续集成验证。
 
 最终媒体合并检查使用 PKG_CONFIG=/opt/homebrew/opt/pkgconf/bin/pkg-config、PKG_CONFIG_PATH=/tmp/wardrobe-media-native/install/lib/pkgconfig、DYLD_LIBRARY_PATH=/tmp/wardrobe-media-native/install/lib；sha2与媒体模块统一0.11，其digest字节转换保持原来的SHA256账户fingerprint。
+
+## 集成 CI 补充证据
+
+run37505079065（8d189de）：macOS ARM job及实际Keychain烟测success；Ubuntu24.04 job及实际独立DBus/gnome-keyring Secret Service烟测success。Windows、macOSIntel与Ubuntu22.04仍在运行，未判全平台通过。此处运行的是临时生成凭据，不是供应商账户成功调用。debug行为测试和原生构建不替代release HEIC运行验收；后者已发现FFI安全限制结构版本不匹配疑点，另行修复复验。
