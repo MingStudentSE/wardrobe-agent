@@ -1,0 +1,17 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test wears.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5189 --strictPort
+[WebServer] (node:86755) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 3 tests using 1 worker
+
+(node:86757) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+  ✓  1 tests/wears.spec.ts:2:1 › 穿着补记、同日换装、改穿及撤销保留事件历史 (1.2s)
+  ✓  2 tests/wears.spec.ts:12:1 › 模板今天穿与单品穿过均需显式确认，保存模板不产生穿着 (1.0s)
+  ✓  3 tests/wears.spec.ts:19:1 › 提交中阻止换成员，失败重试复用已提交幂等键 (1.4s)
+
+  3 passed (4.8s)
