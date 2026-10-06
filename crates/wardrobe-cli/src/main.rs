@@ -10,7 +10,7 @@ fn main() {
         .windows(2)
         .find(|a| a[0] == "--db")
         .map(|a| PathBuf::from(&a[1]))
-        .unwrap_or_else(default_database);
+        .unwrap_or_else(wardrobe_core::default_database_path);
     let app = match Application::open(&db) {
         Ok(app) => app,
         Err(e) => {
@@ -56,28 +56,6 @@ fn main() {
 fn fail(error: ApiError) {
     println!("{}", json!({"error":error}));
     std::process::exit(2);
-}
-fn default_database() -> PathBuf {
-    if let Some(path) = std::env::var_os("WARDROBE_DATA_DIR") {
-        return PathBuf::from(path).join("wardrobe.sqlite");
-    }
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    #[cfg(target_os = "macos")]
-    let root = home.join("Library/Application Support/wardrobe-agent");
-    #[cfg(target_os = "windows")]
-    let root = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or(home)
-        .join("wardrobe-agent");
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let root = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home.join(".local/share"))
-        .join("wardrobe-agent");
-    root.join("wardrobe.sqlite")
 }
 fn mcp(app: &Application, line: &str) -> Option<Value> {
     let request: Value = match serde_json::from_str(line) {
