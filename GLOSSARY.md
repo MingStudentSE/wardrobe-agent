@@ -6,7 +6,7 @@
 - **Application API**：GUI、CLI、MCP 共用的命令和查询边界，输出版本化 JSON 与类型化错误。
 - **未知值**：未确认事实使用 null 或空季节列表；不根据空值推断尺寸、价格或日期。
 - **最小货币单位价格（purchase_price_minor）**：非负整数，例如 CNY 12900 表示 129.00 元；须同时给出币种。
-- **分页游标（cursor）**：单品 UUIDv7 排序位置；结果的 next_cursor 为 null 表示末页。
+- **分页游标（cursor）**：分页查询返回的续页位置；单品列表使用当前筛选与排序内的单品 ID，历史使用事件位置。调用方须保留查询条件，next_cursor 为 null 表示末页。
 - **当前成员（Selected Member）**：持久 workspace 记录的 GUI 选择；CLI/MCP 仍须明确 member_id，不将缺失参数隐式补为当前成员。
 - **默认成员别名（default）**：旧 CLI 输入兼容标识，通过共用成员解析器映射为 UUIDv7；输出与持久单品均使用 canonical UUID。
 - **模型配置（Provider Configuration）**：本机保存的模型端点、模型名、声明能力和认证方式；配置不包含实际凭据。
