@@ -82,6 +82,12 @@ fn paired_installation_reads_application_generated_ciphertext_package_without_or
             json!({"member_id":"default","clothing_id":clothing["id"],"asset_id":asset["id"]}),
         )
         .unwrap();
+    let preferences = owner
+        .execute(
+            "insights.configure",
+            json!({"member_id":"default","stale_days":89,"expected_revision":0}),
+        )
+        .unwrap();
     let exported = owner
         .execute(
             "encryption.package.export",
@@ -110,6 +116,23 @@ fn paired_installation_reads_application_generated_ciphertext_package_without_or
     let result = peer
         .execute("encryption.package.read", json!({"path":path}))
         .unwrap();
+    assert_eq!(
+        result["snapshot"]["insights_preferences"][0]["stale_days"],
+        89
+    );
+    assert_eq!(
+        result["snapshot"]["insights_preferences"][0]["id"],
+        preferences["id"]
+    );
+    assert!(result["snapshot"].get("frequency").is_none());
+    let peer_summary = peer
+        .execute(
+            "insights.summary",
+            json!({"member_id":"default","as_of_date":"2026-10-01","timezone":"Asia/Shanghai"}),
+        )
+        .unwrap();
+    assert_eq!(peer_summary["preferences"]["stale_days"], 90);
+    assert_eq!(peer_summary["preferences"]["revision"], 0);
     assert_eq!(result["snapshot"]["care_config"][0]["wash_after_wears"], 3);
     assert_eq!(
         result["snapshot"]["care_events"].as_array().unwrap().len(),

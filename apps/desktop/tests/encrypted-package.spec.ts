@@ -14,6 +14,7 @@ test('真实系统密钥导出独立密文包，窄屏可操作并验证读取',
  await page.getByLabel('导出目标文件夹').fill(folder);
  await page.getByRole('button',{name:'导出密文文件包',exact:true}).click();
  await expect(page.getByRole('status').filter({hasText:'密文包已导出'})).toBeVisible();
+ for(const width of [320,375,414,768,1024,1280,1440]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();}
  const packagePath=join(folder,readdirSync(folder)[0]);
  expect(readdirSync(packagePath).length).toBeGreaterThanOrEqual(2);
  for(const name of readdirSync(packagePath))expect(readFileSync(join(packagePath,name)).includes(Buffer.from('分页单品'))).toBeFalsy();

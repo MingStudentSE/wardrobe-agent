@@ -157,6 +157,19 @@ fn facts(app: &Application, table: &str, assets: &HashSet<String>) -> Result<Vec
         let v: Value = serde_json::from_str(&row).map_err(|_| error())?;
         let safe = if table == "clothing" {
             garment(&v, assets)
+        } else if table == "insights_preferences" {
+            projection(
+                &v,
+                &[
+                    "schema_version",
+                    "id",
+                    "member_id",
+                    "stale_days",
+                    "revision",
+                    "created_at",
+                    "updated_at",
+                ],
+            )
         } else if table == "care_config" {
             projection(
                 &v,
@@ -382,7 +395,7 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             .iter()
             .filter_map(|a| a["id"].as_str().map(str::to_owned))
             .collect();
-        let snapshot = json!({"schema_version":1,"space_id":s["space_id"],"members":members,"clothing":facts(app,"clothing",&ids)?,"outfits":facts(app,"outfits",&ids)?,"outfit_versions":facts(app,"outfit_versions",&ids)?,"wear_events":facts(app,"wear_events",&ids)?,"care_config":facts(app,"care_config",&ids)?,"care_events":facts(app,"care_events",&ids)?,"care_asset_refs":care_refs(app,&ids)?});
+        let snapshot = json!({"schema_version":1,"space_id":s["space_id"],"members":members,"clothing":facts(app,"clothing",&ids)?,"outfits":facts(app,"outfits",&ids)?,"outfit_versions":facts(app,"outfit_versions",&ids)?,"wear_events":facts(app,"wear_events",&ids)?,"care_config":facts(app,"care_config",&ids)?,"care_events":facts(app,"care_events",&ids)?,"care_asset_refs":care_refs(app,&ids)?,"insights_preferences":facts(app,"insights_preferences",&ids)?});
         let snapshot_object = encrypt_object(&s, &w, &package, "snapshots", snapshot)?;
         total_bytes = total_bytes
             .checked_add(snapshot_object.1.len() as u64)

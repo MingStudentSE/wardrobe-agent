@@ -31,6 +31,7 @@ with tempfile.TemporaryDirectory(prefix='wardrobe-export-cli-') as root:
   care=call(owner,'care.correct',{'member_id':'default','root_event_id':care['root_event_id'],'expected_revision':1,'action':'dry_clean','local_date':'2026-10-01','timezone':'Asia/Shanghai','operation_key':'CLI corrected wash'})
   call(owner,'care.revoke',{'member_id':'default','root_event_id':care['root_event_id'],'expected_revision':2,'reason':'CLI historical care','operation_key':'CLI revoke wash'})
   call(owner,'assets.detach',{'member_id':'default','clothing_id':garment['id'],'asset_id':asset['id']})
+  preferences=call(owner,'insights.configure',{'member_id':'default','stale_days':89,'expected_revision':0})
   exported=call(owner,'encryption.package.export',{'directory':str(external)});package=pathlib.Path(exported['path'])
   for child in package.iterdir():
    data=child.read_bytes()
@@ -43,6 +44,9 @@ with tempfile.TemporaryDirectory(prefix='wardrobe-export-cli-') as root:
   assert len(inspected['snapshot']['care_events'])==3
   assert len(inspected['snapshot']['care_asset_refs'])==3
   assert inspected['snapshot']['care_events'][0]['snapshot']['display_asset_id']==asset['id']
+  assert inspected['snapshot']['insights_preferences'][0]['stale_days']==89
+  assert inspected['snapshot']['insights_preferences'][0]['id']==preferences['id']
+  assert call(peer,'insights.summary',{'member_id':'default','as_of_date':'2026-10-01','timezone':'Asia/Shanghai'})['preferences']['stale_days']==90
   assert 'local_path' not in json.dumps(inspected) and 'original' not in json.dumps(inspected)
   assert call(peer,'clothing.list',{'member_id':'default'})['items']==[]
   client=call(owner,'client.authorize',{'name':'CLI full package denial','mode':'full','operations':[],'member_ids':None,'expires_at':None})
@@ -55,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix='wardrobe-export-cli-') as root:
   messages=[json.loads(v) for v in proc.stdout.splitlines() if v.strip()]
   tools=next(v['result']['tools'] for v in messages if v.get('id')==2)
   assert not any(t['name'].startswith('encryption.') for t in tools)
-  print(json.dumps({'paired_installations':2,'external_files':len(list(package.iterdir())),'display_assets':len(inspected['assets']),'care_revisions':len(inspected['snapshot']['care_events']),'original_or_plaintext_found':False,'peer_facts_imported':False,'full_client_package_operations_denied':2,'mcp_encryption_tools':0}))
+  print(json.dumps({'paired_installations':2,'external_files':len(list(package.iterdir())),'display_assets':len(inspected['assets']),'care_revisions':len(inspected['snapshot']['care_events']),'stale_days':inspected['snapshot']['insights_preferences'][0]['stale_days'],'original_or_plaintext_found':False,'peer_facts_imported':False,'full_client_package_operations_denied':2,'mcp_encryption_tools':0}))
  finally:
   for directory in [peer,owner]:
    if directory.exists():call(directory,'encryption.unpair')
