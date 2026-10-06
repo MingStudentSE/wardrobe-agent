@@ -1,6 +1,6 @@
 # #12 模型配置与安全凭据验收记录
 
-2026-10-07，macOS Apple Silicon。实现分支 codex/ticket-12，基于 integration 36d902c，合入 cc5f8f9（#4 与 live-client schema guard）。
+2026-10-07，macOS Apple Silicon。实现分支 codex/ticket-12，基于 integration 36d902c，合入 3f1c4c1（#4、live-client schema guard与#5媒体/原生依赖）。
 
 已运行的证据：
 
@@ -14,8 +14,10 @@
 
 尚未判通过的门槛：
 
-- Windows Credential Store 和 Ubuntu已解锁 Secret Service实测，三平台发行包/运行依赖、Tauri async命令合入#5后运行验证。
+- Windows Credential Store 和 Ubuntu已解锁 Secret Service实测，三平台发行包/运行依赖。#5的Tauri async + spawn_blocking已合入源码，原生运行验证仍未代替。
 - 用户真实供应商文本/视觉调用，专用图像/试穿适配器及真实账号成功；文本fixture与配置界面不替代这些门槛。
 - #27 客户端scope/完整授权。当前原有CLI/MCP直连API并没有虚构授权层。
 
-因此建议合入基础实现但保留 #12 的跨平台、供应商、授权验收项，完整 Beta 继续依赖后续集成验证。
+因此建议合入基础实现但保留 #12 的跨平台、供应商、授权验收项。scope基础由独立slice继续实现，不为等待#27造成循环依赖而取消该验收。完整 Beta 继续依赖后续集成验证。
+
+最终媒体合并检查使用 PKG_CONFIG=/opt/homebrew/opt/pkgconf/bin/pkg-config、PKG_CONFIG_PATH=/tmp/wardrobe-media-native/install/lib/pkgconfig、DYLD_LIBRARY_PATH=/tmp/wardrobe-media-native/install/lib；sha2与媒体模块统一0.11，其digest字节转换保持原来的SHA256账户fingerprint。

@@ -246,9 +246,12 @@ impl Application {
 }
 fn credential_entry_for(p: &Value) -> Result<keyring::Entry, ApiError> {
     let account = format!(
-        "{}:{:x}",
+        "{}:{}",
         p["id"].as_str().unwrap(),
         Sha256::digest(p["endpoint"].as_str().unwrap().as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
     );
     keyring::Entry::new("wardrobe-agent.provider", &account).map_err(|_| credential_error())
 }

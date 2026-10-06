@@ -37,9 +37,12 @@ fn credentials_can_be_set_replaced_and_removed_without_echo_or_database_persiste
     }
     use sha2::{Digest, Sha256};
     let _cleanup = Cleanup(format!(
-        "{}:{:x}",
+        "{}:{}",
         p["id"].as_str().unwrap(),
         Sha256::digest(p["endpoint"].as_str().unwrap().as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
     ));
     let temporary_secret = format!("disposable-{}", uuid::Uuid::now_v7());
     let stored = app
