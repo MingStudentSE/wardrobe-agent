@@ -230,8 +230,11 @@ fn signed_manifest(s: &Value, w: &Secret) -> Result<Value, ApiError> {
     }
     let payload = json!({"protocol_version":1,"space_id":space,"epoch":epoch,"revision":revision,"owner_public":s["owner_public"],"devices":s["devices"],"recipients":recipients});
     let signing = SigningKey::from_bytes(&exact::<32>(&w.0, "owner_secret")?);
-    let signature = signing.sign(payload.to_string().as_bytes());
-    Ok(json!({"payload":payload,"signature":STANDARD.encode(signature.to_bytes())}))
+    let encoded = payload.to_string();
+    let signature = signing.sign(encoded.as_bytes());
+    Ok(
+        json!({"payload_base64":STANDARD.encode(encoded.as_bytes()),"signature":STANDARD.encode(signature.to_bytes())}),
+    )
 }
 fn assert_owner(s: &Value) -> Result<(), ApiError> {
     if s["owner"] != true {
@@ -513,10 +516,19 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             fields(&input, &["manifest"])?;
             let (mut s, mut w) = existing(app)?;
             let manifest = &input["manifest"];
-            fields(manifest, &["payload", "signature"])?;
-            let p = &manifest["payload"];
+            fields(manifest, &["payload_base64", "signature"])?;
+            let payload_bytes = bytes(manifest, "payload_base64", MAX_BYTES)?;
+            let verifier =
+                VerifyingKey::from_bytes(&exact::<32>(&s, "owner_public")?).map_err(|_| error())?;
+            verifier
+                .verify_strict(
+                    &payload_bytes,
+                    &Signature::from_bytes(&exact::<64>(manifest, "signature")?),
+                )
+                .map_err(|_| error())?;
+            let p: Value = serde_json::from_slice(&payload_bytes).map_err(|_| invalid())?;
             fields(
-                p,
+                &p,
                 &[
                     "protocol_version",
                     "space_id",
@@ -533,14 +545,6 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             {
                 return Err(error());
             }
-            let verifier =
-                VerifyingKey::from_bytes(&exact::<32>(&s, "owner_public")?).map_err(|_| error())?;
-            verifier
-                .verify_strict(
-                    p.to_string().as_bytes(),
-                    &Signature::from_bytes(&exact::<64>(manifest, "signature")?),
-                )
-                .map_err(|_| error())?;
             let revision = p["revision"].as_u64().ok_or_else(invalid)?;
             if revision <= s["revision"].as_u64().ok_or_else(invalid)? {
                 if s["manifest"] == *manifest {

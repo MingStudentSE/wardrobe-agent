@@ -51,6 +51,12 @@ fn encrypted_envelopes_roundtrip_and_authenticate_workspace_kind_version_and_byt
         "cHJpdmF0ZSBjbG90aGluZyBmYWN0"
     );
     let mut tampered = recovery_open.clone();
+    tampered["envelope"]["ciphertext"] = json!("AA==");
+    assert_eq!(
+        app.execute("encryption.open", tampered).unwrap_err().code,
+        "invalid_envelope"
+    );
+    let mut tampered = recovery_open.clone();
     tampered["envelope"]["ciphertext"] = json!("AAAAAAAAAAAAAAAAAAAAAA==");
     assert_eq!(
         app.execute("encryption.open", tampered).unwrap_err().code,
@@ -196,6 +202,19 @@ fn device_confirmation_is_single_use_and_revocation_rotates_future_keys_for_rema
             json!({"receipt":pending["receipt"]}),
         )
         .unwrap();
+    let mut altered_manifest = confirmation["manifest"].clone();
+    altered_manifest["signature"] = json!(
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+    );
+    assert_eq!(
+        b.execute(
+            "encryption.device.apply",
+            json!({"manifest":altered_manifest})
+        )
+        .unwrap_err()
+        .code,
+        "authentication_failed"
+    );
     b.execute(
         "encryption.device.apply",
         json!({"manifest":confirmation["manifest"]}),

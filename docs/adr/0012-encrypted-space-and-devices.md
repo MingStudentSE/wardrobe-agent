@@ -15,3 +15,5 @@
 所有 encryption.* 都是可信本机维护入口，外部full/limited客户端也不能以伪member_id绕过。CLI敏感输入强制stdin，MCP不提供私钥管理工具。后续同步业务应在共享Application内部调用密钥，不通过公开API返回master/private secret。公开密文字节工具不是远端上传器；#27须从已验证fact/outbox/规范化display资产构造payload，不能让original、模型凭据、本机token或任意文件成为同步候选。
 
 Microsoft [CREDENTIALW](https://learn.microsoft.com/en-us/windows/win32/api/wincred/ns-wincred-credentialw) 限制CredentialBlob为2560字节，因此不能把随设备/轮换历史增长的钱包JSON直接放入Windows安全凭据。固定44字节OS解锁条目避免这个边界，AEAD密文钱包仍保留完整合法历史钥。公开status会删去本机credential_id/wallet_wrap；两者不属于远端协议。
+
+签名包只传 `{payload_base64, signature}`，Ed25519签名严格作用于base64解码后的完整UTF-8 JSON字节，再解析事实；不要求Android重复Rust的JSON序列化规则。协议先认证字节再读取空间/epoch/revision/设备字段。
