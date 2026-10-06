@@ -1,0 +1,149 @@
+[
+  {
+    "item": [
+      "验收样例 · 白色棉衬衫"
+    ],
+    "scrollWidth": 305,
+    "touchTargets": [
+      {
+        "height": 48,
+        "text": "单品"
+      },
+      {
+        "height": 48.375,
+        "text": "录入单品"
+      },
+      {
+        "height": 48.375,
+        "text": "保存单品"
+      }
+    ],
+    "width": 320
+  },
+  {
+    "item": [
+      "验收样例 · 白色棉衬衫"
+    ],
+    "scrollWidth": 360,
+    "touchTargets": [
+      {
+        "height": 48,
+        "text": "单品"
+      },
+      {
+        "height": 48.375,
+        "text": "录入单品"
+      },
+      {
+        "height": 48.375,
+        "text": "保存单品"
+      }
+    ],
+    "width": 375
+  },
+  {
+    "item": [
+      "验收样例 · 白色棉衬衫"
+    ],
+    "scrollWidth": 399,
+    "touchTargets": [
+      {
+        "height": 48,
+        "text": "单品"
+      },
+      {
+        "height": 48.375,
+        "text": "录入单品"
+      },
+      {
+        "height": 48.375,
+        "text": "保存单品"
+      }
+    ],
+    "width": 414
+  },
+  {
+    "item": [
+      "验收样例 · 白色棉衬衫"
+    ],
+    "scrollWidth": 753,
+    "touchTargets": [
+      {
+        "height": 48,
+        "text": "单品"
+      },
+      {
+        "height": 48.375,
+        "text": "录入单品"
+      },
+      {
+        "height": 48.375,
+        "text": "保存单品"
+      }
+    ],
+    "width": 768
+  },
+  {
+    "item": [
+      "验收样例 · 白色棉衬衫"
+    ],
+    "scrollWidth": 1024,
+    "touchTargets": [
+      {
+        "height": 48,
+        "text": "单品"
+      },
+      {
+        "height": 48.375,
+        "text": "录入单品"
+      },
+      {
+        "height": 48.375,
+        "text": "保存单品"
+      }
+    ],
+    "width": 1024
+  },
+  {
+    "item": [
+      "验收样例 · 白色棉衬衫"
+    ],
+    "scrollWidth": 1280,
+    "touchTargets": [
+      {
+        "height": 48,
+        "text": "单品"
+      },
+      {
+        "height": 48.375,
+        "text": "录入单品"
+      },
+      {
+        "height": 48.375,
+        "text": "保存单品"
+      }
+    ],
+    "width": 1280
+  },
+  {
+    "item": [
+      "验收样例 · 白色棉衬衫"
+    ],
+    "scrollWidth": 1440,
+    "touchTargets": [
+      {
+        "height": 48,
+        "text": "单品"
+      },
+      {
+        "height": 48.375,
+        "text": "录入单品"
+      },
+      {
+        "height": 48.375,
+        "text": "保存单品"
+      }
+    ],
+    "width": 1440
+  }
+]
