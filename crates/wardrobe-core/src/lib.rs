@@ -90,6 +90,7 @@ impl Application {
             }
             tx.execute_batch("PRAGMA user_version=2;")?;
         }
+        tx.execute_batch("CREATE INDEX IF NOT EXISTS clothing_member_status_id ON clothing(member_id,json_extract(document,'$.status'),id);")?;
         tx.commit()?;
         Ok(Self { connection })
     }
@@ -98,11 +99,16 @@ impl Application {
             return Err(ApiError::new("invalid_input", "输入必须是 JSON 对象"));
         }
         match operation {
-            "capabilities" => {
-                Ok(json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES}))
-            }
+            "capabilities" => Ok(
+                json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES,"taxonomy":clothing::taxonomy()}),
+            ),
             "space.default" => self.default_space(),
             "clothing.create" => self.clothing_create(input),
+            "clothing.history" => self.clothing_history(input),
+            "clothing.update" => self.clothing_update(input),
+            "clothing.archive" | "clothing.activate" | "clothing.delete" | "clothing.restore" => {
+                self.clothing_lifecycle(operation, input)
+            }
             "clothing.get" => self.clothing_get(input),
             "clothing.list" => self.clothing_list(input),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
