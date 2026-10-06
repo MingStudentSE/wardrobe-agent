@@ -1,6 +1,6 @@
 # ADR 0011：真实穿着与追加更正
 
-状态：实施中（#9），2026-10-07。
+状态：采用（#9，待集成平台验收），2026-10-07。
 
 WearEvent 是实际穿着事实，搭配保存、收藏、克隆和预览均不产生穿着。一次事实根有稳定 root_event_id；更正/撤销另建事件，引用原根与上一版本，不 UPDATE 或 DELETE 已存事件。expected_revision 做事务内 CAS。同日换装创建新根；实际改穿更正已有根。
 
@@ -11,3 +11,5 @@ WearEvent 是实际穿着事实，搭配保存、收藏、克隆和预览均不�
 保存独立衣物事实与可选明确版本模板快照，不动态查询当前模板当历史。模板记录须明确 source_version；实际选择不同衣物可提供 clothing_ids，保留来源模板同时保存实际集合。当前回收站单品拒绝新增实际事实；更正未改衣物的日期/备注保留原快照，即使来源已删除。资产引用写入 wear_asset_refs 并永久保留，撤销不删除历史引用。
 
 数据库9依据真实表/索引幂等迁移，使用现有 IMMEDIATE 事务和最高版本保护；事件、引用、幂等收据、audit 与 outbox 同事务提交。业务 JSON 不包含原图路径、凭据或原图 EXIF。Application 是 GUI/CLI/MCP 共用边界；新操作必须通过既有客户端 operation 与成员 scope。
+
+IANA转换采用 chrono-tz 0.10.4 的编译时数据库；from_local_datetime.single 明确拒绝 DST fold/gap。官方接口参考：[Chrono-TZ](https://docs.rs/chrono-tz/0.10.4/chrono_tz/)、[Chrono LocalResult](https://docs.rs/chrono/0.4.45/chrono/offset/enum.LocalResult.html)。缺失明确时刻采用 date 精度锚点，后续洗护须展示同日先后未知的局限，不能把中午当证实时间。

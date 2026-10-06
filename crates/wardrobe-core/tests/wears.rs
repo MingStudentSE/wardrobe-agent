@@ -131,6 +131,14 @@ fn public_history_keeps_template_snapshot_and_refuses_cross_member_and_future_fa
         .code,
         "not_found"
     );
+    let foreign = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":other["member_id"],"name":"别人衣物","category":"top"}),
+        )
+        .unwrap();
+    assert_eq!(app.execute("wear.record",json!({"member_id":"default","operation_key":"foreign-mix","local_date":"2020-01-01","timezone":"UTC","clothing_ids":[foreign["id"]]})).unwrap_err().code,"not_found");
+
     for (date, zone, time, code) in [
         ("2999-01-01", "Asia/Shanghai", "12:00", "future_date"),
         ("2020-01-02", "Bogus/Timezone", "12:00", "invalid_input"),

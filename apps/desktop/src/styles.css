@@ -33,3 +33,5 @@
 .lookbook .actions{display:flex;flex-wrap:wrap;gap:.5rem}.lookbook fieldset{display:grid;gap:.75rem}.lookbook-list button span{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Hallmark · existing Atelier · wear state defaults reuse shared controls */
 .wears{border-top:1px solid var(--color-rule);padding-block:2rem}.wear-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:2rem}.wear-layout form,.wear-layout fieldset{display:grid;gap:1rem}.wear-layout ul{padding-inline-start:1.25rem}.wear-layout li{overflow-wrap:anywhere}.wear-layout li button{margin:.5rem}.wears header,.wears h3{overflow-wrap:anywhere;min-width:0}@media(max-width:768px){.wear-layout{grid-template-columns:minmax(0,1fr)}.wears header{display:block}}
+
+.wears .actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-block:.75rem}
