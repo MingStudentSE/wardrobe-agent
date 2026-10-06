@@ -1,0 +1,14 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.90s
+     Running tests/insights.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/insights-41d6aa0ff75cbf66)
+
+running 6 tests
+test inventory_multicolor_and_actual_frequency_match_hand_calculation ... ok
+test member_insight_preferences_have_stable_identity_and_compare_and_swap_revision ... ok
+test highest_database_version_repairs_missing_preferences_and_retains_wear_and_inventory ... ok
+test highest_version_repairs_both_care_and_insight_preferences_without_erasing_actual_history ... ok
+test stale_boundaries_preferences_and_combinations_recompute_after_correction_and_revoke ... ok
+test empty_denominators_member_preferences_authorization_and_timezone_cutoff_are_explicit ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+

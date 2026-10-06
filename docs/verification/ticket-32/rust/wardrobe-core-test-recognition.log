@@ -1,0 +1,16 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.94s
+     Running tests/recognition.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recognition-2f4b64dc71cadf25)
+
+running 8 tests
+test explicit_recognition_records_selected_provider_and_images_without_changing_manual_facts ... ok
+test restart_after_submission_never_posts_again_and_member_scope_precedes_network ... ok
+test truncated_submission_is_durable_unknown_and_cannot_blind_retry ... ok
+test uncertain_model_scores_are_unverified_and_missing_db12_table_is_repaired ... ok
+test expired_lease_before_submission_never_uploads_or_revives_the_task ... ok
+test batch_failure_leaves_independent_manual_drafts_saveable ... ok
+test actual_http_proposal_requires_review_and_reanalysis_preserves_manual_edits ... ok
+test cancellation_while_http_runs_cannot_publish_proposal ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+

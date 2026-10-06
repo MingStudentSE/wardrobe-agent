@@ -1,0 +1,38 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 3.56s
+     Running tests/backup.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/backup-cbbda9a3225d5625)
+
+running 30 tests
+test local_backup_preferences_persist_with_revision_but_are_not_portable_installation_settings ... ok
+test interrupted_pending_directory_publication_falls_back_to_old_source_before_any_new_writes ... ok
+test data_directory_switch_verifies_copy_and_existing_application_and_reopened_tools_follow_it ... ok
+test directory_move_retains_local_grants_configuration_and_media_without_reading_old_assets ... ok
+test credentials_are_absent_from_every_backup_file_and_never_authorize_restored_installation ... ok
+test failed_real_prebackup_preserves_current_authorization_and_cleans_staged_restore_files ... ok
+test portable_backup_keeps_explicit_weather_config_but_excludes_cached_results_and_errors ... ok
+test concurrent_old_connection_writes_are_present_after_directory_switch ... ok
+test overwrite_removes_previous_installation_operational_jobs_and_authorization_without_losing_incoming_facts ... ok
+test preview_domain_intent_controls_must_match_persisted_request ... ok
+test preview_domain_care_revision_must_match_sql_row ... ok
+test portable_backup_preview_restore_preserves_actual_history_after_restart ... ok
+test preview_domain_outfit_version_must_match_sql_row ... ok
+test preview_domain_save_receipt_cannot_point_at_another_outfit ... ok
+test preview_domain_receipt_member_must_match_sql_row ... ok
+test explicit_original_option_controls_real_bytes_and_restored_original_availability ... ok
+test preview_domain_wear_root_must_match_sql_row ... ok
+test preview_rejects_removed_foreign_key_declarations_before_any_overwrite ... ok
+test preview_rejects_undecodable_display_even_when_transport_hash_matches ... ok
+test preview_rejects_missing_json_asset_references_even_when_database_and_file_hashes_are_consistent ... ok
+test preview_rejects_invalid_category_or_document_identity_with_legitimate_file_hashes ... ok
+test preview_explains_overwrite_and_real_prebackup_can_restore_previous_installation ... ok
+test restore_uses_only_verified_inventory_and_keeps_unlisted_objects_outside_local_media ... ok
+test preview_rejects_valid_changed_blob_with_old_immutable_id_even_when_transport_is_resigned ... ok
+test unsupported_versions_and_cross_platform_paths_never_change_current_installation ... ok
+test restored_old_configuration_and_saved_outfit_receipts_keep_original_revisions ... ok
+test restored_display_is_self_contained_and_corrupt_archive_never_overwrites_current_facts ... ok
+test portable_media_content_remains_decodable_with_extensionless_transport_object_names ... ok
+test immutable_versions_revised_wear_care_and_detached_historical_display_survive_relocated_backup ... ok
+test already_open_authorized_application_cannot_write_after_restore_removes_its_grant ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.65s
+

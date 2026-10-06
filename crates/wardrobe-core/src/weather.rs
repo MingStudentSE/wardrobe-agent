@@ -26,7 +26,7 @@ fn present(mut v: Value) -> Value {
     v
 }
 fn configuration(input: &Value) -> Result<Value, ApiError> {
-    let mode = string(&input, "mode")?;
+    let mode = string(input, "mode")?;
     let config = match mode {
         "off" => {
             if input.as_object().unwrap().len() != 2 {
@@ -35,7 +35,7 @@ fn configuration(input: &Value) -> Result<Value, ApiError> {
             json!({"mode":"off"})
         }
         "automatic" => {
-            let location = string(&input, "location")?;
+            let location = string(input, "location")?;
             if location.trim().is_empty() || location.chars().count() > 120 {
                 return Err(bad("请输入120字内地点名称"));
             }
@@ -47,7 +47,7 @@ fn configuration(input: &Value) -> Result<Value, ApiError> {
                 .as_f64()
                 .filter(|x| x.is_finite() && (-180.0..=180.0).contains(x))
                 .ok_or_else(|| bad("经度须为-180至180"))?;
-            if string(&input, "usage")? != "noncommercial" {
+            if string(input, "usage")? != "noncommercial" {
                 return Err(bad(
                     "免费Open-Meteo仅非商业用途；商业部署须配置获授权服务后再接入",
                 ));

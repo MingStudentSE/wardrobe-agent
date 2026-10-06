@@ -57,6 +57,10 @@ try:
    second.wait(timeout=10)
   print(json.dumps({'first_worker_exit':process.returncode,'first_job':before,'after_restore_receipt':restored,'provider_posts':count,'duplicate_post_observed':duplicate},ensure_ascii=False),flush=True)
   assert count==1,'same-space restore allowed a second POST for an already submitted unknown operation intent'
+  changed_intent={**intent,'avoid_recent':False}
+  changed_reply=subprocess.run([CLI,'--db',str(db),'--trusted-local','recommendation.generate','--input-stdin'],input=json.dumps(changed_intent),text=True,capture_output=True)
+  assert json.loads(changed_reply.stdout)['error']['code']=='idempotency_conflict' and count==1
+  print(json.dumps({'same_key_changed_payload_is_conflict_without_post':True,'provider_posts':count}),flush=True)
   maintained(db,'backup.restore',{'directory':restore_result['rollback_backup'],'confirm_overwrite':True})
   rollback_retry=subprocess.run([CLI,'--db',str(db),'--trusted-local','recommendation.generate','--input-stdin'],input=json.dumps(intent),text=True,capture_output=True)
   assert json.loads(rollback_retry.stdout)['error']['code']=='submission_already_sent' and count==1

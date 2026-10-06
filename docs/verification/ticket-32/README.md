@@ -52,3 +52,30 @@ Public long operations now enqueue installation-local maintenance_jobs and immed
 - 17151 **current red**: an expired maintenance receipt can be claimed even while a real local worker lock is held. Worker file-lock integration remains required; no final suite green claim.
 
 Remaining: worker exclusion + crash/recovery receipts for all maintenance operations; final same-source CLI/MCP/GUI/full sequential Rust targets/clippy; real interrupted/cancelled process contracts; final full capacity; accepted root integration (weather explicit configuration only, no derived cache/errors); unknown provider submission + same-space restore cross-module gate; independent merger. No push or issue closure.
+
+## Resumed implementation, current frozen source (not final acceptance)
+
+Accepted weather DB18 is merged. Portable weather includes only explicitly configured settings; cache/errors are stripped before fresh whitelist inserts. DB17 local maintenance queue, generation and submission safety ledger remain excluded portable.
+
+Actual process evidence now covers worker lock ownership, cancellation during copy, SIGKILL at controlled publication boundaries, and directory blocked writers. The controlled publication gates are enabled only by the debug `backup-test-diagnostics` feature; they prove specific crash boundaries, not random timing or power-loss resilience. Non-Unix file identity equivalence and Windows actual behavior remain unverified.
+
+The real TCP submission/restore process first reproduced duplicate POSTs (provider_posts=2, first worker SIGKILL -9). The installation-local ledger now preserves submitted/unknown/received/cancelled safety receipts under the same restore transaction. The same script passes with provider_posts=1 and an explicit submission_already_sent refusal. Its matrix also checks changed payload conflict, member and actual workspace identity, queued-unsubmitted rebuild, completed cached immutable facts, rollback and portable ledger exclusion. No secret, photo or raw request is stored in this ledger.
+
+Current async full capacity session 53135 confirmed exit 0 and automatic temporary installation cleanup: 10,000 clothing/100,000 wear records+receipts, source database 743,354,368 bytes, nine originals 270,001,539 bytes, package 1,002,927,851 bytes. Source installation removed before restore; restart/public counts and original file reads passed. Enqueue replies were 61.120/13.584/15.054ms; background create/preview/restore were 20.327/30.624/60.527s. **This precedes the following blob and directory repairs, so it is not final same-source capacity evidence.**
+
+- 76273 real public negative: valid PNG replacement with old immutable blob ID and resigned transport hashes was accepted. Binding original/display ID and bytes to the verified inventory fixes it.
+- 14571 then passed 29/30: concurrent old-connection directory test lost an acknowledged ID. This real regression is preserved, not dismissed as fixture noise.
+- 79787 deterministic actual-file publication seam reproduced reading pending followed by active publication and then deleting the active marker. Resolver now re-reads the marker while holding the move lock and removes only orphaned pending records. 25768 library 9/9; 96575 backup 30/30. Actual CLI process 12598 also passed blocked writer, SIGKILL recovery and permission-failed publication.
+- 77765 real public preview negative: a resigned weather document with embedded endpoint credentials was accepted. Existing configuration validation is now shared with portable document validation; 75342 backup 31/31 passed.
+
+Full sequential Rust targets, final default CLI/MCP/GUI matrix, clippy/build and current-source full capacity are still underway. #32 remains incomplete and open until independent acceptance.
+
+
+Latest sequential frozen business-source regression: session 56770 exited 0, 28 actual target commands, 216 passed / 0 failed / 12 ignored. Each target command and terminal executable cleanup is recorded in `rust/` and `ticket32-current-final-rust-targets.log`; ignored OS/model contracts are not claimed passed. Frontend 26096 and fmt check exited 0. Clippy initially found only three needless references introduced by extracting weather configuration; corrected and 25110 exited 0. Default CLI 98640 rebuilt after that lint correction. Actual TCP matrix 24583 exited 0 on this same default CLI, including an additional same-key changed-payload idempotency conflict without POST.
+
+Current full GUI was already running when root requested temporary release for #17 independent review; it will finish naturally before checkpoint. No final capacity rerun has started. #17 feedback DB19 is not yet accepted and is not copied into this branch. Final source capacity and accepted feedback integration remain required.
+
+
+GUI session 7634 confirmed exit 0: 47 passed, 6 skipped, 53 discovered, on the current default CLI. Includes both backup flows and seven-width checks. Skips are explicit real-resource opt-ins: two OS credential flows (WARDROBE_ENCRYPTION_OS_TEST not 1), cutout model download (WARDROBE_RUN_CUTOUT_GUI_SMOKE unset), SmolVLM provider (WARDROBE_REAL_LOCAL_PROVIDER unset), real recognition server (WARDROBE_RECOGNITION_REAL_ENDPOINT unset), and actual Qwen text server (WARDROBE_AI_ACTUAL_ENDPOINT unset). Test 42 is that explicit recognition endpoint condition. Feedback/sync unaccepted branches are absent, not tested here. This is #32 candidate regression, not all Beta acceptance.
+
+All current handles have reached terminal. This clean checkpoint temporarily releases the agent slot for #17 independent two-axis review. Remaining full scope: accepted feedback/sync integration when available; final same-source full capacity after blob/marker/weather repairs; all three public entrypoints/member authorization final matrix and any resulting fixes; independent #32 acceptance. No capacity/build handle was killed.

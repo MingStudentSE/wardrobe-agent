@@ -1,0 +1,21 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 4.22s
+     Running unittests src/lib.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wardrobe_core-1455b102a1d64765)
+
+running 1 test
+
+thread 'data_directory::tests::pending_reader_preserves_concurrently_published_active_location' (3705898) panicked at crates/wardrobe-core/src/data_directory.rs:362:9:
+assertion `left == right` failed
+  left: "/var/folders/zg/mwcsv72133b9lfjg5sftc7440000gn/T/.tmpxg1VDi/source/wardrobe.sqlite"
+ right: "/var/folders/zg/mwcsv72133b9lfjg5sftc7440000gn/T/.tmpxg1VDi/target/wardrobe.sqlite"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test data_directory::tests::pending_reader_preserves_concurrently_published_active_location ... FAILED
+
+failures:
+
+failures:
+    data_directory::tests::pending_reader_preserves_concurrently_published_active_location
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p wardrobe-core --lib`

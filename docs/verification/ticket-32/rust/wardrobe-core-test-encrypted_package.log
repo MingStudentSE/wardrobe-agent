@@ -1,0 +1,12 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.93s
+     Running tests/encrypted_package.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/encrypted_package-045f42afeeda4e33)
+
+running 4 tests
+test oversized_real_fact_snapshot_fails_before_publishing_and_preserves_local_facts ... ignored, requires real OS credential store
+test paired_installation_reads_application_generated_ciphertext_package_without_original_or_local_secrets ... ignored, requires real OS credential store
+test secondary_display_referenced_by_immutable_outfit_version_remains_in_encrypted_package ... ignored, requires real OS credential store
+test full_external_client_cannot_export_or_read_local_encryption_packages ... ok
+
+test result: ok. 1 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
