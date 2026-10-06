@@ -34,3 +34,7 @@ coverage/
 /apps/desktop/src-tauri/gen/
 /apps/desktop/test-results/
 /apps/desktop/playwright-report/
+
+# Python verification helper bytecode
+__pycache__/
+*.pyc

@@ -43,8 +43,8 @@ jobs:
         shell: pwsh
         run: ./scripts/bootstrap-media-windows.ps1 -MediaRoot "$env:RUNNER_TEMP/wardrobe-media"
       - run: cargo test --workspace
-      - name: Verify optimized native HEIC import
-        run: cargo test --release -p wardrobe-core --test assets heic_decodes_real_container_without_external_model_and_preserves_bytes
+      - name: Verify optimized native image decoding
+        run: cargo test --release -p wardrobe-core --test assets
       - name: Verify native credential store (macOS and Windows)
         if: runner.os != 'Linux'
         run: cargo test -p wardrobe-core --test providers credentials_can_be_set_replaced_and_removed_without_echo_or_database_persistence -- --ignored
