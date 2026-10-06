@@ -246,6 +246,7 @@ impl Application {
             }
             return Ok(());
         }
+        schema::validate_operation(op)?;
         let table = string(op, "entity_type")?;
         if !TABLES.contains(&table) {
             return Err(error("sync_invalid"));

@@ -424,3 +424,59 @@ pub(super) fn validate_identity(
     }
     Ok(())
 }
+
+pub(super) fn validate_operation(op: &Value) -> Result<(), ApiError> {
+    fields(
+        op,
+        &[
+            "protocol_version",
+            "op_id",
+            "device_id",
+            "entity_type",
+            "entity_id",
+            "before",
+            "after",
+            "base",
+            "clock",
+            "reassert",
+        ],
+    )?;
+    check(op["protocol_version"] == 1)?;
+    id(op, "op_id")?;
+    id(op, "device_id")?;
+    check(op["before"].is_null() || op["before"].is_object())?;
+    for key in ["base", "clock"] {
+        let map = op[key].as_object().ok_or_else(|| error("sync_invalid"))?;
+        for (device, seq) in map {
+            check(
+                uuid::Uuid::parse_str(device).is_ok()
+                    && seq.as_u64().is_some_and(|n| n > 0 && n < i64::MAX as u64),
+            )?;
+        }
+    }
+    let device = string(op, "device_id")?;
+    let base = vector(&op["base"]);
+    let clock = vector(&op["clock"]);
+    check(clock.get(device).copied() == base.get(device).copied().unwrap_or(0).checked_add(1))?;
+    for (actor, seq) in &base {
+        if actor != device {
+            check(clock.get(actor) == Some(seq))?;
+        }
+    }
+    for (actor, seq) in &clock {
+        if actor != device {
+            check(base.get(actor) == Some(seq))?;
+        }
+    }
+    let reassert = op["reassert"]
+        .as_array()
+        .ok_or_else(|| error("sync_invalid"))?;
+    for field in reassert {
+        let name = field.as_str().ok_or_else(|| error("sync_invalid"))?;
+        check(
+            op["after"].get(name).is_some()
+                && !["id", "member_id", "root_event_id", "schema_version"].contains(&name),
+        )?;
+    }
+    Ok(())
+}
