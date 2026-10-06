@@ -358,3 +358,72 @@ fn two_connections_racing_confirmation_consume_invitation_once() {
         1
     );
 }
+#[test]
+#[ignore = "requires real OS credential store"]
+fn database_and_wal_do_not_persist_exported_recovery_or_unwrapped_private_keys() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use chacha20poly1305::{
+        aead::{Aead, Payload},
+        KeyInit, XChaCha20Poly1305, XNonce,
+    };
+    let d = tempfile::tempdir().unwrap();
+    let path = d.path().join("wardrobe.sqlite");
+    let app = Application::open(&path).unwrap();
+    let _cleanup = KeyCleanup(path);
+    let password = "storage privacy temporary password";
+    let created = app
+        .execute(
+            "encryption.create",
+            json!({"password":password,"device_name":"privacy fixture"}),
+        )
+        .unwrap();
+    let bundle = &created["recovery_bundle"];
+    let envelope = &bundle["recovery_wrap"];
+    let recovery = STANDARD
+        .decode(created["recovery_secret"].as_str().unwrap())
+        .unwrap();
+    let cipher = XChaCha20Poly1305::new_from_slice(&recovery).unwrap();
+    let nonce = STANDARD
+        .decode(envelope["nonce"].as_str().unwrap())
+        .unwrap();
+    let clear = cipher
+        .decrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: &STANDARD
+                    .decode(envelope["ciphertext"].as_str().unwrap())
+                    .unwrap(),
+                aad: json!([
+                    "wardrobe-e2ee",
+                    1,
+                    bundle["space_id"],
+                    bundle["epoch"],
+                    "recovery-wrap"
+                ])
+                .to_string()
+                .as_bytes(),
+            },
+        )
+        .unwrap();
+    let wallet: serde_json::Value = serde_json::from_slice(&clear).unwrap();
+    let private_strings = [
+        wallet["device_secret"].as_str().unwrap(),
+        wallet["owner_secret"].as_str().unwrap(),
+        wallet["keys"][0]["key"].as_str().unwrap(),
+        created["recovery_secret"].as_str().unwrap(),
+        password,
+    ];
+    for file in std::fs::read_dir(d.path())
+        .unwrap()
+        .flatten()
+        .filter(|f| f.file_type().unwrap().is_file())
+    {
+        let bytes = std::fs::read(file.path()).unwrap();
+        for secret in private_strings {
+            assert!(
+                !bytes.windows(secret.len()).any(|b| b == secret.as_bytes()),
+                "persisted artifact must not contain plaintext private material"
+            );
+        }
+    }
+}

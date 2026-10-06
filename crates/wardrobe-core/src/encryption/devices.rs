@@ -32,15 +32,48 @@ fn state(app: &Application) -> Result<Option<Value>, ApiError> {
     s.map(|s| serde_json::from_str(&s).map_err(|_| invalid()))
         .transpose()
 }
-fn wallet(s: &Value) -> Result<Secret, ApiError> {
-    let serialized = Zeroizing::new(
-        entry(string(s, "device_id")?)?
+fn unlock(s: &Value) -> Result<Zeroizing<[u8; 32]>, ApiError> {
+    let encoded = Zeroizing::new(
+        entry(string(s, "credential_id")?)?
             .get_password()
             .map_err(|_| ApiError::new("credential_missing", "空间密钥不可用，请使用恢复包"))?,
     );
-    Ok(Secret(
-        serde_json::from_str(&serialized).map_err(|_| invalid())?,
+    let key = Zeroizing::new(STANDARD.decode(encoded.as_bytes()).map_err(|_| invalid())?);
+    Ok(Zeroizing::new(
+        key.as_slice().try_into().map_err(|_| invalid())?,
     ))
+}
+fn wallet_kind(s: &Value) -> Result<String, ApiError> {
+    Ok(format!(
+        "local-wallet:{}:{}",
+        string(s, "credential_id")?,
+        string(s, "device_id")?
+    ))
+}
+fn wallet(s: &Value) -> Result<Secret, ApiError> {
+    let key = unlock(s)?;
+    let serialized = open(
+        key.as_ref(),
+        string(s, "space_id")?,
+        0,
+        &wallet_kind(s)?,
+        &s["wallet_wrap"],
+    )?;
+    Ok(Secret(
+        serde_json::from_slice(&serialized).map_err(|_| invalid())?,
+    ))
+}
+fn wrapped_wallet(s: &Value, w: &Secret, key: &[u8]) -> Result<Value, ApiError> {
+    let serialized = Zeroizing::new(w.0.to_string());
+    let mut stored = s.clone();
+    stored["wallet_wrap"] = seal(
+        key,
+        string(s, "space_id")?,
+        0,
+        &wallet_kind(s)?,
+        serialized.as_bytes(),
+    )?;
+    Ok(stored)
 }
 fn master(w: &Secret, epoch: u64) -> Result<Zeroizing<[u8; 32]>, ApiError> {
     let k = w.0["keys"]
@@ -51,12 +84,6 @@ fn master(w: &Secret, epoch: u64) -> Result<Zeroizing<[u8; 32]>, ApiError> {
         .ok_or_else(error)?;
     Ok(Zeroizing::new(exact::<32>(k, "key")?))
 }
-fn save_wallet(s: &Value, w: &Secret) -> Result<(), ApiError> {
-    let serialized = Zeroizing::new(w.0.to_string());
-    entry(string(s, "device_id")?)?
-        .set_password(&serialized)
-        .map_err(|_| ApiError::new("credential_store_unavailable", "无法保存系统空间密钥"))
-}
 fn existing(app: &Application) -> Result<(Value, Secret), ApiError> {
     let s = state(app)?
         .ok_or_else(|| ApiError::new("encryption_disabled", "请先建立或恢复加密空间"))?;
@@ -64,10 +91,11 @@ fn existing(app: &Application) -> Result<(Value, Secret), ApiError> {
     Ok((s, w))
 }
 fn update(tx: &rusqlite::Transaction<'_>, s: &Value, w: &Secret) -> Result<(), ApiError> {
-    save_wallet(s, w)?;
+    let key = unlock(s)?;
+    let stored = wrapped_wallet(s, w, key.as_ref())?;
     tx.execute(
         "UPDATE encryption_state SET document=?1 WHERE id=1",
-        [s.to_string()],
+        [stored.to_string()],
     )?;
     Ok(())
 }
@@ -81,7 +109,7 @@ fn install(app: &Application, s: &Value, w: &Secret) -> Result<(), ApiError> {
     }
     let localspace = app.default_space()?["space_id"].clone();
     if localspace != s["space_id"] {
-        let facts:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM clothing) OR EXISTS(SELECT 1 FROM outfits) OR EXISTS(SELECT 1 FROM import_batches)",[],|r|r.get(0))?;
+        let facts:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM clothing) OR EXISTS(SELECT 1 FROM outfits) OR EXISTS(SELECT 1 FROM import_batches) OR EXISTS(SELECT 1 FROM wear_events) OR EXISTS(SELECT 1 FROM assets)",[],|r|r.get(0))?;
         if facts {
             return Err(ApiError::new(
                 "space_not_empty",
@@ -90,14 +118,25 @@ fn install(app: &Application, s: &Value, w: &Secret) -> Result<(), ApiError> {
         }
         tx.execute("UPDATE workspace SET id=?1", [string(s, "space_id")?])?;
     }
-    save_wallet(s, w)?;
+    let mut stored = s.clone();
+    let credential_id = uuid::Uuid::now_v7().to_string();
+    stored["credential_id"] = json!(credential_id);
+    let key = Zeroizing::new(random::<32>()?);
+    let stored = wrapped_wallet(&stored, w, key.as_ref())?;
+    let entry = entry(&credential_id)?;
+    entry
+        .set_password(&STANDARD.encode(key.as_ref()))
+        .map_err(|_| ApiError::new("credential_store_unavailable", "无法保存系统本机解锁密钥"))?;
     let result = (|| {
-        tx.execute("INSERT INTO encryption_state VALUES(1,?1)", [s.to_string()])?;
+        tx.execute(
+            "INSERT INTO encryption_state VALUES(1,?1)",
+            [stored.to_string()],
+        )?;
         tx.commit()?;
         Ok(())
     })();
     if result.is_err() {
-        let _ = entry(string(s, "device_id")?)?.delete_credential();
+        let _ = entry.delete_credential();
     }
     result
 }
@@ -106,6 +145,8 @@ fn identity(s: &Value) -> Value {
     if let Some(o) = i.as_object_mut() {
         o.remove("bundle");
         o.remove("manifest");
+        o.remove("credential_id");
+        o.remove("wallet_wrap");
     }
     i
 }
@@ -125,10 +166,7 @@ fn validate_wallet(w: &Secret, b: &Value) -> Result<(), ApiError> {
             return Err(error());
         }
     }
-    let keys = w.0["keys"]
-        .as_array()
-        .filter(|k| k.len() <= 128)
-        .ok_or_else(invalid)?;
+    let keys = w.0["keys"].as_array().ok_or_else(invalid)?;
     let mut seen = std::collections::HashSet::new();
     for k in keys {
         exact::<32>(k, "key")?;
@@ -145,7 +183,11 @@ fn validate_wallet(w: &Secret, b: &Value) -> Result<(), ApiError> {
     }
     Ok(())
 }
-fn status(s: Option<Value>) -> Value {
+fn status(mut s: Option<Value>) -> Value {
+    if let Some(Value::Object(o)) = s.as_mut() {
+        o.remove("credential_id");
+        o.remove("wallet_wrap");
+    }
     json!({"schema_version":1,"enabled":s.is_some(),"state":s})
 }
 fn device_name(v: &Value) -> Result<&str, ApiError> {
@@ -284,7 +326,7 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             let tx = app.begin_write()?;
             let s =
                 state(app)?.ok_or_else(|| ApiError::new("encryption_disabled", "设备未配对"))?;
-            match entry(string(&s, "device_id")?)?.delete_credential() {
+            match entry(string(&s, "credential_id")?)?.delete_credential() {
                 Ok(()) | Err(keyring::Error::NoEntry) => {}
                 Err(_) => {
                     return Err(ApiError::new(

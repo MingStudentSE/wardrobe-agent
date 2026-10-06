@@ -53,12 +53,12 @@ jobs:
         if: runner.os != 'Linux'
         run: |
           cargo test -p wardrobe-core --test providers credentials_can_be_set_replaced_and_removed_without_echo_or_database_persistence -- --ignored
-          cargo test -p wardrobe-core --test encryption encrypted_space_restarts_with_system_key_and_pairing_imports_same_master_on_second_device -- --ignored
+          cargo test -p wardrobe-core --test encryption -- --ignored --test-threads=1
       - name: Verify Secret Service credential store (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          dbus-run-session -- bash -c 'set -e; printf "%s" "disposable-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets >/dev/null; cargo test -p wardrobe-core --test providers credentials_can_be_set_replaced_and_removed_without_echo_or_database_persistence -- --ignored; cargo test -p wardrobe-core --test encryption encrypted_space_restarts_with_system_key_and_pairing_imports_same_master_on_second_device -- --ignored'
+          dbus-run-session -- bash -c 'set -e; printf "%s" "disposable-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets >/dev/null; cargo test -p wardrobe-core --test providers credentials_can_be_set_replaced_and_removed_without_echo_or_database_persistence -- --ignored; cargo test -p wardrobe-core --test encryption -- --ignored --test-threads=1'
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: npm ci

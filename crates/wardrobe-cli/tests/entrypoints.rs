@@ -692,3 +692,77 @@ fn authorized_cli_mcp_share_actual_wear_retries_corrections_and_immutable_histor
     );
     assert_eq!(history["items"], json!([event, corrected]));
 }
+#[test]
+fn space_crypto_uses_stdin_and_mcp_full_scope_does_not_expose_private_key_management() {
+    let d = tempfile::tempdir().unwrap();
+    let db = d.path().join("space.sqlite");
+    let insecure = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args([
+            "--trusted-local",
+            "--db",
+            db.to_str().unwrap(),
+            "encryption.status",
+            "{}",
+        ])
+        .output()
+        .unwrap();
+    let response: Value = serde_json::from_slice(&insecure.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "secret_requires_stdin");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args([
+            "--trusted-local",
+            "--db",
+            db.to_str().unwrap(),
+            "encryption.recovery.create",
+            "--input-stdin",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    writeln!(
+        child.stdin.take().unwrap(),
+        "{}",
+        json!({"password":"temporary CLI wrapping password"})
+    )
+    .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let created: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(created["result"]["recovery_secret"].is_string());
+    let token = client_token(&db);
+    let mut mcp = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", db.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = mcp.stdin.take().unwrap();
+    for request in [
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"authorization_token":token}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}),
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"encryption.recovery.create","arguments":{"member_id":"default","password":"temporary wrapping password"}}}),
+    ] {
+        writeln!(stdin, "{request}").unwrap();
+    }
+    drop(stdin);
+    let output = mcp.wait_with_output().unwrap();
+    let responses: Vec<Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert!(responses[1]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|t| !t["name"].as_str().unwrap().starts_with("encryption.")));
+    assert_eq!(responses[2]["result"]["isError"], true);
+    let denied: Value = serde_json::from_str(
+        responses[2]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(denied["error"]["code"], "scope_denied");
+}
