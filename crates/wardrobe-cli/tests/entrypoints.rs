@@ -470,3 +470,69 @@ fn cli_saved_outfit_and_immutable_version_are_the_same_through_mcp_after_restart
         serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(actual, saved["result"]);
 }
+#[test]
+fn cli_mcp_share_durable_batch_job_ids_cancellation_and_idempotent_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let source = dir.path().join("image.png");
+    std::fs::write(
+        &source,
+        include_bytes!("../../wardrobe-core/tests/fixtures/generated-colors.png"),
+    )
+    .unwrap();
+    cli(&path, "space.default", json!({}));
+    let input = json!({"member_id":"default","operation_key":"batch-cli","paths":[source]});
+    let batch = cli(&path, "imports.create", input.clone())["result"].clone();
+    assert!(batch["id"].is_string());
+    std::fs::remove_file(&source).unwrap();
+    let token = client_token(&path);
+    let mcp = |operation: &str, input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", path.to_str().unwrap(), "mcp"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":operation,"arguments":input}})).unwrap();
+        let response: Value =
+            serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+        serde_json::from_str::<Value>(response["result"]["content"][0]["text"].as_str().unwrap())
+            .unwrap()
+    };
+    let item = &batch["items"][0]["id"];
+    assert_eq!(
+        mcp("jobs.cancel", json!({"member_id":"default","id":item}))["state"],
+        "cancelled"
+    );
+    assert_eq!(
+        cli(
+            &path,
+            "jobs.retry",
+            json!({"member_id":"default","id":item})
+        )["result"]["state"],
+        "queued"
+    );
+    let processed = mcp(
+        "imports.process",
+        json!({"member_id":"default","id":batch["id"]}),
+    );
+    assert_eq!(processed["items"][0]["state"], "waiting_input");
+    let request = json!({"member_id":"default","id":batch["id"],"draft_id":batch["drafts"][0]["id"],"operation_key":"commit-cli"});
+    let saved = mcp("imports.commit", request.clone());
+    assert_eq!(saved["name"], "未命名单品");
+    assert_eq!(
+        cli(&path, "imports.commit", request)["result"]["id"],
+        saved["id"]
+    );
+    assert_eq!(
+        mcp(
+            "imports.get",
+            json!({"member_id":"default","id":batch["id"]})
+        )["drafts"][0]["clothing_id"],
+        saved["id"]
+    );
+    assert_eq!(
+        cli(&path, "imports.create", input)["result"]["id"],
+        batch["id"]
+    );
+}

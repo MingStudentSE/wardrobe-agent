@@ -323,7 +323,7 @@ impl Application {
         tx.commit()?;
         Ok(doc)
     }
-    pub(super) fn clothing_create(&self, input: Value) -> Result<Value, ApiError> {
+    pub(super) fn clothing_document(&self, input: Value) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
         let name = string(&input, "name")?.trim();
         if name.is_empty() || name.chars().count() > 120 {
@@ -381,6 +381,12 @@ impl Application {
         let now = chrono::Utc::now().to_rfc3339();
         let mut doc = json!({"schema_version":1,"id":id,"member_id":member,"name":name,"category":category,"seasons":checked,"purchase_price_minor":price,"price_exponent":price_exponent,"currency":currency,"size_label":null,"status":"active","favorite":false,"created_at":now,"updated_at":now});
         apply_facts(&mut doc, &input)?;
+        Ok(doc)
+    }
+    pub(super) fn clothing_create(&self, input: Value) -> Result<Value, ApiError> {
+        let doc = self.clothing_document(input)?;
+        let id = doc["id"].as_str();
+        let member = doc["member_id"].as_str();
         let serialized = doc.to_string();
         let tx = self.begin_write()?;
         tx.execute(
