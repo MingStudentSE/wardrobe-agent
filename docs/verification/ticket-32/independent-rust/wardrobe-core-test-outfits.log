@@ -1,0 +1,13 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-merge-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.89s
+     Running tests/outfits.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/outfits-c96ed020993d761c)
+
+running 5 tests
+test editing_requires_the_version_seen_by_the_caller_and_preserves_conflicting_template ... ok
+test existing_version_five_inventory_survives_lookbook_migration_and_reopen ... ok
+test manual_templates_accept_all_categories_but_reject_invalid_structure_atomically ... ok
+test saved_lookbook_keeps_versions_independent_from_clothing_and_clone ... ok
+test collage_uses_immutable_adopted_display_and_retains_version_asset_after_detach ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+

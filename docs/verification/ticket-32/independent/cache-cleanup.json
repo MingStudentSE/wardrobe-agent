@@ -1,0 +1,16 @@
+{
+  "terminal_os_handle": 13674,
+  "preserved": "CLI/libs/build/models/evidence; other cache owners untouched",
+  "removed": [
+    {
+      "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/encryption-e7ed1076601f67ba",
+      "bytes": 110421664,
+      "lsof_output": ""
+    },
+    {
+      "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/encrypted_package-045f42afeeda4e33",
+      "bytes": 110407440,
+      "lsof_output": ""
+    }
+  ]
+}

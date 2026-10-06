@@ -1,0 +1,17 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-merge-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.96s
+     Running tests/encryption.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/encryption-e7ed1076601f67ba)
+
+running 9 tests
+test database_and_wal_do_not_persist_exported_recovery_or_unwrapped_private_keys ... ignored, requires real OS credential store
+test device_confirmation_is_single_use_and_revocation_rotates_future_keys_for_remaining_devices ... ignored, requires real OS credential store
+test encrypted_space_restarts_with_system_key_and_pairing_imports_same_master_on_second_device ... ignored, requires real OS credential store
+test failed_rotation_is_atomic_and_recovery_keeps_all_historical_epochs ... ignored, requires real OS credential store
+test recovery_restores_keys_and_password_change_preserves_existing_ciphertext ... ignored, requires real OS credential store
+test two_connections_racing_confirmation_consume_invitation_once ... ignored, requires real OS credential store
+test highest_database_version_repairs_missing_encryption_tables_without_downgrade ... ok
+test external_full_scope_cannot_manage_space_secrets_even_with_member_argument ... ok
+test encrypted_envelopes_roundtrip_and_authenticate_workspace_kind_version_and_bytes ... ok
+
+test result: ok. 3 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 7.54s
+

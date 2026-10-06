@@ -1,0 +1,14 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-merge-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.86s
+     Running tests/providers.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/providers-3ea6371799df229d)
+
+running 6 tests
+test credentials_can_be_set_replaced_and_removed_without_echo_or_database_persistence ... ignored, OS credential-store smoke test requires an unlocked desktop keychain/Secret Service
+test validation_requires_explicit_declared_capability_before_network ... ok
+test provider_configuration_rejects_insecure_urls_unknown_image_capability_and_embedded_keys ... ok
+test vision_only_configuration_sends_a_builtin_multimodal_image ... ok
+test connection_validation_uses_configured_model_and_reports_only_verified_capability ... ok
+test model_configuration_survives_restart_without_a_key_or_blocking_manual_entry ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
+

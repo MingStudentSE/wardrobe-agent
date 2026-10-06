@@ -1,0 +1,15 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-merge-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.94s
+     Running tests/image_editing.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/image_editing-8a2dcdd82019f0c5)
+
+running 7 tests
+test real_model_download_white_shirt_cutout_and_cached_offline_restart ... ignored, explicit official model download and public licensed photo inference; run for packaged runtime acceptance
+test local_cutout_model_missing_status_is_actionable_and_no_fallback ... ok
+test cutout_queue_survives_restart_and_missing_model_fails_without_changing_asset ... ok
+test failed_restore_keeps_source_and_derived_display_unchanged ... ok
+test image_merge_and_replace_are_atomic_and_preserve_source_clothing ... ok
+test rotation_preserves_original_and_facts_and_restores_after_restart ... ok
+test twenty_image_limit_and_member_scope_reject_merge_atomically ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
