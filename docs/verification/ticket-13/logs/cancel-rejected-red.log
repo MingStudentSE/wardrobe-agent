@@ -1,0 +1,22 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-implementation/ticket-13/crates/wardrobe-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.65s
+     Running tests/recognition.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recognition-85ea57061d914daf)
+
+running 1 test
+test cancellation_while_http_runs_cannot_publish_proposal ... FAILED
+
+failures:
+
+---- cancellation_while_http_runs_cannot_publish_proposal stdout ----
+
+thread 'cancellation_while_http_runs_cannot_publish_proposal' (3089202) panicked at crates/wardrobe-core/tests/recognition.rs:394:43:
+called `Result::unwrap_err()` on an `Ok` value: Object {"attempts": Number(1), "created_at": String("2026-10-06T19:07:05.217836+00:00"), "error": Object {"code": String("provider_rate_limit"), "http_status": Number(429), "message": String("供应商拒绝请求，仍可手工保存"), "retry_after_ms": Number(2000), "retryable": Bool(true)}, "id": String("01a1129c-c081-7362-9c5c-8708b9403fb6"), "kind": String("recognition"), "lease_expires": Number(0), "lease_token": Null, "member_id": String("01a1129c-c07c-715b-a17e-daf6745e93e5"), "next_due": Number(1791313627339), "operation_key": String("boundary"), "payload": Object {"asset_ids": Array [String("01a1129c-c07f-7547-9d7a-13c694e46958")], "assets": Array [Object {"asset_id": String("01a1129c-c07f-7547-9d7a-13c694e46958"), "blob_hash": String("6b1cf9ed9661cbf4698901c5d24b39f7f3f1a60f8e458b53ca82baf83e2b157a"), "bytes": Number(44), "height": Number(16), "mime": String("image/webp"), "role": String("product_display"), "width": Number(16)}], "baseline": Object {"asset_ids": Array [String("01a1129c-c07f-7547-9d7a-13c694e46958")], "brand": Null, "category": String("top"), "color": Array [], "color_description": Null, "created_at": String("2026-10-06T19:07:05.215357+00:00"), "currency": Null, "description": Null, "display_asset_id": String("01a1129c-c07f-7547-9d7a-13c694e46958"), "favorite": Bool(false), "fit": Null, "id": String("01a1129c-c07f-7547-9d7a-13c5c25de80f"), "material": Array [], "member_id": String("01a1129c-c07c-715b-a17e-daf6745e93e5"), "name": String("手工事实"), "notes": Null, "occasion": Array [], "pattern": Array [], "price_exponent": Null, "purchase_date": Null, "purchase_price_minor": Null, "purchase_store": Null, "purchase_url": Null, "schema_version": Number(1), "seasons": Array [], "size_label": Null, "status": String("active"), "style": Array [], "sub_category": Null, "tags": Array [], "taxonomy_version": Number(1), "updated_at": String("2026-10-06T19:07:05.217188+00:00")}, "provider": Object {"adapter": String("openai_compatible"), "authentication": String("none"), "capabilities": Array [String("vision")], "created_at": String("2026-10-06T19:07:05.217547+00:00"), "endpoint": String("http://127.0.0.1:54504/v1"), "id": String("01a1129c-c081-7362-9c5c-8707dd0a0934"), "model": String("fixture"), "name": String("HTTP boundary"), "schema_version": Number(1), "updated_at": String("2026-10-06T19:07:05.217547+00:00")}, "request": Object {"asset_ids": Array [String("01a1129c-c07f-7547-9d7a-13c694e46958")], "clothing_id": String("01a1129c-c07f-7547-9d7a-13c5c25de80f"), "confirm_upload": Bool(true), "member_id": String("01a1129c-c07c-715b-a17e-daf6745e93e5"), "operation_key": String("boundary"), "provider_id": String("01a1129c-c081-7362-9c5c-8707dd0a0934"), "upload_role": String("product_display")}, "submission": String("not_submitted"), "transferred_images": Array [Object {"asset_id": String("01a1129c-c07f-7547-9d7a-13c694e46958"), "bytes": Number(4981), "height": Number(512), "mime": String("image/png"), "sha256": String("a3292ba0201de59ccd4c99e48698b5edce16926cd9a84bd7db75bcaecfbf8992"), "source_blob_hash": String("6b1cf9ed9661cbf4698901c5d24b39f7f3f1a60f8e458b53ca82baf83e2b157a"), "source_role": String("product_display"), "transform": String("orientation-aware-fit-512-png"), "width": Number(512)}], "upload_role": String("product_display")}, "progress": Number(0), "result": Null, "schema_version": Number(1), "state": String("queued"), "updated_at": String("2026-10-06T19:07:05.339700+00:00")}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    cancellation_while_http_runs_cannot_publish_proposal
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.27s
+
+error: test failed, to rerun pass `-p wardrobe-core --test recognition`

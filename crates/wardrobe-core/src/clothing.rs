@@ -427,7 +427,7 @@ const TEXT_FACTS: &[&str] = &[
     "color_description",
 ];
 const ARRAY_FACTS: &[&str] = &["color", "pattern", "material", "style", "occasion", "tags"];
-fn apply_facts(doc: &mut Value, input: &Value) -> Result<(), ApiError> {
+pub(super) fn apply_facts(doc: &mut Value, input: &Value) -> Result<(), ApiError> {
     for key in input.as_object().unwrap().keys() {
         if !TEXT_FACTS.contains(&key.as_str())
             && !ARRAY_FACTS.contains(&key.as_str())
