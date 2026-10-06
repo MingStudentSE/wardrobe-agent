@@ -216,7 +216,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         .find(|v| v["name"] == "assets.get")
         .unwrap()["outputSchema"]
         .clone();
-    asset["properties"]["lineage"] = json!({"type":"array","items":{"type":"object","required":["id","action","source_display_id","source_original_id","result_display_id","parameters","algorithm","created_at"],"properties":{"id":{"type":"string"},"action":{"enum":["rotate","restore","cutout"]},"source_display_id":{"type":"string"},"source_original_id":{"type":"string"},"result_display_id":{"type":"string"},"parameters":{"type":"object"},"algorithm":{"type":"string"},"created_at":{"type":"string"},"previous_display":{"type":"object"}}}});
+    asset["properties"]["lineage"] = json!({"type":"array","items":{"type":"object","required":["id","action","source_display_id","source_original_id","result_display_id","parameters","algorithm","created_at"],"properties":{"id":{"type":"string"},"action":{"enum":["rotate","restore","cutout","product_generation"]},"source_display_id":{"type":"string"},"source_original_id":{"type":"string"},"result_display_id":{"type":"string"},"parameters":{"type":"object"},"algorithm":{"type":"string"},"created_at":{"type":"string"},"previous_display":{"type":"object"}}}});
     let mut result = vec![];
     for action in ["rotate", "restore", "merge", "replace", "main"] {
         let mut properties = json!({"member_id":{"type":"string"}});

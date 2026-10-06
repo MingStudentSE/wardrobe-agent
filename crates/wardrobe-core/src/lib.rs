@@ -7,6 +7,7 @@ mod imports;
 mod jobs;
 mod members;
 mod outfits;
+mod product;
 mod providers;
 
 use rusqlite::{params, Connection};
@@ -187,6 +188,9 @@ impl Application {
             "provider.credential.set"
             | "provider.credential.remove"
             | "provider.credential.status" => self.provider_credential(operation, input),
+            "product.generate" => self.product_generate(input),
+            "product.process" => self.product_process(input),
+            "product.adopt" => self.product_adopt(input),
             "provider.validate" => self.provider_validate(input),
             "provider.save" => self.provider_save(input),
             "provider.list" => self.provider_list(input),
@@ -236,6 +240,7 @@ pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
     descriptors.extend(clothing::descriptors());
     descriptors.extend(providers::descriptors());
+    descriptors.extend(product::descriptors());
     descriptors.extend(authorization::descriptors());
     descriptors.extend(assets::descriptors());
     descriptors.extend(outfits::descriptors());
