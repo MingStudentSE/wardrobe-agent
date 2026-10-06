@@ -1,0 +1,17 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/insights.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5217 --strictPort
+[WebServer] (node:78666) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 3 tests using 1 worker
+
+(node:78668) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+  ✓  1 tests/insights.spec.ts:3:1 › 洞察手算分布、次数天数、90天边界、成员偏好重载及更正撤销重算 (1.7s)
+  ✓  2 tests/insights.spec.ts:18:1 › 洞察空态、真实查询加载、参数错误与修改恢复都有明确状态 (3.9s)
+  ✓  3 tests/insights.spec.ts:24:1 › 重载时提前打开洞察会等待衣物加载后读取已保存阈值 (623ms)
+
+  3 passed (7.7s)
