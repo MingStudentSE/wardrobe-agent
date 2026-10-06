@@ -476,3 +476,69 @@ fn uncertain_model_scores_are_unverified_and_missing_db12_table_is_repaired() {
         "succeeded"
     );
 }
+
+#[test]
+fn expired_lease_before_submission_never_uploads_or_revives_the_task() {
+    use std::io::Write;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+    let (stop, stopped) = std::sync::mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let mut calls = 0;
+        loop {
+            if stopped.try_recv().is_ok() {
+                return calls;
+            }
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    read_http(&mut stream);
+                    calls += 1;
+                    let body =
+                        json!({"choices":[{"message":{"content":"White shirt."}}]}).to_string();
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .unwrap();
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(1))
+                }
+                Err(error) => panic!("HTTP fixture failed: {error}"),
+            }
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let app = Application::open(&path).unwrap();
+    let job = network_job(&app, &dir.path().join("fixture.png"), &endpoint);
+    let db = rusqlite::Connection::open(&path).unwrap();
+    // Expire the persisted worker lease immediately after claim, before image preparation.
+    db.execute_batch("CREATE TRIGGER expire_recognition_claim AFTER UPDATE ON jobs WHEN json_extract(NEW.document,'$.kind')='recognition' AND json_extract(NEW.document,'$.state')='running' AND json_extract(NEW.document,'$.payload.submission')='not_submitted' BEGIN UPDATE jobs SET document=json_set(document,'$.lease_expires',0) WHERE id=NEW.id; END;").unwrap();
+    let outcome = app.execute(
+        "recognition.process",
+        json!({"member_id":"default","id":job["id"]}),
+    );
+    stop.send(()).unwrap();
+    assert_eq!(
+        server.join().unwrap(),
+        0,
+        "expired worker must not send an HTTP POST"
+    );
+    assert_eq!(outcome.unwrap_err().code, "lease_lost");
+    let current = app
+        .execute("jobs.get", json!({"member_id":"default","id":job["id"]}))
+        .unwrap();
+    assert_eq!(current["lease_expires"], 0);
+    assert_eq!(current["payload"]["submission"], "not_submitted");
+    assert!(app
+        .execute("recognition.list", json!({"member_id":"default"}))
+        .unwrap()["items"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}

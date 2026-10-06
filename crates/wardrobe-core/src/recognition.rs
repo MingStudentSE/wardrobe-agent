@@ -481,8 +481,15 @@ impl Application {
         job["payload"]["transferred_images"] = json!(transferred);
         let tx = self.begin_write()?;
         let current = self.job_get(json!({"member_id":member,"id":id}))?;
-        if current["state"] != "running" || current["lease_token"] != lease {
-            return Err(ApiError::new("lease_lost", "任务已经取消，不再发送图片"));
+        if current["state"] != "running"
+            || current["lease_token"] != lease
+            || current["lease_expires"].as_i64().unwrap_or(0)
+                <= chrono::Utc::now().timestamp_millis()
+        {
+            return Err(ApiError::new(
+                "lease_lost",
+                "任务已取消或租约到期，不再发送图片",
+            ));
         }
         jobs::save(&tx, &job)?;
         tx.commit()?;
