@@ -1,6 +1,6 @@
 # #14 F07 商品展示图实施证据
 
-2026-10-07，基于9070fa7，已合入当前集成f6d8749（DB9真实穿着）。实施分支 codex/ticket-14-product-display，工作树 /tmp/wardrobe-ticket-14。复用已完成 #7 debug 编译缓存，未改 release 产物；原独立未完成target596MiB已清理，终态后debug incremental482MiB已清理，只保留target软链接供真实开发CLI桥。
+2026-10-07，基于9070fa7，已合入当前集成73a7f08（含f6d8749 DB9真实穿着）。实施分支 codex/ticket-14-product-display，工作树 /tmp/wardrobe-ticket-14。复用已完成 #7 debug 编译缓存，未改 release 产物；原独立未完成target596MiB已清理，终态后debug incremental482MiB已清理，验证期间target软链接供真实开发CLI桥，终态移除该链接，源码工作树干净；共享缓存保留。
 
 ## 已验证
 
