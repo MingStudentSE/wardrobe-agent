@@ -109,27 +109,11 @@ impl Application {
             return self.care_status(&member, string(&input, "clothing_id")?);
         }
         if ["care.dirty_list", "care.reminders", "care.availability"].contains(&op) {
-            let mut items = vec![];
-            for lifecycle in ["active", "archived", "deleted"] {
-                let mut cursor = None;
-                loop {
-                    let mut q = json!({"member_id":member,"limit":100,"status":lifecycle});
-                    if let Some(c) = cursor {
-                        q["cursor"] = c;
-                    }
-                    let page = self.clothing_list(q)?;
-                    for c in page["items"].as_array().unwrap() {
-                        let s = self.care_status(&member, c["id"].as_str().unwrap())?;
-                        if op == "care.availability" || s["dirty"] == true {
-                            items.push(s);
-                        }
-                    }
-                    cursor = page["next_cursor"].as_str().map(|s| json!(s));
-                    if cursor.is_none() {
-                        break;
-                    }
-                }
-            }
+            let items: Vec<Value> = self
+                .care_batch(&member)?
+                .into_iter()
+                .filter(|s| op == "care.availability" || s["dirty"] == true)
+                .collect();
             return Ok(
                 json!({"schema_version":1,"member_id":member,"items":items,"notification_scheduled":false}),
             );
@@ -392,70 +376,139 @@ impl Application {
             .map(parse)
             .transpose()?
             .unwrap_or(json!({"wash_after_wears":null,"revision":0}));
+        let wears = self.effective_wears(member)?;
+        let events =
+            self.care_execute("care.list", json!({"member_id":member,"clothing_id":id}))?;
         let mut timeline = vec![];
-        for w in self.effective_wears(member)? {
+        for w in wears {
             if w["items"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .any(|i| i["clothing_id"] == id)
             {
-                timeline.push((
-                    w["occurred_at"].as_str().unwrap().to_owned(),
-                    0,
-                    w["root_event_id"].as_str().unwrap().to_owned(),
-                    w,
-                ));
+                timeline.push(event_order(w, 0));
             }
         }
-        let events =
-            self.care_execute("care.list", json!({"member_id":member,"clothing_id":id}))?;
         for e in events["items"].as_array().unwrap() {
-            timeline.push((
-                e["occurred_at"].as_str().unwrap().to_owned(),
-                1,
-                e["root_event_id"].as_str().unwrap().to_owned(),
-                e.clone(),
+            timeline.push(event_order(e.clone(), 1));
+        }
+        Ok(project_status(member, &clothing, &config, timeline))
+    }
+    // One member-wide read per source, then partition by physical clothing ID.
+    // Caller owns the existing DEFERRED or IMMEDIATE snapshot.
+    pub(super) fn care_batch(&self, member: &str) -> Result<Vec<Value>, ApiError> {
+        let wears = self.effective_wears(member)?;
+        self.care_batch_from_wears(member, &wears)
+    }
+    pub(super) fn care_batch_from_wears(
+        &self,
+        member: &str,
+        wears: &[Value],
+    ) -> Result<Vec<Value>, ApiError> {
+        let mut configs = std::collections::HashMap::new();
+        let mut st = self
+            .connection
+            .prepare("SELECT clothing_id,document FROM care_config WHERE member_id=?1")?;
+        for row in st.query_map([member], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })? {
+            let (id, doc) = row?;
+            configs.insert(id, parse(doc)?);
+        }
+        let mut timelines: std::collections::HashMap<String, Vec<(String, u8, String, Value)>> =
+            std::collections::HashMap::new();
+        for wear in wears {
+            let event = (
+                wear["occurred_at"].as_str().unwrap().to_owned(),
+                0,
+                wear["root_event_id"].as_str().unwrap().to_owned(),
+                json!({"time_precision":wear["time_precision"]}),
+            );
+            for item in wear["items"].as_array().unwrap() {
+                timelines
+                    .entry(item["clothing_id"].as_str().unwrap().to_owned())
+                    .or_default()
+                    .push(event.clone());
+            }
+        }
+        let events = self.care_execute("care.list", json!({"member_id":member}))?;
+        for event in events["items"].as_array().unwrap() {
+            timelines
+                .entry(event["clothing_id"].as_str().unwrap().to_owned())
+                .or_default()
+                .push(event_order(event.clone(), 1));
+        }
+        let mut st = self
+            .connection
+            .prepare("SELECT document FROM clothing WHERE member_id=?1 ORDER BY id")?;
+        let mut result = vec![];
+        for row in st.query_map([member], |r| r.get::<_, String>(0))? {
+            let clothing = parse(row?)?;
+            let id = clothing["id"].as_str().unwrap();
+            let config = configs
+                .remove(id)
+                .unwrap_or(json!({"wash_after_wears":null,"revision":0}));
+            result.push(project_status(
+                member,
+                &clothing,
+                &config,
+                timelines.remove(id).unwrap_or_default(),
             ));
         }
-        timeline.sort_by(|a, b| (&a.0, a.1, &a.2).cmp(&(&b.0, b.1, &b.2)));
-        let mut count = 0;
-        let mut dirty = false;
-        let mut last = Value::Null;
-        let mut uncertain = false;
-        for (_, kind, _, e) in timeline {
-            uncertain |= e["time_precision"] == "date";
-            if kind == 0 {
-                count += 1;
-            } else {
-                match e["action"].as_str().unwrap() {
-                    "wash" | "dry_clean" => {
-                        count = 0;
-                        dirty = false;
-                        last = e;
-                    }
-                    "mark_dirty" => dirty = true,
-                    "clear_dirty" => dirty = false,
-                    _ => {}
+        Ok(result)
+    }
+}
+fn event_order(event: Value, kind: u8) -> (String, u8, String, Value) {
+    (
+        event["occurred_at"].as_str().unwrap().to_owned(),
+        kind,
+        event["root_event_id"].as_str().unwrap().to_owned(),
+        event,
+    )
+}
+fn project_status(
+    member: &str,
+    clothing: &Value,
+    config: &Value,
+    mut timeline: Vec<(String, u8, String, Value)>,
+) -> Value {
+    let id = clothing["id"].as_str().unwrap();
+    timeline.sort_by(|a, b| (&a.0, a.1, &a.2).cmp(&(&b.0, b.1, &b.2)));
+    let mut count = 0;
+    let mut dirty = false;
+    let mut last = Value::Null;
+    let mut uncertain = false;
+    for (_, kind, _, e) in timeline {
+        uncertain |= e["time_precision"] == "date";
+        if kind == 0 {
+            count += 1;
+        } else {
+            match e["action"].as_str().unwrap() {
+                "wash" | "dry_clean" => {
+                    count = 0;
+                    dirty = false;
+                    last = e;
                 }
+                "mark_dirty" => dirty = true,
+                "clear_dirty" => dirty = false,
+                _ => {}
             }
         }
-        let threshold = config["wash_after_wears"].as_u64();
-        let due = threshold.is_some_and(|n| count >= n);
-        let mut reasons = vec![];
-        if clothing["status"] != "active" {
-            reasons.push(clothing["status"].as_str().unwrap());
-        }
-        if dirty {
-            reasons.push("manual_dirty");
-        }
-        if due {
-            reasons.push("threshold_reached");
-        }
-        Ok(
-            json!({"schema_version":1,"member_id":member,"clothing_id":id,"name":clothing["name"],"lifecycle_status":clothing["status"],"wash_after_wears":config["wash_after_wears"],"configuration_revision":config["revision"],"wears_since_clean":count,"manual_dirty":dirty,"dirty":dirty||due,"available":reasons.is_empty(),"exclusion_reasons":reasons,"last_clean":last,"chronology_uncertain":uncertain,"ordering":"occurred_at; wear_before_care_at_same_instant; root_event_id","notification_scheduled":false}),
-        )
     }
+    let threshold = config["wash_after_wears"].as_u64();
+    let due = threshold.is_some_and(|n| count >= n);
+    let mut reasons = vec![];
+    if clothing["status"] != "active" {
+        reasons.push(clothing["status"].as_str().unwrap());
+    }
+    if dirty {
+        reasons.push("manual_dirty");
+    }
+    if due {
+        reasons.push("threshold_reached");
+    }
+    json!({"schema_version":1,"member_id":member,"clothing_id":id,"name":clothing["name"],"lifecycle_status":clothing["status"],"wash_after_wears":config["wash_after_wears"],"configuration_revision":config["revision"],"wears_since_clean":count,"manual_dirty":dirty,"dirty":dirty||due,"available":reasons.is_empty(),"exclusion_reasons":reasons,"last_clean":last,"chronology_uncertain":uncertain,"ordering":"occurred_at; wear_before_care_at_same_instant; root_event_id","notification_scheduled":false})
 }
 pub(super) fn descriptors() -> Vec<Value> {
     ["configure","mark_dirty","record","correct","revoke","status","get","list","history","dirty_list","reminders","availability"].into_iter().map(|op|{let mut props=json!({"member_id":{"type":"string"}});

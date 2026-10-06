@@ -1336,3 +1336,62 @@ fn cli_mcp_share_durable_care_threshold_chronology_and_reminder_availability() {
         event
     );
 }
+#[test]
+fn real_authorized_cli_and_stdin_mcp_share_persistent_offline_recommendation_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    cli(&path, "space.default", json!({}));
+    for (name, category) in [
+        ("上衣A", "top"),
+        ("上衣B", "top"),
+        ("裤子", "bottom"),
+        ("鞋", "shoes"),
+    ] {
+        let r = cli(
+            &path,
+            "clothing.create",
+            json!({"member_id":"default","name":name,"category":category}),
+        );
+        assert!(r.get("error").is_none());
+    }
+    let token = client_token(&path);
+    let input = json!({"member_id":"default","operation_key":"recommend-cli","timezone":"UTC"});
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args([
+            "--db",
+            path.to_str().unwrap(),
+            "recommendation.generate",
+            "--client-stdin",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    write!(
+        child.stdin.take().unwrap(),
+        "{}",
+        json!({"token":token,"input":input})
+    )
+    .unwrap();
+    let generated: Value =
+        serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+    assert!(generated.get("error").is_none(), "{generated}");
+    let expected = &generated["result"];
+    assert_eq!(expected["actual_count"], 2);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":"recommendation.get","arguments":{"member_id":"default","id":expected["id"]}}})).unwrap();
+    let response: Value =
+        serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+    let actual: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(&actual, expected);
+    assert_eq!(
+        cli(&path, "wear.list", json!({"member_id":"default"}))["result"]["items"],
+        json!([])
+    );
+}

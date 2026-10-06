@@ -1,0 +1,22 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-15/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.86s
+     Running tests/recommendations.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recommendations-4b434e0f15914463)
+
+running 1 test
+test replace_one_and_change_set_preserve_fixed_hard_controls_and_persist_child_intents ... FAILED
+
+failures:
+
+---- replace_one_and_change_set_preserve_fixed_hard_controls_and_persist_child_intents stdout ----
+
+thread 'replace_one_and_change_set_preserve_fixed_hard_controls_and_persist_child_intents' (3406020) panicked at crates/wardrobe-core/tests/recommendations.rs:268:170:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "invalid_input", message: "保留单品角色层级必须来自同成员原意图" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    replace_one_and_change_set_preserve_fixed_hard_controls_and_persist_child_intents
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p wardrobe-core --test recommendations`

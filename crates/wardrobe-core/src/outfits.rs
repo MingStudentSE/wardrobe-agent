@@ -69,7 +69,12 @@ impl Application {
             return self.outfit_render(&member, string(&input, "id")?);
         }
         // Hold an immediate write transaction across validating current clothing and committing snapshots.
-        let tx = self.begin_write()?;
+        if self.connection.is_autocommit() {
+            let tx = self.begin_write()?;
+            let result = self.outfit_execute(operation, input)?;
+            tx.commit()?;
+            return Ok(result);
+        }
         let mut doc = if operation == "outfit.create" {
             let items = self.outfit_items(&member, &input["items"])?;
             let now = chrono::Utc::now().to_rfc3339();
@@ -123,10 +128,11 @@ impl Application {
         }
         let id = doc["id"].as_str().unwrap();
         let serialized = doc.to_string();
-        tx.execute("INSERT INTO outfits(id,member_id,document) VALUES (?1,?2,?3) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,member,serialized])?;
-        tx.execute("DELETE FROM outfit_items WHERE outfit_id=?1", [id])?;
+        self.connection.execute("INSERT INTO outfits(id,member_id,document) VALUES (?1,?2,?3) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,member,serialized])?;
+        self.connection
+            .execute("DELETE FROM outfit_items WHERE outfit_id=?1", [id])?;
         for (position, item) in doc["items"].as_array().unwrap().iter().enumerate() {
-            tx.execute(
+            self.connection.execute(
                 "INSERT INTO outfit_items VALUES (?1,?2,?3,?4,?5)",
                 params![
                     id,
@@ -137,19 +143,18 @@ impl Application {
                 ],
             )?;
         }
-        tx.execute(
+        self.connection.execute(
             "INSERT INTO outfit_versions VALUES (?1,?2,?3)",
             params![id, doc["version"].as_u64(), serialized],
         )?;
-        tx.execute(
+        self.connection.execute(
             "INSERT INTO audit(entity_id,operation,document) VALUES (?1,?2,?3)",
             params![id, operation, serialized],
         )?;
-        tx.execute(
+        self.connection.execute(
             "INSERT INTO outbox(entity_id,document) VALUES (?1,?2)",
             params![id, serialized],
         )?;
-        tx.commit()?;
         Ok(doc)
     }
     fn outfit_get(&self, member: &str, id: &str) -> Result<Value, ApiError> {
