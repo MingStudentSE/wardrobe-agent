@@ -627,3 +627,68 @@ fn cli_mcp_share_immutable_image_edits_and_cancelled_cutout_jobs() {
         asset
     );
 }
+#[test]
+fn authorized_cli_mcp_share_actual_wear_retries_corrections_and_immutable_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    cli(&path, "space.default", json!({}));
+    let c = cli(
+        &path,
+        "clothing.create",
+        json!({"member_id":"default","name":"实穿上装","category":"top"}),
+    )["result"]
+        .clone();
+    let token = client_token(&path);
+    let cli_authorized = |operation: &str, input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", path.to_str().unwrap(), operation, "--client-stdin"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        write!(
+            child.stdin.take().unwrap(),
+            "{}",
+            json!({"token":token,"input":input})
+        )
+        .unwrap();
+        let response: Value =
+            serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+        assert!(response.get("error").is_none(), "{response}");
+        response["result"].clone()
+    };
+    let mcp = |operation: &str, input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", path.to_str().unwrap(), "mcp"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":operation,"arguments":input}})).unwrap();
+        let response: Value =
+            serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+        serde_json::from_str::<Value>(response["result"]["content"][0]["text"].as_str().unwrap())
+            .unwrap()
+    };
+    let request = json!({"member_id":"default","operation_key":"wear-1","local_date":"2020-01-02","timezone":"Asia/Shanghai","clothing_ids":[c["id"]]});
+    let event = cli_authorized("wear.record", request.clone());
+    assert_eq!(mcp("wear.record", request), event);
+    let corrected = mcp(
+        "wear.correct",
+        json!({"member_id":"default","operation_key":"wear-correction","root_event_id":event["id"],"expected_revision":1,"local_date":"2020-01-03","timezone":"UTC","notes":"补记日期更正"}),
+    );
+    assert_eq!(corrected["revision"], 2);
+    assert_eq!(
+        cli_authorized("wear.get", json!({"member_id":"default","id":event["id"]})),
+        event
+    );
+    assert_eq!(
+        mcp("wear.summary", json!({"member_id":"default"}))["items"][0]["wearCount"],
+        1
+    );
+    let history = cli_authorized(
+        "wear.history",
+        json!({"member_id":"default","root_event_id":event["id"]}),
+    );
+    assert_eq!(history["items"], json!([event, corrected]));
+}
