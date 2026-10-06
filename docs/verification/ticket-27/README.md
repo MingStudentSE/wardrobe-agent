@@ -74,3 +74,11 @@ These intermediate contracts do not establish scalable remote indexing: the curr
 - `sync-durable-ui-build.log`: TypeScript/Vite build exit 0. Updated 320px conflict screenshot inspected directly; readable controls and no horizontal overflow. The real GUI still requires further scope/stale-read/native verification as listed above.
 
 No full-scale, scalable index, causal frontier, revocation/incarnation or final acceptance claim is made by this checkpoint.
+
+## Second resource handoff: membership green, outer protocol red
+
+- `sync-member-identity-red.log`: 34919 naturally exits 101, 23.87s. An authenticated operation changes the member_id of an existing clothing identity; only two existing invalid operations are quarantined instead of the expected three.
+- `sync-member-identity-green.log`: 53808 naturally exits 0, 41.31s. Transactional domain identity validation rejects reassignment before field merge even when a stale clock would leave the current value unchanged. Clothing/outfit identity ownership, care configuration/outfit-version parent ownership, and wear/care root membership are checked. The same public scenario preserves histories and permits the valid size update to reach the other installation. It does not claim all raw operation validation complete.
+- `sync-protocol-vector-red.log`: 65341 naturally exits 101, 27.66s. The new authenticated fixtures use an unsupported protocol_version and a non-object clock, with otherwise valid clothing facts. Only three invalid operations are quarantined, instead of the required five. Outer protocol/vector validation is still unimplemented; this is the next vertical slice.
+
+Root requested another temporary concurrency handoff for the independent weather candidate's parallel Standards/Spec review. All owned commands have naturally reached terminal states; no live own test/build/GUI handles remain. No command was cancelled and no full-scale substitution is made. The branch remains an incomplete implementation checkpoint, not an accepted candidate.

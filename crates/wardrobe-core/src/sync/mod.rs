@@ -257,6 +257,7 @@ impl Application {
             .ok_or_else(|| error("sync_invalid"))?;
         let before = op["before"].as_object();
         let tx = self.begin_write()?;
+        schema::validate_identity(&tx, table, entity, &op["after"])?;
         tx.execute("UPDATE sync_control SET applying=1 WHERE id=1", [])?;
         if immutable(table) {
             if !op["before"].is_null() {

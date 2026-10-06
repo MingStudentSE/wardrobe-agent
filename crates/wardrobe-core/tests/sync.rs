@@ -578,6 +578,64 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
             WriteCondition::CreateOnly,
         )
         .unwrap();
+    let reassigned_id = uuid::Uuid::now_v7().to_string();
+    let mut reassigned = invalid.clone();
+    reassigned["op_id"] = json!(reassigned_id);
+    reassigned["after"] = owner
+        .execute(
+            "clothing.get",
+            json!({"member_id":member["member_id"],"id":garment["id"]}),
+        )
+        .unwrap();
+    reassigned["after"]["member_id"] =
+        owner.execute("space.default", json!({})).unwrap()["member_id"].clone();
+    let bytes = wrap(&reassigned);
+    let object = format!("{space}/changes/{reassigned_id}.object");
+    storage
+        .put(&object, &mut bytes.as_slice(), WriteCondition::CreateOnly)
+        .unwrap();
+    let marker = wrap(
+        &json!({"key":object,"bytes":bytes.len(),"sha256":Sha256::digest(&bytes).iter().map(|b|format!("{b:02x}")).collect::<String>()}),
+    );
+    storage
+        .put(
+            &format!("{space}/changes/{reassigned_id}.commit"),
+            &mut marker.as_slice(),
+            WriteCondition::CreateOnly,
+        )
+        .unwrap();
+    let mut malformed_ids = Vec::new();
+    for (field, value) in [
+        ("protocol_version", json!(999)),
+        ("clock", json!("not-a-vector")),
+    ] {
+        let malformed_id = uuid::Uuid::now_v7().to_string();
+        let mut malformed = invalid.clone();
+        malformed["op_id"] = json!(malformed_id);
+        malformed["after"] = owner
+            .execute(
+                "clothing.get",
+                json!({"member_id":member["member_id"],"id":garment["id"]}),
+            )
+            .unwrap();
+        malformed[field] = value;
+        let bytes = wrap(&malformed);
+        let object = format!("{space}/changes/{malformed_id}.object");
+        storage
+            .put(&object, &mut bytes.as_slice(), WriteCondition::CreateOnly)
+            .unwrap();
+        let marker = wrap(
+            &json!({"key":object,"bytes":bytes.len(),"sha256":Sha256::digest(&bytes).iter().map(|b|format!("{b:02x}")).collect::<String>()}),
+        );
+        storage
+            .put(
+                &format!("{space}/changes/{malformed_id}.commit"),
+                &mut marker.as_slice(),
+                WriteCondition::CreateOnly,
+            )
+            .unwrap();
+        malformed_ids.push(malformed_id);
+    }
     owner
         .execute(
             "clothing.update",
@@ -587,7 +645,7 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
     let result = owner
         .sync_batch()
         .expect("bad immutable payload is isolated without blocking valid facts");
-    assert_eq!(result["quarantined"], 2);
+    assert_eq!(result["quarantined"], 5);
     peer.sync_batch().unwrap();
     assert_eq!(
         peer.execute(
@@ -621,6 +679,18 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
             .unwrap()
             .iter()
             .any(|v| v["op_id"] == invalid_id && v["code"] == "sync_invalid"));
+        assert!(status["quarantine"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["op_id"] == reassigned_id && v["code"] == "sync_identity_conflict"));
+        for id in &malformed_ids {
+            assert!(status["quarantine"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v["op_id"] == *id && v["code"] == "sync_invalid"));
+        }
         assert_eq!(app.sync_batch().unwrap()["quarantined"], 0);
     }
 

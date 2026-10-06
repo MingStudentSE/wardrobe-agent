@@ -376,3 +376,51 @@ pub(super) fn validate(table: &str, entity: &str, doc: &Value) -> Result<(), Api
     }
     Ok(())
 }
+
+/// Entity membership is identity, not a mergeable scalar field.
+pub(super) fn validate_identity(
+    tx: &Transaction<'_>,
+    table: &str,
+    entity: &str,
+    doc: &Value,
+) -> Result<(), ApiError> {
+    let member = doc["member_id"].as_str();
+    let owner: Option<String> = match table {
+        "clothing" | "outfits" => tx
+            .query_row(
+                &format!("SELECT member_id FROM {table} WHERE id=?1"),
+                [entity],
+                |r| r.get(0),
+            )
+            .optional()?,
+        "care_config" => tx
+            .query_row(
+                "SELECT member_id FROM clothing WHERE id=?1",
+                [string(doc, "clothing_id")?],
+                |r| r.get(0),
+            )
+            .optional()?,
+        "outfit_versions" => tx
+            .query_row(
+                "SELECT member_id FROM outfits WHERE id=?1",
+                [string(doc, "id")?],
+                |r| r.get(0),
+            )
+            .optional()?,
+        "wear_events" | "care_events" => tx
+            .query_row(
+                &format!("SELECT member_id FROM {table} WHERE root_event_id=?1 LIMIT 1"),
+                [string(doc, "root_event_id")?],
+                |r| r.get(0),
+            )
+            .optional()?,
+        _ => None,
+    };
+    if owner.as_deref().is_some_and(|known| Some(known) != member) {
+        return Err(error("sync_identity_conflict"));
+    }
+    if ["care_config", "outfit_versions"].contains(&table) && owner.is_none() {
+        return Err(error("sync_dependency"));
+    }
+    Ok(())
+}
