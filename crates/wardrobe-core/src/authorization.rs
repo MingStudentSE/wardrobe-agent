@@ -9,7 +9,9 @@ fn hash(token: &str) -> String {
         .collect()
 }
 fn privileged(operation: &str) -> bool {
-    operation.starts_with("client.") || operation.starts_with("provider.credential.")
+    operation.starts_with("client.")
+        || operation.starts_with("provider.credential.")
+        || operation.starts_with("encryption.")
 }
 fn parse_grant(stored: &str) -> Result<Value, ApiError> {
     let grant: Value = serde_json::from_str(stored)

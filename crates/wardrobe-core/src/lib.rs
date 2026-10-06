@@ -2,6 +2,7 @@ mod assets;
 mod authorization;
 mod clothing;
 mod cutout;
+mod encryption;
 mod flatlay;
 mod image_editing;
 mod imports;
@@ -19,7 +20,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 9;
+pub const DATABASE_SCHEMA_VERSION: u32 = 10;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -115,6 +116,7 @@ impl Application {
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
         cutout::migrate(&tx)?;
+        encryption::migrate(&tx)?;
         tx.execute_batch(&format!(
             "PRAGMA user_version={};",
             version.max(DATABASE_SCHEMA_VERSION)
@@ -178,6 +180,7 @@ impl Application {
             }
         }
         match operation {
+            name if name.starts_with("encryption.") => self.encryption_operation(name, input),
             "capabilities" => Ok(
                 json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES,"taxonomy":clothing::taxonomy()}),
             ),
@@ -254,6 +257,7 @@ fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
 }
 pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
+    descriptors.extend(encryption::descriptors());
     descriptors.extend(clothing::descriptors());
     descriptors.extend(providers::descriptors());
     descriptors.extend(product::descriptors());

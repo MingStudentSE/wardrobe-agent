@@ -43,7 +43,12 @@ fn main() {
         .map(|(_, a)| a.as_str())
         .collect();
     let command = positional.first().copied().unwrap_or("capabilities");
-    if command == "provider.credential.set" && positional.get(1) != Some(&"--input-stdin") {
+    if (command == "provider.credential.set" || command.starts_with("encryption."))
+        && !matches!(
+            positional.get(1),
+            Some(&"--input-stdin" | &"--client-stdin")
+        )
+    {
         fail(ApiError {
             code: "secret_requires_stdin".into(),
             message: "凭据命令使用--input-stdin，从标准输入读取密钥，避免放入命令历史和进程参数"

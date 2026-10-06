@@ -1,0 +1,1016 @@
+{
+  "conclusion": "",
+  "databaseId": 37513514443,
+  "headSha": "9070fa753abe8101014f9f12470ea632135305ef",
+  "jobs": [
+    {
+      "completedAt": "2026-10-06T19:03:52Z",
+      "conclusion": "success",
+      "databaseId": 112440467437,
+      "name": "desktop (ubuntu-22.04)",
+      "startedAt": "2026-10-06T18:43:44Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-06T18:43:47Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-06T18:43:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:43:48Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-10-06T18:43:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:00Z",
+          "conclusion": "success",
+          "name": "Run dtolnay/rust-toolchain@stable",
+          "number": 3,
+          "startedAt": "2026-10-06T18:43:48Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:28Z",
+          "conclusion": "success",
+          "name": "Run Swatinem/rust-cache@v2",
+          "number": 4,
+          "startedAt": "2026-10-06T18:44:00Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:32Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v4",
+          "number": 5,
+          "startedAt": "2026-10-06T18:44:28Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:30Z",
+          "conclusion": "success",
+          "name": "Run sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev libdbus-1-dev dbus-x11 gnome-keyring",
+          "number": 6,
+          "startedAt": "2026-10-06T18:44:32Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:32Z",
+          "conclusion": "success",
+          "name": "Cache native HEIC decoder",
+          "number": 7,
+          "startedAt": "2026-10-06T18:45:30Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:33Z",
+          "conclusion": "success",
+          "name": "Build native HEIC decoder (Unix)",
+          "number": 8,
+          "startedAt": "2026-10-06T18:45:32Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:33Z",
+          "conclusion": "skipped",
+          "name": "Build native HEIC decoder (Windows)",
+          "number": 9,
+          "startedAt": "2026-10-06T18:45:33Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:48:01Z",
+          "conclusion": "success",
+          "name": "Run cargo test --workspace",
+          "number": 10,
+          "startedAt": "2026-10-06T18:45:33Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:53:47Z",
+          "conclusion": "success",
+          "name": "Verify optimized native image decoding",
+          "number": 11,
+          "startedAt": "2026-10-06T18:48:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:53:57Z",
+          "conclusion": "success",
+          "name": "Verify optimized actual local segmentation model",
+          "number": 12,
+          "startedAt": "2026-10-06T18:53:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:53:57Z",
+          "conclusion": "skipped",
+          "name": "Verify native credential store (macOS and Windows)",
+          "number": 13,
+          "startedAt": "2026-10-06T18:53:57Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:53:58Z",
+          "conclusion": "success",
+          "name": "Verify Secret Service credential store (Linux)",
+          "number": 14,
+          "startedAt": "2026-10-06T18:53:57Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:53:58Z",
+          "conclusion": "success",
+          "name": "Run cargo fmt --all -- --check",
+          "number": 15,
+          "startedAt": "2026-10-06T18:53:58Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:54:38Z",
+          "conclusion": "success",
+          "name": "Run cargo clippy --workspace --all-targets -- -D warnings",
+          "number": 16,
+          "startedAt": "2026-10-06T18:53:58Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:54:40Z",
+          "conclusion": "success",
+          "name": "Run npm ci",
+          "number": 17,
+          "startedAt": "2026-10-06T18:54:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:54:46Z",
+          "conclusion": "success",
+          "name": "Run npm run build",
+          "number": 18,
+          "startedAt": "2026-10-06T18:54:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:03:05Z",
+          "conclusion": "success",
+          "name": "Run npm run tauri build -- --no-bundle",
+          "number": 19,
+          "startedAt": "2026-10-06T18:54:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:03:05Z",
+          "conclusion": "success",
+          "name": "Post Cache native HEIC decoder",
+          "number": 35,
+          "startedAt": "2026-10-06T19:03:05Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:03:05Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v4",
+          "number": 36,
+          "startedAt": "2026-10-06T19:03:05Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:03:49Z",
+          "conclusion": "success",
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "number": 37,
+          "startedAt": "2026-10-06T19:03:05Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:03:49Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 38,
+          "startedAt": "2026-10-06T19:03:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:03:50Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 39,
+          "startedAt": "2026-10-06T19:03:49Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/MingStudentSE/wardrobe-agent/actions/runs/37513514443/job/112440467437"
+    },
+    {
+      "completedAt": "2026-10-06T18:49:17Z",
+      "conclusion": "success",
+      "databaseId": 112440467897,
+      "name": "desktop (macos-14)",
+      "startedAt": "2026-10-06T18:43:48Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-06T18:43:51Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-06T18:43:48Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:43:52Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-10-06T18:43:51Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:43:59Z",
+          "conclusion": "success",
+          "name": "Run dtolnay/rust-toolchain@stable",
+          "number": 3,
+          "startedAt": "2026-10-06T18:43:52Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:08Z",
+          "conclusion": "success",
+          "name": "Run Swatinem/rust-cache@v2",
+          "number": 4,
+          "startedAt": "2026-10-06T18:43:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:09Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v4",
+          "number": 5,
+          "startedAt": "2026-10-06T18:44:08Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:09Z",
+          "conclusion": "skipped",
+          "name": "Run sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev libdbus-1-dev dbus-x11 gnome-keyring",
+          "number": 6,
+          "startedAt": "2026-10-06T18:44:09Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:10Z",
+          "conclusion": "success",
+          "name": "Cache native HEIC decoder",
+          "number": 7,
+          "startedAt": "2026-10-06T18:44:09Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:13Z",
+          "conclusion": "success",
+          "name": "Build native HEIC decoder (Unix)",
+          "number": 8,
+          "startedAt": "2026-10-06T18:44:10Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:13Z",
+          "conclusion": "skipped",
+          "name": "Build native HEIC decoder (Windows)",
+          "number": 9,
+          "startedAt": "2026-10-06T18:44:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:10Z",
+          "conclusion": "success",
+          "name": "Run cargo test --workspace",
+          "number": 10,
+          "startedAt": "2026-10-06T18:44:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:46:32Z",
+          "conclusion": "success",
+          "name": "Verify optimized native image decoding",
+          "number": 11,
+          "startedAt": "2026-10-06T18:45:10Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:46:38Z",
+          "conclusion": "success",
+          "name": "Verify optimized actual local segmentation model",
+          "number": 12,
+          "startedAt": "2026-10-06T18:46:32Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:46:43Z",
+          "conclusion": "success",
+          "name": "Verify native credential store (macOS and Windows)",
+          "number": 13,
+          "startedAt": "2026-10-06T18:46:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:46:43Z",
+          "conclusion": "skipped",
+          "name": "Verify Secret Service credential store (Linux)",
+          "number": 14,
+          "startedAt": "2026-10-06T18:46:43Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:46:43Z",
+          "conclusion": "success",
+          "name": "Run cargo fmt --all -- --check",
+          "number": 15,
+          "startedAt": "2026-10-06T18:46:43Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:47:01Z",
+          "conclusion": "success",
+          "name": "Run cargo clippy --workspace --all-targets -- -D warnings",
+          "number": 16,
+          "startedAt": "2026-10-06T18:46:43Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:47:02Z",
+          "conclusion": "success",
+          "name": "Run npm ci",
+          "number": 17,
+          "startedAt": "2026-10-06T18:47:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:47:04Z",
+          "conclusion": "success",
+          "name": "Run npm run build",
+          "number": 18,
+          "startedAt": "2026-10-06T18:47:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:48:51Z",
+          "conclusion": "success",
+          "name": "Run npm run tauri build -- --no-bundle",
+          "number": 19,
+          "startedAt": "2026-10-06T18:47:04Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:48:51Z",
+          "conclusion": "success",
+          "name": "Post Cache native HEIC decoder",
+          "number": 35,
+          "startedAt": "2026-10-06T18:48:51Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:48:51Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v4",
+          "number": 36,
+          "startedAt": "2026-10-06T18:48:51Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:49:14Z",
+          "conclusion": "success",
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "number": 37,
+          "startedAt": "2026-10-06T18:48:51Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:49:15Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 38,
+          "startedAt": "2026-10-06T18:49:14Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:49:15Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 39,
+          "startedAt": "2026-10-06T18:49:15Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/MingStudentSE/wardrobe-agent/actions/runs/37513514443/job/112440467897"
+    },
+    {
+      "completedAt": "2026-10-06T19:00:42Z",
+      "conclusion": "success",
+      "databaseId": 112440468022,
+      "name": "desktop (macos-15-intel)",
+      "startedAt": "2026-10-06T18:43:46Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-06T18:43:50Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-06T18:43:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:43:52Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-10-06T18:43:50Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:15Z",
+          "conclusion": "success",
+          "name": "Run dtolnay/rust-toolchain@stable",
+          "number": 3,
+          "startedAt": "2026-10-06T18:43:52Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:12Z",
+          "conclusion": "success",
+          "name": "Run Swatinem/rust-cache@v2",
+          "number": 4,
+          "startedAt": "2026-10-06T18:44:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:15Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v4",
+          "number": 5,
+          "startedAt": "2026-10-06T18:45:12Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:15Z",
+          "conclusion": "skipped",
+          "name": "Run sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev libdbus-1-dev dbus-x11 gnome-keyring",
+          "number": 6,
+          "startedAt": "2026-10-06T18:45:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:19Z",
+          "conclusion": "success",
+          "name": "Cache native HEIC decoder",
+          "number": 7,
+          "startedAt": "2026-10-06T18:45:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:27Z",
+          "conclusion": "success",
+          "name": "Build native HEIC decoder (Unix)",
+          "number": 8,
+          "startedAt": "2026-10-06T18:45:19Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:27Z",
+          "conclusion": "skipped",
+          "name": "Build native HEIC decoder (Windows)",
+          "number": 9,
+          "startedAt": "2026-10-06T18:45:27Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:47:59Z",
+          "conclusion": "success",
+          "name": "Run cargo test --workspace",
+          "number": 10,
+          "startedAt": "2026-10-06T18:45:27Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:52:25Z",
+          "conclusion": "success",
+          "name": "Verify optimized native image decoding",
+          "number": 11,
+          "startedAt": "2026-10-06T18:47:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:52:36Z",
+          "conclusion": "success",
+          "name": "Verify optimized actual local segmentation model",
+          "number": 12,
+          "startedAt": "2026-10-06T18:52:25Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:52:37Z",
+          "conclusion": "success",
+          "name": "Verify native credential store (macOS and Windows)",
+          "number": 13,
+          "startedAt": "2026-10-06T18:52:36Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:52:37Z",
+          "conclusion": "skipped",
+          "name": "Verify Secret Service credential store (Linux)",
+          "number": 14,
+          "startedAt": "2026-10-06T18:52:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:52:37Z",
+          "conclusion": "success",
+          "name": "Run cargo fmt --all -- --check",
+          "number": 15,
+          "startedAt": "2026-10-06T18:52:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:53:23Z",
+          "conclusion": "success",
+          "name": "Run cargo clippy --workspace --all-targets -- -D warnings",
+          "number": 16,
+          "startedAt": "2026-10-06T18:52:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:53:26Z",
+          "conclusion": "success",
+          "name": "Run npm ci",
+          "number": 17,
+          "startedAt": "2026-10-06T18:53:23Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:53:31Z",
+          "conclusion": "success",
+          "name": "Run npm run build",
+          "number": 18,
+          "startedAt": "2026-10-06T18:53:26Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:59:01Z",
+          "conclusion": "success",
+          "name": "Run npm run tauri build -- --no-bundle",
+          "number": 19,
+          "startedAt": "2026-10-06T18:53:31Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:59:01Z",
+          "conclusion": "success",
+          "name": "Post Cache native HEIC decoder",
+          "number": 35,
+          "startedAt": "2026-10-06T18:59:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:59:01Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v4",
+          "number": 36,
+          "startedAt": "2026-10-06T18:59:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:00:37Z",
+          "conclusion": "success",
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "number": 37,
+          "startedAt": "2026-10-06T18:59:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:00:39Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 38,
+          "startedAt": "2026-10-06T19:00:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:00:39Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 39,
+          "startedAt": "2026-10-06T19:00:39Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/MingStudentSE/wardrobe-agent/actions/runs/37513514443/job/112440468022"
+    },
+    {
+      "completedAt": "2026-10-06T19:04:34Z",
+      "conclusion": "success",
+      "databaseId": 112440468122,
+      "name": "desktop (ubuntu-24.04)",
+      "startedAt": "2026-10-06T18:43:45Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-06T18:43:48Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-06T18:43:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:43:49Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-10-06T18:43:48Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:43:59Z",
+          "conclusion": "success",
+          "name": "Run dtolnay/rust-toolchain@stable",
+          "number": 3,
+          "startedAt": "2026-10-06T18:43:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:32Z",
+          "conclusion": "success",
+          "name": "Run Swatinem/rust-cache@v2",
+          "number": 4,
+          "startedAt": "2026-10-06T18:43:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:37Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v4",
+          "number": 5,
+          "startedAt": "2026-10-06T18:44:32Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:42Z",
+          "conclusion": "success",
+          "name": "Run sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev libdbus-1-dev dbus-x11 gnome-keyring",
+          "number": 6,
+          "startedAt": "2026-10-06T18:44:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:44Z",
+          "conclusion": "success",
+          "name": "Cache native HEIC decoder",
+          "number": 7,
+          "startedAt": "2026-10-06T18:45:42Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:46Z",
+          "conclusion": "success",
+          "name": "Build native HEIC decoder (Unix)",
+          "number": 8,
+          "startedAt": "2026-10-06T18:45:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:46Z",
+          "conclusion": "skipped",
+          "name": "Build native HEIC decoder (Windows)",
+          "number": 9,
+          "startedAt": "2026-10-06T18:45:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:48:16Z",
+          "conclusion": "success",
+          "name": "Run cargo test --workspace",
+          "number": 10,
+          "startedAt": "2026-10-06T18:45:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:54:21Z",
+          "conclusion": "success",
+          "name": "Verify optimized native image decoding",
+          "number": 11,
+          "startedAt": "2026-10-06T18:48:16Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:54:30Z",
+          "conclusion": "success",
+          "name": "Verify optimized actual local segmentation model",
+          "number": 12,
+          "startedAt": "2026-10-06T18:54:21Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:54:30Z",
+          "conclusion": "skipped",
+          "name": "Verify native credential store (macOS and Windows)",
+          "number": 13,
+          "startedAt": "2026-10-06T18:54:30Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:54:31Z",
+          "conclusion": "success",
+          "name": "Verify Secret Service credential store (Linux)",
+          "number": 14,
+          "startedAt": "2026-10-06T18:54:30Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:54:31Z",
+          "conclusion": "success",
+          "name": "Run cargo fmt --all -- --check",
+          "number": 15,
+          "startedAt": "2026-10-06T18:54:31Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:55:09Z",
+          "conclusion": "success",
+          "name": "Run cargo clippy --workspace --all-targets -- -D warnings",
+          "number": 16,
+          "startedAt": "2026-10-06T18:54:31Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:55:11Z",
+          "conclusion": "success",
+          "name": "Run npm ci",
+          "number": 17,
+          "startedAt": "2026-10-06T18:55:09Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:55:19Z",
+          "conclusion": "success",
+          "name": "Run npm run build",
+          "number": 18,
+          "startedAt": "2026-10-06T18:55:11Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:03:56Z",
+          "conclusion": "success",
+          "name": "Run npm run tauri build -- --no-bundle",
+          "number": 19,
+          "startedAt": "2026-10-06T18:55:19Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:03:56Z",
+          "conclusion": "success",
+          "name": "Post Cache native HEIC decoder",
+          "number": 35,
+          "startedAt": "2026-10-06T19:03:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:03:56Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v4",
+          "number": 36,
+          "startedAt": "2026-10-06T19:03:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:04:31Z",
+          "conclusion": "success",
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "number": 37,
+          "startedAt": "2026-10-06T19:03:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:04:32Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 38,
+          "startedAt": "2026-10-06T19:04:31Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:04:32Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 39,
+          "startedAt": "2026-10-06T19:04:32Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/MingStudentSE/wardrobe-agent/actions/runs/37513514443/job/112440468122"
+    },
+    {
+      "completedAt": "0001-01-01T00:00:00Z",
+      "conclusion": "",
+      "databaseId": 112440468159,
+      "name": "desktop (windows-latest)",
+      "startedAt": "2026-10-06T18:43:44Z",
+      "status": "in_progress",
+      "steps": [
+        {
+          "completedAt": "2026-10-06T18:43:47Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-06T18:43:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:43:55Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-10-06T18:43:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:44:24Z",
+          "conclusion": "success",
+          "name": "Run dtolnay/rust-toolchain@stable",
+          "number": 3,
+          "startedAt": "2026-10-06T18:43:55Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:47Z",
+          "conclusion": "success",
+          "name": "Run Swatinem/rust-cache@v2",
+          "number": 4,
+          "startedAt": "2026-10-06T18:44:24Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:58Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v4",
+          "number": 5,
+          "startedAt": "2026-10-06T18:45:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:45:58Z",
+          "conclusion": "skipped",
+          "name": "Run sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev libdbus-1-dev dbus-x11 gnome-keyring",
+          "number": 6,
+          "startedAt": "2026-10-06T18:45:58Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:46:08Z",
+          "conclusion": "success",
+          "name": "Cache native HEIC decoder",
+          "number": 7,
+          "startedAt": "2026-10-06T18:45:58Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:46:08Z",
+          "conclusion": "skipped",
+          "name": "Build native HEIC decoder (Unix)",
+          "number": 8,
+          "startedAt": "2026-10-06T18:46:08Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:46:21Z",
+          "conclusion": "success",
+          "name": "Build native HEIC decoder (Windows)",
+          "number": 9,
+          "startedAt": "2026-10-06T18:46:08Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T18:53:50Z",
+          "conclusion": "success",
+          "name": "Run cargo test --workspace",
+          "number": 10,
+          "startedAt": "2026-10-06T18:46:21Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:04:43Z",
+          "conclusion": "success",
+          "name": "Verify optimized native image decoding",
+          "number": 11,
+          "startedAt": "2026-10-06T18:53:50Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:04:58Z",
+          "conclusion": "success",
+          "name": "Verify optimized actual local segmentation model",
+          "number": 12,
+          "startedAt": "2026-10-06T19:04:43Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:04:59Z",
+          "conclusion": "success",
+          "name": "Verify native credential store (macOS and Windows)",
+          "number": 13,
+          "startedAt": "2026-10-06T19:04:58Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:04:59Z",
+          "conclusion": "skipped",
+          "name": "Verify Secret Service credential store (Linux)",
+          "number": 14,
+          "startedAt": "2026-10-06T19:04:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:05:00Z",
+          "conclusion": "success",
+          "name": "Run cargo fmt --all -- --check",
+          "number": 15,
+          "startedAt": "2026-10-06T19:04:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:05:59Z",
+          "conclusion": "success",
+          "name": "Run cargo clippy --workspace --all-targets -- -D warnings",
+          "number": 16,
+          "startedAt": "2026-10-06T19:05:00Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:06:06Z",
+          "conclusion": "success",
+          "name": "Run npm ci",
+          "number": 17,
+          "startedAt": "2026-10-06T19:05:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:06:16Z",
+          "conclusion": "success",
+          "name": "Run npm run build",
+          "number": 18,
+          "startedAt": "2026-10-06T19:06:06Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:19:14Z",
+          "conclusion": "success",
+          "name": "Run npm run tauri build -- --no-bundle",
+          "number": 19,
+          "startedAt": "2026-10-06T19:06:16Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:19:15Z",
+          "conclusion": "success",
+          "name": "Post Cache native HEIC decoder",
+          "number": 35,
+          "startedAt": "2026-10-06T19:19:14Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-06T19:19:15Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v4",
+          "number": 36,
+          "startedAt": "2026-10-06T19:19:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "number": 37,
+          "startedAt": "2026-10-06T19:19:15Z",
+          "status": "in_progress"
+        },
+        {
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "name": "Post Run actions/checkout@v4",
+          "number": 38,
+          "startedAt": "0001-01-01T00:00:00Z",
+          "status": "pending"
+        }
+      ],
+      "url": "https://github.com/MingStudentSE/wardrobe-agent/actions/runs/37513514443/job/112440468159"
+    }
+  ],
+  "status": "in_progress",
+  "scope": "All business test/build steps completed successfully; run/job conclusion authoritative, pending cache upload is not terminal workflow success"
+}
