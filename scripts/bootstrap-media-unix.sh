@@ -5,6 +5,9 @@ media_root="${1:?Provide an isolated media build directory}"
 mkdir -p "$media_root"
 media_root="$(cd "$media_root" && pwd)"
 media_prefix="$media_root/install"
+if [ "$(uname -s)" = Darwin ]; then
+  export MACOSX_DEPLOYMENT_TARGET=13.0
+fi
 export PKG_CONFIG_PATH="$media_prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 export CMAKE_PREFIX_PATH="$media_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
 for project in libde265 libheif; do
