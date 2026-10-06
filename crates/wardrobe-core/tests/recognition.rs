@@ -409,3 +409,70 @@ fn cancellation_while_http_runs_cannot_publish_proposal() {
             .is_empty());
     }
 }
+#[test]
+fn uncertain_model_scores_are_unverified_and_missing_db12_table_is_repaired() {
+    use std::io::Write;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        read_http(&mut s);
+        let body=json!({"choices":[{"message":{"content":"Maybe a shirt or shoes; self-reported confidence 0.7; colors unknown."}}]}).to_string();
+        write!(
+            s,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .unwrap();
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("db");
+    let app = Application::open(&db).unwrap();
+    let j = network_job(&app, &dir.path().join("fixture.png"), &endpoint);
+    let done = app
+        .execute(
+            "recognition.process",
+            json!({"member_id":"default","id":j["id"]}),
+        )
+        .unwrap();
+    server.join().unwrap();
+    let proposal = app
+        .execute(
+            "recognition.get",
+            json!({"member_id":"default","id":done["result"]["suggestion_id"]}),
+        )
+        .unwrap();
+    assert!(proposal["suggested_facts"].get("category").is_none());
+    assert!(proposal["suggested_facts"].get("color").is_none());
+    assert!(proposal["uncertainties"]["model_self_reported"]
+        .as_str()
+        .unwrap()
+        .contains("0.7"));
+    assert!(proposal["uncertainties"]["notice"]
+        .as_str()
+        .unwrap()
+        .contains("不是准确率"));
+    drop(app);
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch("DROP TABLE recognition_suggestions; PRAGMA user_version=12;")
+        .unwrap();
+    drop(conn);
+    let app = Application::open(&db).unwrap();
+    assert!(app
+        .execute("recognition.list", json!({"member_id":"default"}))
+        .unwrap()["items"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let version: i64 = rusqlite::Connection::open(&db)
+        .unwrap()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, i64::from(wardrobe_core::DATABASE_SCHEMA_VERSION));
+    assert_eq!(
+        app.execute("jobs.get", json!({"member_id":"default","id":j["id"]}))
+            .unwrap()["state"],
+        "succeeded"
+    );
+}

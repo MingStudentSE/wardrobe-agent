@@ -1,26 +1,26 @@
 {
-  "database": "/var/folders/zg/mwcsv72133b9lfjg5sftc7440000gn/T/wardrobe13-actual-u3n0p22w/db",
+  "database": "/var/folders/zg/mwcsv72133b9lfjg5sftc7440000gn/T/wardrobe13-actual-q787jrrs/db",
   "results": [
     {
       "fixture": "OKM_Shirt_Front.jpg",
       "job": {
         "attempts": 1,
-        "created_at": "2026-10-06T19:05:59.022210+00:00",
+        "created_at": "2026-10-06T19:15:01.636159+00:00",
         "error": null,
-        "id": "01a1129b-bdee-7500-8423-46ff82f7cc7b",
+        "id": "01a112a4-0584-7072-acea-defb4ae55cdf",
         "kind": "recognition",
         "lease_expires": 0,
         "lease_token": null,
-        "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
         "next_due": 0,
         "operation_key": "OKM_Shirt_Front.jpg",
         "payload": {
           "asset_ids": [
-            "01a1129b-94af-72ca-8f81-48cdfce86b83"
+            "01a112a3-d513-73fc-9abd-f0290990a95a"
           ],
           "assets": [
             {
-              "asset_id": "01a1129b-94af-72ca-8f81-48cdfce86b83",
+              "asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
               "blob_hash": "b69e38c5c4e5c67bd3e3bc463e149ef7dd3db11b66cdc0555cc73b8faf8fe30d",
               "bytes": 82930,
               "height": 1600,
@@ -31,21 +31,21 @@
           ],
           "baseline": {
             "asset_ids": [
-              "01a1129b-94af-72ca-8f81-48cdfce86b83"
+              "01a112a3-d513-73fc-9abd-f0290990a95a"
             ],
             "brand": null,
             "category": "other",
             "color": [],
             "color_description": null,
-            "created_at": "2026-10-06T19:05:48.456394+00:00",
+            "created_at": "2026-10-06T19:14:49.226561+00:00",
             "currency": null,
             "description": null,
-            "display_asset_id": "01a1129b-94af-72ca-8f81-48cdfce86b83",
+            "display_asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
             "favorite": false,
             "fit": null,
-            "id": "01a1129b-94a8-7441-b883-5e68dab2044e",
+            "id": "01a112a3-d50a-720e-8af6-75fb19e7fd2b",
             "material": [],
-            "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
             "name": "public shirt",
             "notes": null,
             "occasion": [],
@@ -63,7 +63,7 @@
             "sub_category": null,
             "tags": [],
             "taxonomy_version": 1,
-            "updated_at": "2026-10-06T19:05:59.014500+00:00"
+            "updated_at": "2026-10-06T19:15:01.627745+00:00"
           },
           "provider": {
             "adapter": "openai_compatible",
@@ -71,29 +71,29 @@
             "capabilities": [
               "vision"
             ],
-            "created_at": "2026-10-06T19:05:48.448088+00:00",
+            "created_at": "2026-10-06T19:14:49.217522+00:00",
             "endpoint": "http://127.0.0.1:18083/v1",
-            "id": "01a1129b-94a0-764d-95cb-bf35aa5e4288",
+            "id": "01a112a3-d501-72ff-a776-908539302880",
             "model": "wardrobe-smolvlm",
             "name": "Actual SmolVLM",
             "schema_version": 1,
-            "updated_at": "2026-10-06T19:05:48.448088+00:00"
+            "updated_at": "2026-10-06T19:14:49.217522+00:00"
           },
           "request": {
             "asset_ids": [
-              "01a1129b-94af-72ca-8f81-48cdfce86b83"
+              "01a112a3-d513-73fc-9abd-f0290990a95a"
             ],
-            "clothing_id": "01a1129b-94a8-7441-b883-5e68dab2044e",
+            "clothing_id": "01a112a3-d50a-720e-8af6-75fb19e7fd2b",
             "confirm_upload": true,
-            "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
             "operation_key": "OKM_Shirt_Front.jpg",
-            "provider_id": "01a1129b-94a0-764d-95cb-bf35aa5e4288",
+            "provider_id": "01a112a3-d501-72ff-a776-908539302880",
             "upload_role": "product_display"
           },
           "submission": "received",
           "transferred_images": [
             {
-              "asset_id": "01a1129b-94af-72ca-8f81-48cdfce86b83",
+              "asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
               "bytes": 237631,
               "height": 512,
               "mime": "image/png",
@@ -108,30 +108,30 @@
         },
         "progress": 100,
         "result": {
-          "suggestion_id": "01a1129b-c492-757c-a603-92a00eb6abe3"
+          "suggestion_id": "01a112a4-0cb4-742d-ad36-501f6e36dd78"
         },
         "schema_version": 1,
         "state": "succeeded",
-        "updated_at": "2026-10-06T19:06:00.723718+00:00"
+        "updated_at": "2026-10-06T19:15:03.477317+00:00"
       },
-      "elapsed_seconds": 1.7022910839878023,
+      "elapsed_seconds": 1.8417999170196708,
       "unchanged_clothing": {
         "asset_ids": [
-          "01a1129b-94af-72ca-8f81-48cdfce86b83"
+          "01a112a3-d513-73fc-9abd-f0290990a95a"
         ],
         "brand": null,
         "category": "other",
         "color": [],
         "color_description": null,
-        "created_at": "2026-10-06T19:05:48.456394+00:00",
+        "created_at": "2026-10-06T19:14:49.226561+00:00",
         "currency": null,
         "description": null,
-        "display_asset_id": "01a1129b-94af-72ca-8f81-48cdfce86b83",
+        "display_asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
         "favorite": false,
         "fit": null,
-        "id": "01a1129b-94a8-7441-b883-5e68dab2044e",
+        "id": "01a112a3-d50a-720e-8af6-75fb19e7fd2b",
         "material": [],
-        "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
         "name": "public shirt",
         "notes": null,
         "occasion": [],
@@ -149,26 +149,26 @@
         "sub_category": null,
         "tags": [],
         "taxonomy_version": 1,
-        "updated_at": "2026-10-06T19:05:59.014500+00:00"
+        "updated_at": "2026-10-06T19:15:01.627745+00:00"
       },
       "proposal": {
         "baseline": {
           "asset_ids": [
-            "01a1129b-94af-72ca-8f81-48cdfce86b83"
+            "01a112a3-d513-73fc-9abd-f0290990a95a"
           ],
           "brand": null,
           "category": "other",
           "color": [],
           "color_description": null,
-          "created_at": "2026-10-06T19:05:48.456394+00:00",
+          "created_at": "2026-10-06T19:14:49.226561+00:00",
           "currency": null,
           "description": null,
-          "display_asset_id": "01a1129b-94af-72ca-8f81-48cdfce86b83",
+          "display_asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
           "favorite": false,
           "fit": null,
-          "id": "01a1129b-94a8-7441-b883-5e68dab2044e",
+          "id": "01a112a3-d50a-720e-8af6-75fb19e7fd2b",
           "material": [],
-          "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+          "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
           "name": "public shirt",
           "notes": null,
           "occasion": [],
@@ -186,15 +186,15 @@
           "sub_category": null,
           "tags": [],
           "taxonomy_version": 1,
-          "updated_at": "2026-10-06T19:05:59.014500+00:00"
+          "updated_at": "2026-10-06T19:15:01.627745+00:00"
         },
-        "id": "01a1129b-c492-757c-a603-92a00eb6abe3",
-        "job_id": "01a1129b-bdee-7500-8423-46ff82f7cc7b",
-        "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+        "id": "01a112a4-0cb4-742d-ad36-501f6e36dd78",
+        "job_id": "01a112a4-0584-7072-acea-defb4ae55cdf",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
         "provenance": {
           "assets": [
             {
-              "asset_id": "01a1129b-94af-72ca-8f81-48cdfce86b83",
+              "asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
               "blob_hash": "b69e38c5c4e5c67bd3e3bc463e149ef7dd3db11b66cdc0555cc73b8faf8fe30d",
               "bytes": 82930,
               "height": 1600,
@@ -203,16 +203,17 @@
               "width": 1200
             }
           ],
-          "created_at": "2026-10-06T19:06:00.723032+00:00",
+          "created_at": "2026-10-06T19:15:03.476195+00:00",
           "endpoint": "http://127.0.0.1:18083/v1",
           "model": "wardrobe-smolvlm",
+          "normalization": "conservative-taxonomy-word-candidates-v1",
           "prompt_version": "visible-description-v1",
-          "provider_id": "01a1129b-94a0-764d-95cb-bf35aa5e4288",
+          "provider_id": "01a112a3-d501-72ff-a776-908539302880",
           "provider_name": "Actual SmolVLM",
           "response_model": "wardrobe-smolvlm",
           "transferred_images": [
             {
-              "asset_id": "01a1129b-94af-72ca-8f81-48cdfce86b83",
+              "asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
               "bytes": 237631,
               "height": 512,
               "mime": "image/png",
@@ -236,10 +237,11 @@
         "schema_version": 1,
         "state": "pending_review",
         "suggested_facts": {
+          "category": "top",
           "description": " The shirt I'm wearing is an IMUA sand sharks collection."
         },
         "target": {
-          "clothing_id": "01a1129b-94a8-7441-b883-5e68dab2044e"
+          "clothing_id": "01a112a3-d50a-720e-8af6-75fb19e7fd2b"
         },
         "uncertainties": {
           "model_self_reported": " The shirt I'm wearing is an IMUA sand sharks collection.",
@@ -251,22 +253,22 @@
       "fixture": "Zapato.jpg",
       "job": {
         "attempts": 1,
-        "created_at": "2026-10-06T19:06:00.931190+00:00",
+        "created_at": "2026-10-06T19:15:03.653484+00:00",
         "error": null,
-        "id": "01a1129b-c563-74b1-82b8-8ccb479a8b36",
+        "id": "01a112a4-0d65-7184-87e0-23fe707daf8c",
         "kind": "recognition",
         "lease_expires": 0,
         "lease_token": null,
-        "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
         "next_due": 0,
         "operation_key": "Zapato.jpg",
         "payload": {
           "asset_ids": [
-            "01a1129b-c4b7-7137-b000-b717086c059d"
+            "01a112a4-0cd6-743d-b72c-8db16f2c3c2a"
           ],
           "assets": [
             {
-              "asset_id": "01a1129b-c4b7-7137-b000-b717086c059d",
+              "asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
               "blob_hash": "94467259bcde769779052c60c499c56d8d2d4db43bfd370cfe40d6744065ec7c",
               "bytes": 6780,
               "height": 177,
@@ -277,21 +279,21 @@
           ],
           "baseline": {
             "asset_ids": [
-              "01a1129b-c4b7-7137-b000-b717086c059d"
+              "01a112a4-0cd6-743d-b72c-8db16f2c3c2a"
             ],
             "brand": null,
             "category": "other",
             "color": [],
             "color_description": null,
-            "created_at": "2026-10-06T19:06:00.751893+00:00",
+            "created_at": "2026-10-06T19:15:03.502577+00:00",
             "currency": null,
             "description": null,
-            "display_asset_id": "01a1129b-c4b7-7137-b000-b717086c059d",
+            "display_asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
             "favorite": false,
             "fit": null,
-            "id": "01a1129b-c4af-7169-aeab-04cec5ea87b7",
+            "id": "01a112a4-0cce-7058-b344-f7bf80963851",
             "material": [],
-            "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
             "name": "public shoe",
             "notes": null,
             "occasion": [],
@@ -309,7 +311,7 @@
             "sub_category": null,
             "tags": [],
             "taxonomy_version": 1,
-            "updated_at": "2026-10-06T19:06:00.919519+00:00"
+            "updated_at": "2026-10-06T19:15:03.645537+00:00"
           },
           "provider": {
             "adapter": "openai_compatible",
@@ -317,29 +319,29 @@
             "capabilities": [
               "vision"
             ],
-            "created_at": "2026-10-06T19:05:48.448088+00:00",
+            "created_at": "2026-10-06T19:14:49.217522+00:00",
             "endpoint": "http://127.0.0.1:18083/v1",
-            "id": "01a1129b-94a0-764d-95cb-bf35aa5e4288",
+            "id": "01a112a3-d501-72ff-a776-908539302880",
             "model": "wardrobe-smolvlm",
             "name": "Actual SmolVLM",
             "schema_version": 1,
-            "updated_at": "2026-10-06T19:05:48.448088+00:00"
+            "updated_at": "2026-10-06T19:14:49.217522+00:00"
           },
           "request": {
             "asset_ids": [
-              "01a1129b-c4b7-7137-b000-b717086c059d"
+              "01a112a4-0cd6-743d-b72c-8db16f2c3c2a"
             ],
-            "clothing_id": "01a1129b-c4af-7169-aeab-04cec5ea87b7",
+            "clothing_id": "01a112a4-0cce-7058-b344-f7bf80963851",
             "confirm_upload": true,
-            "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
             "operation_key": "Zapato.jpg",
-            "provider_id": "01a1129b-94a0-764d-95cb-bf35aa5e4288",
+            "provider_id": "01a112a3-d501-72ff-a776-908539302880",
             "upload_role": "product_display"
           },
           "submission": "received",
           "transferred_images": [
             {
-              "asset_id": "01a1129b-c4b7-7137-b000-b717086c059d",
+              "asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
               "bytes": 208391,
               "height": 367,
               "mime": "image/png",
@@ -354,30 +356,30 @@
         },
         "progress": 100,
         "result": {
-          "suggestion_id": "01a1129b-c66f-718c-a173-2a1fc128dff4"
+          "suggestion_id": "01a112a4-0e64-77db-a676-42a9e34e180a"
         },
         "schema_version": 1,
         "state": "succeeded",
-        "updated_at": "2026-10-06T19:06:01.199647+00:00"
+        "updated_at": "2026-10-06T19:15:03.908828+00:00"
       },
-      "elapsed_seconds": 0.26852962499833666,
+      "elapsed_seconds": 0.25564333400689065,
       "unchanged_clothing": {
         "asset_ids": [
-          "01a1129b-c4b7-7137-b000-b717086c059d"
+          "01a112a4-0cd6-743d-b72c-8db16f2c3c2a"
         ],
         "brand": null,
         "category": "other",
         "color": [],
         "color_description": null,
-        "created_at": "2026-10-06T19:06:00.751893+00:00",
+        "created_at": "2026-10-06T19:15:03.502577+00:00",
         "currency": null,
         "description": null,
-        "display_asset_id": "01a1129b-c4b7-7137-b000-b717086c059d",
+        "display_asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
         "favorite": false,
         "fit": null,
-        "id": "01a1129b-c4af-7169-aeab-04cec5ea87b7",
+        "id": "01a112a4-0cce-7058-b344-f7bf80963851",
         "material": [],
-        "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
         "name": "public shoe",
         "notes": null,
         "occasion": [],
@@ -395,26 +397,26 @@
         "sub_category": null,
         "tags": [],
         "taxonomy_version": 1,
-        "updated_at": "2026-10-06T19:06:00.919519+00:00"
+        "updated_at": "2026-10-06T19:15:03.645537+00:00"
       },
       "proposal": {
         "baseline": {
           "asset_ids": [
-            "01a1129b-c4b7-7137-b000-b717086c059d"
+            "01a112a4-0cd6-743d-b72c-8db16f2c3c2a"
           ],
           "brand": null,
           "category": "other",
           "color": [],
           "color_description": null,
-          "created_at": "2026-10-06T19:06:00.751893+00:00",
+          "created_at": "2026-10-06T19:15:03.502577+00:00",
           "currency": null,
           "description": null,
-          "display_asset_id": "01a1129b-c4b7-7137-b000-b717086c059d",
+          "display_asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
           "favorite": false,
           "fit": null,
-          "id": "01a1129b-c4af-7169-aeab-04cec5ea87b7",
+          "id": "01a112a4-0cce-7058-b344-f7bf80963851",
           "material": [],
-          "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+          "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
           "name": "public shoe",
           "notes": null,
           "occasion": [],
@@ -432,15 +434,15 @@
           "sub_category": null,
           "tags": [],
           "taxonomy_version": 1,
-          "updated_at": "2026-10-06T19:06:00.919519+00:00"
+          "updated_at": "2026-10-06T19:15:03.645537+00:00"
         },
-        "id": "01a1129b-c66f-718c-a173-2a1fc128dff4",
-        "job_id": "01a1129b-c563-74b1-82b8-8ccb479a8b36",
-        "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+        "id": "01a112a4-0e64-77db-a676-42a9e34e180a",
+        "job_id": "01a112a4-0d65-7184-87e0-23fe707daf8c",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
         "provenance": {
           "assets": [
             {
-              "asset_id": "01a1129b-c4b7-7137-b000-b717086c059d",
+              "asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
               "blob_hash": "94467259bcde769779052c60c499c56d8d2d4db43bfd370cfe40d6744065ec7c",
               "bytes": 6780,
               "height": 177,
@@ -449,16 +451,17 @@
               "width": 247
             }
           ],
-          "created_at": "2026-10-06T19:06:01.199377+00:00",
+          "created_at": "2026-10-06T19:15:03.908578+00:00",
           "endpoint": "http://127.0.0.1:18083/v1",
           "model": "wardrobe-smolvlm",
+          "normalization": "conservative-taxonomy-word-candidates-v1",
           "prompt_version": "visible-description-v1",
-          "provider_id": "01a1129b-94a0-764d-95cb-bf35aa5e4288",
+          "provider_id": "01a112a3-d501-72ff-a776-908539302880",
           "provider_name": "Actual SmolVLM",
           "response_model": "wardrobe-smolvlm",
           "transferred_images": [
             {
-              "asset_id": "01a1129b-c4b7-7137-b000-b717086c059d",
+              "asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
               "bytes": 208391,
               "height": 367,
               "mime": "image/png",
@@ -482,10 +485,15 @@
         "schema_version": 1,
         "state": "pending_review",
         "suggested_facts": {
+          "category": "shoes",
+          "color": [
+            "white",
+            "black"
+          ],
           "description": " A black and white sneaker with white laces."
         },
         "target": {
-          "clothing_id": "01a1129b-c4af-7169-aeab-04cec5ea87b7"
+          "clothing_id": "01a112a4-0cce-7058-b344-f7bf80963851"
         },
         "uncertainties": {
           "model_self_reported": " A black and white sneaker with white laces.",
@@ -497,22 +505,22 @@
       "fixture": "Jeans.jpg",
       "job": {
         "attempts": 1,
-        "created_at": "2026-10-06T19:06:01.871674+00:00",
+        "created_at": "2026-10-06T19:15:04.545537+00:00",
         "error": null,
-        "id": "01a1129b-c90f-764c-a35a-592e43369c7f",
+        "id": "01a112a4-10e1-718a-8ddf-a23f5213d27b",
         "kind": "recognition",
         "lease_expires": 0,
         "lease_token": null,
-        "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
         "next_due": 0,
         "operation_key": "Jeans.jpg",
         "payload": {
           "asset_ids": [
-            "01a1129b-c694-73ac-a00b-f3089b03b146"
+            "01a112a4-0e83-76c6-874a-47faf7efa132"
           ],
           "assets": [
             {
-              "asset_id": "01a1129b-c694-73ac-a00b-f3089b03b146",
+              "asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
               "blob_hash": "7dd85f03aa11cd355986f878c8a117a0179d47c7db9277bc6457c9f91ccf235a",
               "bytes": 76166,
               "height": 650,
@@ -523,21 +531,21 @@
           ],
           "baseline": {
             "asset_ids": [
-              "01a1129b-c694-73ac-a00b-f3089b03b146"
+              "01a112a4-0e83-76c6-874a-47faf7efa132"
             ],
             "brand": null,
             "category": "other",
             "color": [],
             "color_description": null,
-            "created_at": "2026-10-06T19:06:01.226618+00:00",
+            "created_at": "2026-10-06T19:15:03.932095+00:00",
             "currency": null,
             "description": null,
-            "display_asset_id": "01a1129b-c694-73ac-a00b-f3089b03b146",
+            "display_asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
             "favorite": false,
             "fit": null,
-            "id": "01a1129b-c68a-745e-8ad3-cfd746069625",
+            "id": "01a112a4-0e7c-70e4-89a4-458190a1c878",
             "material": [],
-            "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
             "name": "public jeans",
             "notes": null,
             "occasion": [],
@@ -555,7 +563,7 @@
             "sub_category": null,
             "tags": [],
             "taxonomy_version": 1,
-            "updated_at": "2026-10-06T19:06:01.863107+00:00"
+            "updated_at": "2026-10-06T19:15:04.537342+00:00"
           },
           "provider": {
             "adapter": "openai_compatible",
@@ -563,29 +571,29 @@
             "capabilities": [
               "vision"
             ],
-            "created_at": "2026-10-06T19:05:48.448088+00:00",
+            "created_at": "2026-10-06T19:14:49.217522+00:00",
             "endpoint": "http://127.0.0.1:18083/v1",
-            "id": "01a1129b-94a0-764d-95cb-bf35aa5e4288",
+            "id": "01a112a3-d501-72ff-a776-908539302880",
             "model": "wardrobe-smolvlm",
             "name": "Actual SmolVLM",
             "schema_version": 1,
-            "updated_at": "2026-10-06T19:05:48.448088+00:00"
+            "updated_at": "2026-10-06T19:14:49.217522+00:00"
           },
           "request": {
             "asset_ids": [
-              "01a1129b-c694-73ac-a00b-f3089b03b146"
+              "01a112a4-0e83-76c6-874a-47faf7efa132"
             ],
-            "clothing_id": "01a1129b-c68a-745e-8ad3-cfd746069625",
+            "clothing_id": "01a112a4-0e7c-70e4-89a4-458190a1c878",
             "confirm_upload": true,
-            "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
             "operation_key": "Jeans.jpg",
-            "provider_id": "01a1129b-94a0-764d-95cb-bf35aa5e4288",
+            "provider_id": "01a112a3-d501-72ff-a776-908539302880",
             "upload_role": "product_display"
           },
           "submission": "received",
           "transferred_images": [
             {
-              "asset_id": "01a1129b-c694-73ac-a00b-f3089b03b146",
+              "asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
               "bytes": 423118,
               "height": 512,
               "mime": "image/png",
@@ -600,30 +608,30 @@
         },
         "progress": 100,
         "result": {
-          "suggestion_id": "01a1129b-d446-72fb-b62a-8979a57e2937"
+          "suggestion_id": "01a112a4-12aa-70af-ab73-f8cf6d2a98e3"
         },
         "schema_version": 1,
         "state": "succeeded",
-        "updated_at": "2026-10-06T19:06:04.744560+00:00"
+        "updated_at": "2026-10-06T19:15:05.002435+00:00"
       },
-      "elapsed_seconds": 2.922782958019525,
+      "elapsed_seconds": 0.45723900001030415,
       "unchanged_clothing": {
         "asset_ids": [
-          "01a1129b-c694-73ac-a00b-f3089b03b146"
+          "01a112a4-0e83-76c6-874a-47faf7efa132"
         ],
         "brand": null,
         "category": "other",
         "color": [],
         "color_description": null,
-        "created_at": "2026-10-06T19:06:01.226618+00:00",
+        "created_at": "2026-10-06T19:15:03.932095+00:00",
         "currency": null,
         "description": null,
-        "display_asset_id": "01a1129b-c694-73ac-a00b-f3089b03b146",
+        "display_asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
         "favorite": false,
         "fit": null,
-        "id": "01a1129b-c68a-745e-8ad3-cfd746069625",
+        "id": "01a112a4-0e7c-70e4-89a4-458190a1c878",
         "material": [],
-        "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
         "name": "public jeans",
         "notes": null,
         "occasion": [],
@@ -641,26 +649,26 @@
         "sub_category": null,
         "tags": [],
         "taxonomy_version": 1,
-        "updated_at": "2026-10-06T19:06:01.863107+00:00"
+        "updated_at": "2026-10-06T19:15:04.537342+00:00"
       },
       "proposal": {
         "baseline": {
           "asset_ids": [
-            "01a1129b-c694-73ac-a00b-f3089b03b146"
+            "01a112a4-0e83-76c6-874a-47faf7efa132"
           ],
           "brand": null,
           "category": "other",
           "color": [],
           "color_description": null,
-          "created_at": "2026-10-06T19:06:01.226618+00:00",
+          "created_at": "2026-10-06T19:15:03.932095+00:00",
           "currency": null,
           "description": null,
-          "display_asset_id": "01a1129b-c694-73ac-a00b-f3089b03b146",
+          "display_asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
           "favorite": false,
           "fit": null,
-          "id": "01a1129b-c68a-745e-8ad3-cfd746069625",
+          "id": "01a112a4-0e7c-70e4-89a4-458190a1c878",
           "material": [],
-          "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+          "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
           "name": "public jeans",
           "notes": null,
           "occasion": [],
@@ -678,15 +686,15 @@
           "sub_category": null,
           "tags": [],
           "taxonomy_version": 1,
-          "updated_at": "2026-10-06T19:06:01.863107+00:00"
+          "updated_at": "2026-10-06T19:15:04.537342+00:00"
         },
-        "id": "01a1129b-d446-72fb-b62a-8979a57e2937",
-        "job_id": "01a1129b-c90f-764c-a35a-592e43369c7f",
-        "member_id": "01a1129b-949e-7659-a068-4d7465baea6f",
+        "id": "01a112a4-12aa-70af-ab73-f8cf6d2a98e3",
+        "job_id": "01a112a4-10e1-718a-8ddf-a23f5213d27b",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
         "provenance": {
           "assets": [
             {
-              "asset_id": "01a1129b-c694-73ac-a00b-f3089b03b146",
+              "asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
               "blob_hash": "7dd85f03aa11cd355986f878c8a117a0179d47c7db9277bc6457c9f91ccf235a",
               "bytes": 76166,
               "height": 650,
@@ -695,16 +703,17 @@
               "width": 435
             }
           ],
-          "created_at": "2026-10-06T19:06:04.742915+00:00",
+          "created_at": "2026-10-06T19:15:05.002180+00:00",
           "endpoint": "http://127.0.0.1:18083/v1",
           "model": "wardrobe-smolvlm",
+          "normalization": "conservative-taxonomy-word-candidates-v1",
           "prompt_version": "visible-description-v1",
-          "provider_id": "01a1129b-94a0-764d-95cb-bf35aa5e4288",
+          "provider_id": "01a112a3-d501-72ff-a776-908539302880",
           "provider_name": "Actual SmolVLM",
           "response_model": "wardrobe-smolvlm",
           "transferred_images": [
             {
-              "asset_id": "01a1129b-c694-73ac-a00b-f3089b03b146",
+              "asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
               "bytes": 423118,
               "height": 512,
               "mime": "image/png",
@@ -719,7 +728,7 @@
             "completion_tokens": 13,
             "prompt_tokens": 190,
             "prompt_tokens_details": {
-              "cached_tokens": 53
+              "cached_tokens": 189
             },
             "total_tokens": 203
           }
@@ -728,10 +737,14 @@
         "schema_version": 1,
         "state": "pending_review",
         "suggested_facts": {
+          "category": "bottom",
+          "color": [
+            "blue"
+          ],
           "description": " The bottom of a blue jeans pant on a striped rug."
         },
         "target": {
-          "clothing_id": "01a1129b-c68a-745e-8ad3-cfd746069625"
+          "clothing_id": "01a112a4-0e7c-70e4-89a4-458190a1c878"
         },
         "uncertainties": {
           "model_self_reported": " The bottom of a blue jeans pant on a striped rug.",
