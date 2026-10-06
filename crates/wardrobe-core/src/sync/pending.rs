@@ -7,7 +7,19 @@ impl Application {
         op: &Value,
         reason: &str,
     ) -> Result<(), ApiError> {
+        schema::validate_operation(op)?;
         let tx = self.begin_write()?;
+        if reason == "sync_causal_dependency" && op["bootstrap_identity"] == true {
+            // Establish the authenticated identity namespace only. The full member fact
+            // stays pending, and no causal clock or inbox receipt advances here.
+            tx.execute("UPDATE sync_control SET applying=1 WHERE id=1", [])?;
+            tx.execute(
+                "INSERT OR IGNORE INTO members(id,name) VALUES(?1,?2)",
+                params![string(&op["after"], "id")?, string(&op["after"], "name")?],
+            )?;
+            tx.execute("UPDATE sync_control SET applying=0 WHERE id=1", [])?;
+            tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.bootstrap_identity',?2)",params![string(op,"entity_id")?,json!({"op_id":op["op_id"]}).to_string()])?;
+        }
         tx.execute("INSERT INTO sync_pending(target_id,marker_key,op_id,document,reason,attempts) VALUES(?1,?2,?3,?4,?5,0) ON CONFLICT(target_id,marker_key) DO NOTHING",params![target,key,string(op,"op_id")?,op.to_string(),reason])?;
         tx.execute(
             "INSERT OR IGNORE INTO sync_cursors VALUES(?1,?2)",
@@ -29,7 +41,7 @@ impl Application {
             if attempted == budget {
                 break;
             }
-            let mut statement=self.connection.prepare("SELECT marker_key,op_id,document FROM sync_pending WHERE target_id=?1 ORDER BY attempts,op_id LIMIT ?2")?;
+            let mut statement=self.connection.prepare("SELECT marker_key,op_id,document FROM sync_pending WHERE target_id=?1 ORDER BY attempts,json_extract(document,'$.device_id'),json_extract(document,'$.clock.'||json_quote(json_extract(document,'$.device_id'))),op_id LIMIT ?2")?;
             let rows = statement
                 .query_map(params![target, budget - attempted], |r| {
                     Ok((
@@ -56,7 +68,10 @@ impl Application {
                         applied += 1;
                         progress = true;
                     }
-                    Err(e) if e.code == "sync_dependency" => {
+                    Err(e)
+                        if ["sync_dependency", "sync_causal_dependency"]
+                            .contains(&e.code.as_str()) =>
+                    {
                         self.connection.execute("UPDATE sync_pending SET attempts=attempts+1,reason=?3 WHERE target_id=?1 AND marker_key=?2",params![target,key,e.code])?;
                     }
                     Err(e)

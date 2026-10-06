@@ -430,6 +430,7 @@ pub(super) fn validate_operation(op: &Value) -> Result<(), ApiError> {
         op,
         &[
             "protocol_version",
+            "bootstrap_identity",
             "op_id",
             "device_id",
             "entity_type",
@@ -442,6 +443,10 @@ pub(super) fn validate_operation(op: &Value) -> Result<(), ApiError> {
         ],
     )?;
     check(op["protocol_version"] == 1)?;
+    if let Some(flag) = op.get("bootstrap_identity") {
+        check(flag == true && op["entity_type"] == "members" && op["before"].is_null())?;
+        validate("members", string(op, "entity_id")?, &op["after"])?;
+    }
     id(op, "op_id")?;
     id(op, "device_id")?;
     check(op["before"].is_null() || op["before"].is_object())?;

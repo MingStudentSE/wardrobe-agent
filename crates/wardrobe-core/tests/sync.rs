@@ -814,6 +814,64 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         .unwrap()["name"],
         "fact before its member"
     );
+    let gap=owner.execute("clothing.create",json!({"member_id":member["member_id"],"name":"withheld causal predecessor","category":"top"})).unwrap();
+    let follower=owner.execute("clothing.create",json!({"member_id":member["member_id"],"name":"later same-device fact","category":"top"})).unwrap();
+    owner.sync_batch().unwrap();
+    let read =
+        rusqlite::Connection::open_with_flags(&ap, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let gap_operation:String=read.query_row("SELECT op_id FROM sync_journal WHERE entity_type='clothing' AND entity_id=?1 ORDER BY id DESC LIMIT 1",[gap["id"].as_str().unwrap()],|r|r.get(0)).unwrap();
+    drop(read);
+    let gap_marker = remote
+        .path()
+        .join(format!("{space}/changes/{gap_operation}.commit"));
+    let parked_gap = ap.parent().unwrap().join("withheld-causal-marker");
+    std::fs::rename(&gap_marker, &parked_gap).unwrap();
+    peer.sync_batch().unwrap();
+    assert_eq!(
+        peer.execute(
+            "clothing.get",
+            json!({"member_id":member["member_id"],"id":follower["id"]})
+        )
+        .unwrap_err()
+        .code,
+        "not_found",
+        "later facts cannot assert that an unseen causal predecessor was received"
+    );
+    let independent=peer.execute("clothing.create",json!({"member_id":member["member_id"],"name":"healthy independent device stream","category":"top"})).unwrap();
+    peer.sync_batch().unwrap();
+    owner.sync_batch().unwrap();
+    assert_eq!(
+        owner
+            .execute(
+                "clothing.get",
+                json!({"member_id":member["member_id"],"id":independent["id"]})
+            )
+            .unwrap()["name"],
+        "healthy independent device stream"
+    );
+    drop(peer);
+    let peer = Application::open(&bp).unwrap();
+    assert!(
+        peer.execute("sync.status", json!({})).unwrap()["pending"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    std::fs::rename(&parked_gap, &gap_marker).unwrap();
+    peer.sync_batch().unwrap();
+    assert_eq!(
+        peer.execute(
+            "clothing.get",
+            json!({"member_id":member["member_id"],"id":follower["id"]})
+        )
+        .unwrap()["name"],
+        "later same-device fact"
+    );
+    assert_eq!(
+        peer.execute("sync.status", json!({})).unwrap()["pending"],
+        0
+    );
 }
 
 #[test]
@@ -1016,6 +1074,10 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
     }
     for _ in 0..10 {
         let r = peer.sync_batch().unwrap();
+        assert_eq!(
+            r["sent"], 0,
+            "namespace bootstrap must never echo a new local member fact"
+        );
         assert!(
             r["received"].as_u64().unwrap() <= 256,
             "receiving must also bound each transaction batch"
@@ -1040,6 +1102,11 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
         }
     }
     assert_eq!(count, 300);
+    assert_eq!(
+        peer.sync_batch().unwrap()["sent"],
+        0,
+        "a remote bootstrap namespace must not create a local member fact or echo publication"
+    );
     assert_eq!(owner.sync_batch().unwrap()["sent"], 0);
     let second = tempfile::tempdir().unwrap();
     owner

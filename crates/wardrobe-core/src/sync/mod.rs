@@ -175,7 +175,7 @@ fn error(code: &str) -> ApiError {
 }
 pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     repair_immutable(tx)?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_publications(target_id TEXT NOT NULL,op_id TEXT NOT NULL,PRIMARY KEY(target_id,op_id)); CREATE TABLE IF NOT EXISTS sync_pending(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,document TEXT NOT NULL,reason TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_quarantine(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,code TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_reassert(op_id TEXT PRIMARY KEY,fields TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_resolution_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_bootstrap_ids(op_id TEXT PRIMARY KEY); CREATE TABLE IF NOT EXISTS sync_publications(target_id TEXT NOT NULL,op_id TEXT NOT NULL,PRIMARY KEY(target_id,op_id)); CREATE TABLE IF NOT EXISTS sync_pending(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,document TEXT NOT NULL,reason TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_quarantine(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,code TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_reassert(op_id TEXT PRIMARY KEY,fields TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_resolution_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
     for table in TABLES {
         for kind in ["INSERT", "UPDATE"] {
             let key = entity_key(table, "NEW");
@@ -350,14 +350,28 @@ impl Application {
             materialize(&tx, table, entity, &Value::Object(doc), local)?;
         }
         if !local {
+            for (device, required) in vector(&op["base"]) {
+                let seen: Option<u64> = tx
+                    .query_row(
+                        "SELECT seq FROM sync_clock WHERE device=?1",
+                        [device],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                if seen.unwrap_or(0) < required {
+                    return Err(error("sync_causal_dependency"));
+                }
+            }
             tx.execute(
                 "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.apply',?2)",
                 params![entity, op.to_string()],
             )?;
         }
-        for (device, seq) in vector(&op["clock"]) {
-            tx.execute("INSERT INTO sync_clock VALUES(?1,?2) ON CONFLICT(device) DO UPDATE SET seq=max(seq,excluded.seq)",params![device,seq])?;
-        }
+        let device = string(op, "device_id")?;
+        let seq = op["clock"][device]
+            .as_u64()
+            .ok_or_else(|| error("sync_invalid"))?;
+        tx.execute("INSERT INTO sync_clock VALUES(?1,?2) ON CONFLICT(device) DO UPDATE SET seq=max(seq,excluded.seq)",params![device,seq])?;
         tx.execute(
             "INSERT INTO sync_inbox VALUES(?1,?2)",
             params![id, op.to_string()],
@@ -454,7 +468,7 @@ impl Application {
                         .collect::<Result<Vec<_>, _>>()?;
                     drop(stmt);
                     for (id, document) in rows {
-                        let seen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal WHERE entity_type=?1 AND entity_id=?2)",params![table,id],|r|r.get(0))?;
+                        let seen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal WHERE entity_type=?1 AND entity_id=?2 AND (?1<>'members' OR EXISTS(SELECT 1 FROM sync_bootstrap_ids b WHERE b.op_id=sync_journal.op_id)))",params![table,id],|r|r.get(0))?;
                         if seen {
                             continue;
                         }
@@ -470,7 +484,11 @@ impl Application {
                             [],
                             |r| r.get(0),
                         )?;
-                        tx.execute("INSERT INTO sync_journal(op_id,device,entity_type,entity_id,after_doc,base,clock) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![uuid::Uuid::now_v7().to_string(),device,table,id,document,base,clock])?;
+                        let op_id = uuid::Uuid::now_v7().to_string();
+                        tx.execute("INSERT INTO sync_journal(op_id,device,entity_type,entity_id,after_doc,base,clock) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![op_id,device,table,id,document,base,clock])?;
+                        if table == "members" {
+                            tx.execute("INSERT INTO sync_bootstrap_ids VALUES(?1)", [op_id])?;
+                        }
                     }
                 }
 
@@ -592,7 +610,15 @@ impl Application {
                 .map(parse)
                 .transpose()?
                 .unwrap_or_else(|| json!([]));
-            let op = json!({"reassert":reassert,"protocol_version":1,"op_id":id,"device_id":device,"entity_type":table,"entity_id":entity,"before":before.as_deref().map(parse).transpose()?,"after":parse(&after)?,"base":parse(&base)?,"clock":parse(&clock)?});
+            let bootstrap: bool = self.connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sync_bootstrap_ids WHERE op_id=?1)",
+                [&id],
+                |r| r.get(0),
+            )?;
+            let mut op = json!({"reassert":reassert,"protocol_version":1,"op_id":id,"device_id":device,"entity_type":table,"entity_id":entity,"before":before.as_deref().map(parse).transpose()?,"after":parse(&after)?,"base":parse(&base)?,"clock":parse(&clock)?});
+            if bootstrap {
+                op["bootstrap_identity"] = json!(true);
+            }
             self.sync_apply(&op, true)?;
             self.connection
                 .execute("UPDATE sync_journal SET registered=1 WHERE id=?1", [row])?;
@@ -660,7 +686,10 @@ impl Application {
                     let op = self.sync_decrypt("changes", &cipher)?;
                     match self.sync_apply(&op, false) {
                         Ok(()) => {}
-                        Err(e) if e.code == "sync_dependency" => {
+                        Err(e)
+                            if ["sync_dependency", "sync_causal_dependency"]
+                                .contains(&e.code.as_str()) =>
+                        {
                             self.sync_stage_pending(&target_key, &object.key, &op, &e.code)?;
                             continue;
                         }
