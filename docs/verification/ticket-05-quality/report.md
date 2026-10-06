@@ -28,6 +28,6 @@ Sources: https://www.clevelandart.org/open-access and per-image source_page in s
 | 26-98875.jpg | 3400×2545 | 1600×1198 | 4204816 | 171932 | Acceptable: white cuffs retain wrinkles and worn cracks, embroidered floral/vertical stripes distinct; red/yellow/blue palette stable. |
 
 20/20 imports succeeded; 20/20 stored originals match source SHA256. Display bytes range 53376–497162; median 208798. Median display/original ratio 7.23%. Soft 1MB display exceedances: 0.
-## Remaining rotation coverage
+## Rotation coverage
 
-Spec05 requires rotated photos in the fixed real sample set. Read-only EXIF inspection found 19 files without Orientation and one with Orientation=1. Portrait framing alone does not verify rotation. These 20 comparisons cover cloth detail and compression quality; the real rotated-photo sample gate remains open. Synthetic EXIF/HEIC regression tests are separate evidence and do not fill this sample gap.
+Read-only EXIF inspection of the initial 20 photographs found 19 without Orientation and one with Orientation=1. The additional real garment photograph documented in [rotation/report.md](rotation/report.md) has EXIF Orientation=6 and brings the reviewed set to 21 photographs. Its actual imported display is upright at 1200×1600, with the original bytes preserved. This closes the real rotated-photo sample gap; synthetic EXIF/HEIC regressions remain separate evidence.
