@@ -285,6 +285,18 @@ impl Application {
         for id in fixed.iter().chain(excluded.iter()) {
             self.clothing_get(json!({"member_id":member,"id":id}))?;
         }
+        let feedback_excluded = self.feedback_day_exclusions(&member)?;
+        for id in &feedback_excluded {
+            if fixed.contains(id) {
+                return Err(ApiError::new(
+                    "constraint_conflict",
+                    "固定单品已明确当天排除，请撤销反馈或修改固定条件",
+                ));
+            }
+            if !excluded.contains(id) {
+                excluded.push(id.clone());
+            }
+        }
         let wears = self.effective_wears(&member)?;
         let statuses = json!({"items":self.care_batch_from_wears(&member,&wears)?});
         for id in &fixed {
@@ -383,7 +395,8 @@ impl Application {
                 id.to_owned(),
             )
         });
-        let mut forbidden = std::collections::BTreeSet::new();
+        let mut forbidden = self.feedback_disliked_sets(&member)?;
+        let disliked_set_count = forbidden.len();
         if let Some(sets) = input.get("excluded_sets") {
             for set in sets.as_array().ok_or_else(|| invalid("排除组合须为数组"))? {
                 let mut ids = ids(&json!({"ids":set}), "ids")?;
@@ -566,7 +579,7 @@ impl Application {
         if let Some(object) = public_generation.as_object_mut() {
             object.remove("_lease_token");
         }
-        let doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"created_at":now,"updated_at":now,"controls":input,"generation":public_generation,"proposals":proposals,"requested_count":limit,"actual_count":proposals.len(),"offline":public_generation["source"]!="text_model","creates_wear":false,"shortage_reasons":shortage_reasons,"weather_context":weather_context,"recent_window":{"from":from.to_string(),"through":today.to_string(),"timezone":zone.name(),"source":"actual_effective_wear"}});
+        let doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"created_at":now,"updated_at":now,"controls":input,"feedback_context":{"day_excluded_ids":feedback_excluded,"disliked_set_count":disliked_set_count,"source":"explicit_effective_feedback"},"generation":public_generation,"proposals":proposals,"requested_count":limit,"actual_count":proposals.len(),"offline":public_generation["source"]!="text_model","creates_wear":false,"shortage_reasons":shortage_reasons,"weather_context":weather_context,"recent_window":{"from":from.to_string(),"through":today.to_string(),"timezone":zone.name(),"source":"actual_effective_wear"}});
         if !persist {
             return Ok(doc);
         }

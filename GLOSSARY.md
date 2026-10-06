@@ -67,3 +67,9 @@
 - **Weather estimate**: An explicitly configured member location's provider estimate, with provider valid time, retrieval time, source and attribution. It becomes stale strictly after three hours; off/manual input remains usable when retrieval fails.
 - **Validated AI recommendation**: A text model organizes existing rule planner candidates; the application validates current IDs, member, availability, body coverage, roles/layers, fixed/excluded controls and recent wear before publishing an immutable intent. Its explanation is unverified text, not clothing facts.
 - **Unknown text submission**: A persisted recommendation job was submitted but its outcome is unconfirmed. Same-key requests do not blindly POST again; explicit offline rules remain available. A confirmed invalid output permits only the bounded second attempt.
+
+## Explicit recommendation feedback
+
+- **推荐反馈（Recommendation Feedback）**：与不可变推荐方案关联的喜欢、不喜欢、跳过、当天排除或明确实际穿着反馈。三维评分为空或1–5整数；意见不隐式产生WearEvent或推断画像。
+- **反馈修订（Feedback Revision）**：按稳定root_id追加的更正/撤销，保留原方案与观察时刻快照。撤销意见不撤销真实穿着事实。
+- **当天排除（Day Exclusion）**：用户选定单品在保存IANA时区当地日的排除，次日到期，不改变单品生命周期或洗护；固定冲突明确返回。

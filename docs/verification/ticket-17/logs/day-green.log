@@ -1,0 +1,10 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-17/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 2.77s
+     Running tests/feedback.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/feedback-41f093acb406b2a6)
+
+running 2 tests
+test explicit_feedback_persists_idempotently_with_optional_scores_without_wear ... ok
+test day_exclusion_is_explicit_local_day_hard_constraint_and_never_wear ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

@@ -85,7 +85,16 @@ impl Application {
             params![member, asset_id],
             |r| r.get(0),
         )?;
-        if references == 0 && outfit_references == 0 && wear_references == 0 && care_references == 0
+        let feedback_references: u64 = tx.query_row(
+            "SELECT count(*) FROM feedback_asset_refs WHERE member_id=?1 AND asset_id=?2",
+            params![member, asset_id],
+            |r| r.get(0),
+        )?;
+        if references == 0
+            && outfit_references == 0
+            && wear_references == 0
+            && care_references == 0
+            && feedback_references == 0
         {
             asset["state"] = json!("preview");
             asset["display"]["state"] = json!("preview");
@@ -152,7 +161,7 @@ impl Application {
     }
     pub(super) fn asset_sync_manifest(&self, input: Value) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
-        let mut references=self.connection.prepare("SELECT json_extract(item.value,'$.snapshot.display_asset_id') FROM outfit_versions v JOIN outfits o ON o.id=v.outfit_id JOIN json_each(v.document,'$.items') item WHERE o.member_id=?1 UNION SELECT a.value FROM outfit_versions v JOIN outfits o ON o.id=v.outfit_id JOIN json_each(v.document,'$.items') item JOIN json_each(item.value,'$.snapshot.asset_ids') a WHERE o.member_id=?1 UNION SELECT asset_id FROM wear_asset_refs WHERE member_id=?1 UNION SELECT asset_id FROM care_asset_refs WHERE member_id=?1")?;
+        let mut references=self.connection.prepare("SELECT json_extract(item.value,'$.snapshot.display_asset_id') FROM outfit_versions v JOIN outfits o ON o.id=v.outfit_id JOIN json_each(v.document,'$.items') item WHERE o.member_id=?1 UNION SELECT a.value FROM outfit_versions v JOIN outfits o ON o.id=v.outfit_id JOIN json_each(v.document,'$.items') item JOIN json_each(item.value,'$.snapshot.asset_ids') a WHERE o.member_id=?1 UNION SELECT asset_id FROM wear_asset_refs WHERE member_id=?1 UNION SELECT asset_id FROM care_asset_refs WHERE member_id=?1 UNION SELECT asset_id FROM feedback_asset_refs WHERE member_id=?1")?;
         let historical_ids = references
             .query_map([&member], |r| r.get::<_, Option<String>>(0))?
             .collect::<Result<Vec<_>, _>>()?
