@@ -1,0 +1,10 @@
+Captured tool-output excerpt, not a complete raw log:
+warning: stripping debug info with `rust-objcopy` failed: exit status: 1
+LLVM ERROR: IO failure on output stream: No space left on device
+could not execute ... encrypted_package-045f42afeeda4e33 --ignored --test-threads=1 (never executed)
+Permission denied (os error 13)
+
+Test did not run. df immediately recovered to 2.8GiB; only the damaged generated
+project executable was removed, then rebuilt. Subsequent real OS suite passed.
+No release/models/rlib/rmeta/userdata cleanup. Temporary GUI red-test key was
+removed by trusted-local CLI after timeout cleanup could not use closed context.
