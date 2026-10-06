@@ -22,6 +22,12 @@ with tempfile.TemporaryDirectory(prefix='wardrobe-packaged-') as temporary:
         completed=subprocess.run([cli,'--db',db,operation,json.dumps(data)],env=env,cwd=temporary,text=True,capture_output=True)
         if completed.returncode:
             failure={'cli':cli,'operation':operation,'exit_code':completed.returncode,'loader_error':completed.stderr[:2000],'developer_loader_environment':'removed','result':'failed'}
+            try:
+                application_response=json.loads(completed.stdout)
+                if isinstance(application_response,dict) and 'error' in application_response:
+                    failure['application_error']=application_response['error']
+            except json.JSONDecodeError:
+                pass
             args.report.parent.mkdir(parents=True,exist_ok=True);args.report.write_text(json.dumps(failure,indent=2)+'\n')
             raise RuntimeError(json.dumps(failure))
         response=json.loads(completed.stdout)
