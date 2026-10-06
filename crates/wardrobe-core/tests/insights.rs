@@ -327,3 +327,60 @@ fn empty_denominators_member_preferences_authorization_and_timezone_cutoff_are_e
         );
     }
 }
+#[test]
+fn highest_version_repairs_both_care_and_insight_preferences_without_erasing_actual_history() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("db");
+    let a = Application::open(&p).unwrap();
+    let c = a
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"共同迁移衣物","category":"top"}),
+        )
+        .unwrap();
+    a.execute("wear.record",json!({"member_id":"default","clothing_ids":[c["id"]],"local_date":"2020-01-01","timezone":"UTC","operation_key":"wear"})).unwrap();
+    let clean=a.execute("care.record",json!({"member_id":"default","clothing_id":c["id"],"action":"wash","local_date":"2020-01-02","timezone":"UTC","operation_key":"wash"})).unwrap();
+    drop(a);
+    let fixture = rusqlite::Connection::open(&p).unwrap();
+    fixture
+        .execute_batch(
+            "DROP TABLE care_config; DROP TABLE insights_preferences; PRAGMA user_version=14;",
+        )
+        .unwrap();
+    drop(fixture);
+    let a = Application::open(&p).unwrap();
+    let care = a
+        .execute(
+            "care.status",
+            json!({"member_id":"default","clothing_id":c["id"]}),
+        )
+        .unwrap();
+    assert_eq!(care["wash_after_wears"], serde_json::Value::Null);
+    assert_eq!(care["wears_since_clean"], 0);
+    assert_eq!(care["last_clean"]["id"], clean["id"]);
+    let summary = a
+        .execute(
+            "insights.summary",
+            json!({"member_id":"default","as_of_date":"2020-04-01","timezone":"UTC"}),
+        )
+        .unwrap();
+    assert_eq!(summary["frequency"][0]["wearCount"], 1);
+    assert_eq!(summary["stale_days"], 90);
+    a.execute("care.configure",json!({"member_id":"default","clothing_id":c["id"],"wash_after_wears":2,"expected_revision":0,"operation_key":"careconfig"})).unwrap();
+    a.execute(
+        "insights.configure",
+        json!({"member_id":"default","stale_days":89,"expected_revision":0}),
+    )
+    .unwrap();
+    assert_eq!(
+        a.execute("recognition.list", json!({"member_id":"default"}))
+            .unwrap()["items"],
+        json!([])
+    );
+    let db = rusqlite::Connection::open(&p).unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
+            .unwrap(),
+        14
+    );
+}
