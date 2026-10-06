@@ -1,8 +1,16 @@
 //! Application-owned, transport-independent encrypted snapshot packages.
 use super::*;
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, fs, io::Write, path::Path};
+use std::{
+    collections::HashSet,
+    fs,
+    io::{Read, Write},
+    path::Path,
+};
 
+const MAX_FILE_BYTES: u64 = 24 * 1024 * 1024;
+const MAX_PACKAGE_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_OBJECTS: usize = 10000;
 fn error() -> ApiError {
     ApiError::new("package_invalid", "密文包缺失、损坏或与当前设备状态不符")
 }
@@ -26,11 +34,26 @@ fn write_object(path: &Path, bytes: &[u8]) -> Result<(), ApiError> {
 }
 fn bounded(path: &Path) -> Result<Vec<u8>, ApiError> {
     let meta = fs::symlink_metadata(path).map_err(io)?;
-    if !meta.is_file() || meta.len() > 24 * 1024 * 1024 {
+    if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
         return Err(error());
     }
-    let bytes = fs::read(path).map_err(io)?;
-    if bytes.len() > 24 * 1024 * 1024 {
+    let file = fs::File::open(path).map_err(io)?;
+    let opened = file.metadata().map_err(io)?;
+    if !opened.is_file() || opened.len() > MAX_FILE_BYTES {
+        return Err(error());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if meta.dev() != opened.dev() || meta.ino() != opened.ino() {
+            return Err(error());
+        }
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io)?;
+    if bytes.len() as u64 > MAX_FILE_BYTES || !fs::symlink_metadata(path).map_err(io)?.is_file() {
         return Err(error());
     }
     Ok(bytes)
@@ -134,11 +157,27 @@ fn facts(app: &Application, table: &str, assets: &HashSet<String>) -> Result<Vec
         let v: Value = serde_json::from_str(&row).map_err(|_| error())?;
         let safe = if table == "clothing" {
             garment(&v, assets)
+        } else if table == "care_config" {
+            projection(
+                &v,
+                &[
+                    "schema_version",
+                    "id",
+                    "member_id",
+                    "clothing_id",
+                    "wash_after_wears",
+                    "revision",
+                    "created_at",
+                    "updated_at",
+                ],
+            )
         } else {
             let mut safe = projection(
                 &v,
                 &[
                     "schema_version",
+                    "clothing_id",
+                    "action",
                     "id",
                     "member_id",
                     "name",
@@ -160,7 +199,11 @@ fn facts(app: &Application, table: &str, assets: &HashSet<String>) -> Result<Vec
                     "occurred_at",
                 ],
             );
-            safe["items"] = items(&v["items"], assets);
+            if table == "care_events" {
+                safe["snapshot"] = garment(&v["snapshot"], assets);
+            } else {
+                safe["items"] = items(&v["items"], assets);
+            }
             if !v["source_outfit"].is_null() {
                 let mut source = projection(
                     &v["source_outfit"],
@@ -182,6 +225,36 @@ fn facts(app: &Application, table: &str, assets: &HashSet<String>) -> Result<Vec
             safe
         };
         result.push(safe);
+    }
+    Ok(result)
+}
+fn care_refs(app: &Application, assets: &HashSet<String>) -> Result<Vec<Value>, ApiError> {
+    let mut stmt = app.connection.prepare(
+        "SELECT event_id,asset_id,member_id FROM care_asset_refs ORDER BY event_id,asset_id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    })?;
+    let mut result = vec![];
+    let mut total = 0usize;
+    for row in rows {
+        let (event, asset, member) = row?;
+        if !assets.contains(&asset) {
+            return Err(error());
+        }
+        let reference = json!({"event_id":event,"asset_id":asset,"member_id":member});
+        total += reference.to_string().len();
+        if total > MAX_BYTES {
+            return Err(ApiError::new(
+                "package_too_large",
+                "历史引用超出单包容量，未导出任何文件",
+            ));
+        }
+        result.push(reference);
     }
     Ok(result)
 }
@@ -270,10 +343,20 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             let list = app.asset_sync_manifest(json!({"member_id":id}))?;
             for entry in list["assets"].as_array().ok_or_else(error)? {
                 let asset = app.asset_get(json!({"member_id":id,"id":entry["id"]}))?;
-                crate::image_editing::read_display(&asset)?;
+                let decoded = crate::image_editing::read_display(&asset)?;
                 let data = bounded(Path::new(string(&asset["display"], "local_path")?))?;
                 if hash(&data) != entry["blob_hash"]
                     || data.len() as u64 != entry["bytes"].as_u64().ok_or_else(error)?
+                {
+                    return Err(error());
+                }
+                if image::guess_format(&data).map_err(|_| error())? != image::ImageFormat::WebP
+                    || decoded.width() == 0
+                    || decoded.height() == 0
+                    || decoded.width() > 4096
+                    || decoded.height() > 4096
+                    || entry["width"] != decoded.width()
+                    || entry["height"] != decoded.height()
                 {
                     return Err(error());
                 }
@@ -285,7 +368,7 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
                 total_bytes = total_bytes
                     .checked_add(object.1.len() as u64)
                     .ok_or_else(error)?;
-                if objects.len() >= 9999 || total_bytes > 256 * 1024 * 1024 {
+                if objects.len() >= MAX_OBJECTS - 1 || total_bytes > MAX_PACKAGE_BYTES {
                     return Err(ApiError::new(
                         "package_too_large",
                         "文件包超过容量限制，未导出任何文件",
@@ -299,12 +382,12 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             .iter()
             .filter_map(|a| a["id"].as_str().map(str::to_owned))
             .collect();
-        let snapshot = json!({"schema_version":1,"space_id":s["space_id"],"members":members,"clothing":facts(app,"clothing",&ids)?,"outfits":facts(app,"outfits",&ids)?,"outfit_versions":facts(app,"outfit_versions",&ids)?,"wear_events":facts(app,"wear_events",&ids)?});
+        let snapshot = json!({"schema_version":1,"space_id":s["space_id"],"members":members,"clothing":facts(app,"clothing",&ids)?,"outfits":facts(app,"outfits",&ids)?,"outfit_versions":facts(app,"outfit_versions",&ids)?,"wear_events":facts(app,"wear_events",&ids)?,"care_config":facts(app,"care_config",&ids)?,"care_events":facts(app,"care_events",&ids)?,"care_asset_refs":care_refs(app,&ids)?});
         let snapshot_object = encrypt_object(&s, &w, &package, "snapshots", snapshot)?;
         total_bytes = total_bytes
             .checked_add(snapshot_object.1.len() as u64)
             .ok_or_else(error)?;
-        if total_bytes > 256 * 1024 * 1024 {
+        if total_bytes > MAX_PACKAGE_BYTES {
             return Err(ApiError::new(
                 "package_too_large",
                 "文件包超过容量限制，未导出任何文件",
@@ -321,6 +404,13 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             return Err(error());
         }
         let header = json!({"protocol_version":1,"space_id":s["space_id"],"epoch":epoch,"manifest":s["manifest"],"index":seal(key.as_ref(),string(&s,"space_id")?,epoch,"snapshots",index_plain.as_bytes())?});
+        let header_bytes = serde_json::to_vec(&header).map_err(|_| error())?;
+        if header_bytes.len() as u64 > MAX_FILE_BYTES {
+            return Err(ApiError::new(
+                "package_too_large",
+                "设备清单或文件索引超出单包容量，未导出任何文件",
+            ));
+        }
         let staging = target.join(format!(".wardrobe-{package}.tmp"));
         let published = target.join(format!("wardrobe-{package}"));
         fs::create_dir(&staging).map_err(io)?;
@@ -328,10 +418,7 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             for (name, data, _) in &objects {
                 write_object(&staging.join(name), data)?;
             }
-            write_object(
-                &staging.join("package.json"),
-                &serde_json::to_vec(&header).map_err(|_| error())?,
-            )?;
+            write_object(&staging.join("package.json"), &header_bytes)?;
             fs::File::open(&staging)
                 .map_err(io)?
                 .sync_all()
@@ -403,7 +490,7 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
         let mut names = HashSet::new();
         let mut total_bytes = 0u64;
         let descriptors = index["objects"].as_array().ok_or_else(error)?;
-        if descriptors.len() > 10000 {
+        if descriptors.len() > MAX_OBJECTS {
             return Err(error());
         }
         for descriptor in descriptors {
@@ -420,7 +507,7 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             total_bytes = total_bytes
                 .checked_add(bytes.len() as u64)
                 .ok_or_else(error)?;
-            if total_bytes > 256 * 1024 * 1024 {
+            if total_bytes > MAX_PACKAGE_BYTES {
                 return Err(ApiError::new(
                     "package_too_large",
                     "密文包超出 256 MiB 读取限制",

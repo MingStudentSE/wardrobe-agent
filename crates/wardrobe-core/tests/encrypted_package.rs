@@ -63,8 +63,19 @@ fn paired_installation_reads_application_generated_ciphertext_package_without_or
             json!({"member_id":"default","clothing_id":clothing["id"],"asset_id":asset["id"]}),
         )
         .unwrap();
+    // An imported but unadopted preview must stay local even when its bytes match.
+    let private_preview = owner
+        .execute(
+            "assets.import",
+            json!({"member_id":"default","path":source}),
+        )
+        .unwrap();
     let outfit=owner.execute("outfit.create",json!({"member_id":"default","name":"History look","items":[{"clothing_id":clothing["id"],"role":"top","layer":0}]})).unwrap();
     owner.execute("wear.record",json!({"member_id":"default","operation_key":"history","local_date":"2026-10-01","timezone":"Asia/Shanghai","source_outfit_id":outfit["id"],"source_version":1})).unwrap();
+    owner.execute("care.configure",json!({"member_id":"default","clothing_id":clothing["id"],"wash_after_wears":3,"expected_revision":0,"operation_key":"export threshold"})).unwrap();
+    let care=owner.execute("care.record",json!({"member_id":"default","clothing_id":clothing["id"],"action":"wash","local_date":"2026-10-01","timezone":"Asia/Shanghai","operation_key":"export wash"})).unwrap();
+    let care=owner.execute("care.correct",json!({"member_id":"default","root_event_id":care["root_event_id"],"expected_revision":1,"action":"dry_clean","local_date":"2026-10-01","timezone":"Asia/Shanghai","operation_key":"export correction"})).unwrap();
+    owner.execute("care.revoke",json!({"member_id":"default","root_event_id":care["root_event_id"],"expected_revision":2,"reason":"historical correction","operation_key":"export revoke"})).unwrap();
     owner
         .execute(
             "assets.detach",
@@ -99,6 +110,28 @@ fn paired_installation_reads_application_generated_ciphertext_package_without_or
     let result = peer
         .execute("encryption.package.read", json!({"path":path}))
         .unwrap();
+    assert_eq!(result["snapshot"]["care_config"][0]["wash_after_wears"], 3);
+    assert_eq!(
+        result["snapshot"]["care_events"].as_array().unwrap().len(),
+        3
+    );
+    assert_eq!(
+        result["snapshot"]["care_events"][0]["snapshot"]["name"],
+        "Private export sweater fact"
+    );
+    assert_eq!(
+        result["snapshot"]["care_events"][0]["snapshot"]["display_asset_id"],
+        asset["id"]
+    );
+    assert_eq!(
+        result["snapshot"]["care_asset_refs"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert!(result["snapshot"].get("dirty").is_none());
+    assert!(result["snapshot"].get("care_receipts").is_none());
     assert_eq!(
         result["snapshot"]["clothing"][0]["name"],
         "Private export sweater fact"
@@ -114,6 +147,11 @@ fn paired_installation_reads_application_generated_ciphertext_package_without_or
     );
     assert_eq!(result["assets"].as_array().unwrap().len(), 1);
     assert_eq!(result["assets"][0]["id"], asset["id"]);
+    assert!(result["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|a| a["id"] != private_preview["id"]));
     assert_eq!(result["assets"][0]["role"], "product_display");
     assert!(result.to_string().find("private-camera-source").is_none());
     assert!(result.to_string().find("local_path").is_none());
@@ -145,7 +183,25 @@ fn paired_installation_reads_application_generated_ciphertext_package_without_or
     assert!(peer
         .execute("encryption.package.read", json!({"path":path}))
         .is_err());
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&object)
+        .unwrap()
+        .set_len(25 * 1024 * 1024)
+        .unwrap();
+    assert!(peer
+        .execute("encryption.package.read", json!({"path":path}))
+        .is_err());
     std::fs::write(&object, &saved).unwrap();
+    #[cfg(unix)]
+    {
+        let alias = external.path().join("package-link");
+        std::os::unix::fs::symlink(path, &alias).unwrap();
+        assert!(peer
+            .execute("encryption.package.read", json!({"path":alias}))
+            .is_err());
+        std::fs::remove_file(alias).unwrap();
+    }
     let header_path = path.join("package.json");
     let saved_header = std::fs::read(&header_path).unwrap();
     let mut header: serde_json::Value = serde_json::from_slice(&saved_header).unwrap();
