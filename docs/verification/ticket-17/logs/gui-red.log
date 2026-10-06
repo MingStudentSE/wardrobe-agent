@@ -1,0 +1,41 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/feedback.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5189 --strictPort
+[WebServer] (node:50663) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:50665) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/feedback.spec.ts:2:1 › 推荐反馈评分与历史持久，Try Another保持约束，实际改穿明确确认 (5.5s)
+
+
+  1) tests/feedback.spec.ts:2:1 › 推荐反馈评分与历史持久，Try Another保持约束，实际改穿明确确认 ─────────────────────────────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('#recommendations').locator('.recommendation-feedback')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" locator('#recommendations').locator('.recommendation-feedback') with timeout 5000ms
+      - waiting for locator('#recommendations').locator('.recommendation-feedback')
+
+
+       5 |  await call('clothing.create',{name:'反馈裤子',category:'bottom'});await call('clothing.create',{name:'反馈鞋',category:'shoes'});
+       6 |  const panel=page.locator('#recommendations');await panel.getByRole('button',{name:'刷新推荐库存',exact:true}).click();await panel.getByRole('button',{name:'生成离线搭配',exact:true}).click();
+    >  7 |  const feedback=panel.locator('.recommendation-feedback');await expect(feedback).toBeVisible();
+         |                                                                                  ^
+       8 |  const before=(await call('wear.list')).items.length;await feedback.getByLabel('总体评分').selectOption('5');await feedback.getByLabel('风格评分').selectOption('4');await feedback.getByRole('button',{name:'喜欢',exact:true}).click();await expect(feedback.getByRole('status')).toContainText('反馈已保存');
+       9 |  const f=(await call('feedback.list')).items[0];expect(f.reaction).toBe('like');expect(f.scores).toEqual({overall:5,comfort:null,style:4});expect((await call('wear.list')).items.length).toBe(before);
+      10 |  await feedback.getByRole('button',{name:'跳过并换一套',exact:true}).click();await expect(panel.locator('.recommendation-proposal')).toHaveCount(1);expect((await call('feedback.list')).items.some((x:any)=>x.reaction==='skip')).toBe(true);
+        at /private/tmp/wardrobe-ticket-17/apps/desktop/tests/feedback.spec.ts:7:82
+
+    Error Context: test-results/feedback-推荐反馈评分与历史持久，Try-Another保持约束，实际改穿明确确认/error-context.md
+
+  1 failed
+    tests/feedback.spec.ts:2:1 › 推荐反馈评分与历史持久，Try Another保持约束，实际改穿明确确认 ──────────────────────────────

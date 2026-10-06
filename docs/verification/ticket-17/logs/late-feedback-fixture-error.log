@@ -1,0 +1,22 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-17/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.83s
+     Running tests/feedback.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/feedback-41f093acb406b2a6)
+
+running 1 test
+test day_exclusion_during_real_model_http_prevents_late_publication_of_fixed_garment ... FAILED
+
+failures:
+
+---- day_exclusion_during_real_model_http_prevents_late_publication_of_fixed_garment stdout ----
+
+thread 'day_exclusion_during_real_model_http_prevents_late_publication_of_fixed_garment' (3648353) panicked at crates/wardrobe-core/tests/feedback.rs:285:32:
+called `Result::unwrap_err()` on an `Ok` value: Object {"attempts": Number(1), "created_at": String("2026-10-06T21:33:19.199133+00:00"), "error": Object {"code": String("constraint_conflict"), "message": String("固定单品已明确当天排除，请撤销反馈或修改固定条件"), "retryable": Bool(false)}, "id": String("01a11322-a1df-70ea-a8e8-32edcae2304a"), "kind": String("text_recommendation"), "last_outcome": String("unknown"), "lease_expires": Number(0), "lease_token": Null, "member_id": String("01a11322-a1d9-75f7-9c32-73ef25b7ee4e"), "next_due": Number(0), "operation_key": String("ai"), "output_attempt": Number(1), "payload": Object {"fixed_ids": Array [String("01a11322-a1dc-7059-8a09-5249fc1cc937")], "limit": Number(1), "member_id": String("01a11322-a1d9-75f7-9c32-73ef25b7ee4e"), "operation_key": String("ai"), "provider_id": String("01a11322-a1de-7301-b30e-a827221615cf"), "strategy": String("ai"), "timezone": String("UTC")}, "progress": Number(0), "result": Null, "schema_version": Number(1), "state": String("failed"), "submission_count": Number(1), "submitted_at": String("2026-10-06T21:33:19.202011+00:00"), "updated_at": String("2026-10-06T21:33:19.203458+00:00")}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    day_exclusion_during_real_model_http_prevents_late_publication_of_fixed_garment
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p wardrobe-core --test feedback`

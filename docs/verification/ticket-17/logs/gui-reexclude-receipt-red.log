@@ -1,0 +1,33 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/feedback.spec.ts -g UI当天排除
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5189 --strictPort
+[WebServer] (node:60949) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:60952) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/feedback.spec.ts:40:1 › UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着 (1.6s)
+
+
+  1) tests/feedback.spec.ts:40:1 › UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着 ──────────────────────────────────────
+
+    Error: expect(received).not.toBe(expected) // Object.is equality
+
+    Expected: not "01a11330-8602-7400-b893-1e3f0b305062"
+
+      46 |  await panel.getByRole('button',{name:'生成离线搭配',exact:true}).click();await expect(panel.getByRole('alert')).toContainText('当天排除');expect((await call('wear.list')).items.length).toBe(before);
+      47 |  const history=panel.locator('.feedback-history');await history.getByRole('button',{name:/查看或更正反馈/}).first().click();await history.getByLabel('更正舒适评分',{exact:true}).selectOption('2');await history.getByRole('button',{name:'保存反馈更正',exact:true}).click();await expect(history).toContainText('舒适 2');await history.getByLabel('撤销反馈原因',{exact:true}).fill('不再排除');const revokedResponse=page.waitForResponse(r=>r.url().includes('__wardrobe_dev_api')&&r.request().postDataJSON().operation==='feedback.revoke');await history.getByRole('button',{name:'撤销此反馈',exact:true}).click();const revoked=(await (await revokedResponse).json()).result;expect(revoked.revoked).toBe(true);
+    > 48 |  const reappliedResponse=page.waitForResponse(r=>r.url().includes('__wardrobe_dev_api')&&r.request().postDataJSON().operation==='feedback.record'&&r.request().postDataJSON().input.reaction==='day_exclude');await day.getByRole('button',{name:'确认当天排除',exact:true}).click();const reapplied=(await (await reappliedResponse).json()).result;expect(reapplied.root_id).not.toBe(revoked.root_id);expect((await call('feedback.list')).items.some((f:any)=>f.reaction==='day_exclude'&&!f.revoked)).toBe(true);
+         |                                                                                                                                                                                                                                                                                                                                                                              ^
+      49 |  await history.getByRole('button',{name:/查看或更正反馈/}).first().click();await history.getByLabel('撤销反馈原因',{exact:true}).fill('再次撤销');await history.getByRole('button',{name:'撤销此反馈',exact:true}).click();
+      50 |  await history.getByLabel('包含已撤销反馈',{exact:true}).check();await expect(history).toContainText('已撤销');expect((await call('wear.list')).items.length).toBe(before);
+      51 |  await panel.getByRole('button',{name:'生成离线搭配',exact:true}).click();await expect(panel.locator('.recommendation-proposal').first()).toContainText('当天固定上衣');
+        at /private/tmp/wardrobe-ticket-17/apps/desktop/tests/feedback.spec.ts:48:366
+
+    Error Context: test-results/feedback-UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着/error-context.md
+
+  1 failed
+    tests/feedback.spec.ts:40:1 › UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着 ───────────────────────────────────────

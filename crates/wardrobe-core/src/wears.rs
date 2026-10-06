@@ -58,11 +58,7 @@ pub(super) fn timing(input: &Value) -> Result<Value, ApiError> {
     )
 }
 impl Application {
-    pub(super) fn wear_execute(
-        &self,
-        operation: &str,
-        mut input: Value,
-    ) -> Result<Value, ApiError> {
+    pub(super) fn wear_execute(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
         match operation {
             "wear.get" => fields(&input, &["member_id", "id"])?,
             "wear.list" => fields(
@@ -143,13 +139,24 @@ impl Application {
         if operation == "wear.history" {
             return self.wear_history(&member, string(&input, "root_event_id")?);
         }
+        let tx = self.begin_write()?;
+        let result = self.wear_write_in_tx(&tx, operation, input)?;
+        tx.commit()?;
+        Ok(result)
+    }
+    pub(super) fn wear_write_in_tx(
+        &self,
+        tx: &Transaction<'_>,
+        operation: &str,
+        mut input: Value,
+    ) -> Result<Value, ApiError> {
+        let member = self.member(&input)?;
         input["member_id"] = json!(member);
         let key = string(&input, "operation_key")?;
         if key.is_empty() || key.len() > 200 {
             return Err(invalid("操作标识须为1–200字节"));
         }
         let request = json!({"operation":operation,"input":input}).to_string();
-        let tx = self.begin_write()?;
         if let Some((old, result)) = tx
             .query_row(
                 "SELECT request,result FROM wear_receipts WHERE member_id=?1 AND operation_key=?2",
@@ -204,8 +211,7 @@ impl Application {
             event["supersedes_event_id"] = previous["id"].clone();
             event["reason"] = json!(reason);
             event["created_at"] = json!(Utc::now().to_rfc3339());
-            self.persist_wear(&tx, &member, key, &request, operation, &event)?;
-            tx.commit()?;
+            self.persist_wear(tx, &member, key, &request, operation, &event)?;
             return Ok(event);
         }
         let time = timing(&input)?;
@@ -299,8 +305,7 @@ impl Application {
         for (k, v) in time.as_object().unwrap() {
             event[k] = v.clone();
         }
-        self.persist_wear(&tx, &member, key, &request, operation, &event)?;
-        tx.commit()?;
+        self.persist_wear(tx, &member, key, &request, operation, &event)?;
         Ok(event)
     }
     fn persist_wear(

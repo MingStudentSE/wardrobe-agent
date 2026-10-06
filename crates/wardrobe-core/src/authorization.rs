@@ -121,6 +121,30 @@ impl Application {
         {
             return Err(ApiError::new("scope_denied", "操作超出客户端授权scope"));
         }
+        if operation == "feedback.record"
+            && matches!(input["reaction"].as_str(), Some("actual_wore" | "changed"))
+            && grant["mode"] != "full"
+            && !grant["operations"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("wear.record"))
+        {
+            return Err(ApiError::new(
+                "scope_denied",
+                "实际穿着反馈还需要wear.record授权",
+            ));
+        }
+        if operation == "feedback.try_another"
+            && grant["mode"] != "full"
+            && ["feedback.record", "recommendation.change"]
+                .iter()
+                .any(|op| !grant["operations"].as_array().unwrap().contains(&json!(op)))
+        {
+            return Err(ApiError::new(
+                "scope_denied",
+                "Try Another还需要feedback.record与recommendation.change授权",
+            ));
+        }
         if !crate::operations()
             .as_array()
             .unwrap()

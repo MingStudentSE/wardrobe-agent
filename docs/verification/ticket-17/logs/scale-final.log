@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized] target(s) in 0.09s
+     Running tests/recommendations.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/recommendations-4b434e0f15914463)
+
+running 1 test
+SCALE inventory=10000 effective_wears=100000 requested=5 actual=5 fixed_preserved=true elapsed_ms=4368 db_bytes=159875072
+test scale_ten_thousand_inventory_hundred_thousand_effective_wears ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 11.89s
+
