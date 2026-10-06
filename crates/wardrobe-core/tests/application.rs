@@ -100,3 +100,13 @@ fn currency_exponent_keeps_yen_and_dinar_prices_unambiguous() {
     let dinar=app.execute("clothing.create",json!({"member_id":"default","name":"纪念外套","category":"outerwear","purchase_price_minor":12900,"currency":"BHD"})).unwrap();
     assert_eq!(dinar["price_exponent"], 3);
 }
+#[test]
+fn newer_database_version_is_refused_instead_of_downgraded() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("future.sqlite");
+    // External database fixture, not an assertion against internal storage details.
+    let fixture = rusqlite::Connection::open(&path).unwrap();
+    fixture.execute_batch("PRAGMA user_version=99;").unwrap();
+    drop(fixture);
+    assert!(matches!(Application::open(&path),Err(error) if error.code=="unsupported_schema"));
+}
