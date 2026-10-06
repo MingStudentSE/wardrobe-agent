@@ -27,6 +27,20 @@ fn credentials_can_be_set_replaced_and_removed_without_echo_or_database_persiste
     let path = dir.path().join("db");
     let app = Application::open(&path).unwrap();
     let p=app.execute("provider.save",json!({"name":"测试","endpoint":"https://example.com/v1","model":"test","capabilities":["text"],"authentication":"bearer"})).unwrap();
+    struct Cleanup(String);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = keyring::Entry::new("wardrobe-agent.provider", &self.0)
+                .unwrap()
+                .delete_credential();
+        }
+    }
+    use sha2::{Digest, Sha256};
+    let _cleanup = Cleanup(format!(
+        "{}:{:x}",
+        p["id"].as_str().unwrap(),
+        Sha256::digest(p["endpoint"].as_str().unwrap().as_bytes())
+    ));
     let temporary_secret = format!("disposable-{}", uuid::Uuid::now_v7());
     let stored = app
         .execute(
@@ -36,6 +50,12 @@ fn credentials_can_be_set_replaced_and_removed_without_echo_or_database_persiste
         .unwrap();
     assert_eq!(stored["configured"], true);
     assert!(!stored.to_string().contains(&temporary_secret));
+    app.execute("provider.save",json!({"id":p["id"],"name":"更新端点","endpoint":"https://other.example.com/v1","model":"test","capabilities":["text"],"authentication":"bearer"})).unwrap();
+    assert_eq!(
+        app.execute("provider.credential.status", json!({"id":p["id"]}))
+            .unwrap()["configured"],
+        false
+    );
     let removed = app
         .execute("provider.credential.remove", json!({"id":p["id"]}))
         .unwrap();

@@ -123,4 +123,45 @@ fn cli_member_profiles_and_mcp_inventory_share_member_scope() {
     );
 }
 #[test]
-fn stdin_configuration_and_mcp_discovery_share_provider_contract_without_gui(){let dir=tempfile::tempdir().unwrap();let path=dir.path().join("db");let mut child=Command::new(env!("CARGO_BIN_EXE_wardrobe-cli")).args(["--db",path.to_str().unwrap(),"provider.save","--input-stdin"]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();write!(child.stdin.take().unwrap(),"{}",json!({"name":"本地","endpoint":"http://127.0.0.1:11434/v1","model":"local","capabilities":["text"],"authentication":"none"})).unwrap();let output=child.wait_with_output().unwrap();let saved:Value=serde_json::from_slice(&output.stdout).unwrap();assert_eq!(saved["result"]["name"],"本地");let mut child=Command::new(env!("CARGO_BIN_EXE_wardrobe-cli")).args(["--db",path.to_str().unwrap(),"mcp"]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"provider.list","arguments":{}}})).unwrap();let output=child.wait_with_output().unwrap();let response:Value=serde_json::from_slice(&output.stdout).unwrap();let list:Value=serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();assert_eq!(list["items"][0]["id"],saved["result"]["id"]);}
+fn stdin_configuration_and_mcp_discovery_share_provider_contract_without_gui() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args([
+            "--db",
+            path.to_str().unwrap(),
+            "provider.save",
+            "--input-stdin",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    write!(child.stdin.take().unwrap(),"{}",json!({"name":"本地","endpoint":"http://127.0.0.1:11434/v1","model":"local","capabilities":["text"],"authentication":"none"})).unwrap();
+    let output = child.wait_with_output().unwrap();
+    let saved: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(saved["result"]["name"], "本地");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    writeln!(child.stdin.take().unwrap(),"{}",json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"provider.list","arguments":{}}})).unwrap();
+    let output = child.wait_with_output().unwrap();
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let list: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(list["items"][0]["id"], saved["result"]["id"]);
+}
+#[test]
+fn credential_command_requires_stdin_to_keep_secret_out_of_process_arguments() {
+    let dir = tempfile::tempdir().unwrap();
+    let result = cli(
+        &dir.path().join("db"),
+        "provider.credential.set",
+        json!({"id":"missing","api_key":"disposable-placeholder"}),
+    );
+    assert_eq!(result["error"]["code"], "secret_requires_stdin");
+    assert!(!result.to_string().contains("disposable-placeholder"));
+}

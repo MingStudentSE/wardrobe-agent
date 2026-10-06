@@ -38,8 +38,34 @@ fn main() {
         .map(|(_, a)| a.as_str())
         .collect();
     let command = positional.first().copied().unwrap_or("capabilities");
-    let stdin_input = if positional.get(1)==Some(&"--input-stdin") {let mut body=String::new();if io::stdin().take(1_048_577).read_to_string(&mut body).is_err()||body.len()>1_048_576{fail(ApiError{code:"invalid_input".into(),message:"无法读取标准输入或输入过大".into()});}Some(body)}else{None};
-    let input = match stdin_input.as_deref().or_else(||positional.get(1).copied()) {
+    if command == "provider.credential.set" && positional.get(1) != Some(&"--input-stdin") {
+        fail(ApiError {
+            code: "secret_requires_stdin".into(),
+            message: "凭据命令使用--input-stdin，从标准输入读取密钥，避免放入命令历史和进程参数"
+                .into(),
+        });
+    }
+    let stdin_input = if positional.get(1) == Some(&"--input-stdin") {
+        let mut body = String::new();
+        if io::stdin()
+            .take(1_048_577)
+            .read_to_string(&mut body)
+            .is_err()
+            || body.len() > 1_048_576
+        {
+            fail(ApiError {
+                code: "invalid_input".into(),
+                message: "无法读取标准输入或输入过大".into(),
+            });
+        }
+        Some(body)
+    } else {
+        None
+    };
+    let input = match stdin_input
+        .as_deref()
+        .or_else(|| positional.get(1).copied())
+    {
         Some(s) => serde_json::from_str(s),
         None => Ok(json!({})),
     };

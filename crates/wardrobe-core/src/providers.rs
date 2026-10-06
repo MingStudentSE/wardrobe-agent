@@ -1,13 +1,10 @@
 use crate::{string, ApiError, Application};
 use rusqlite::params;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 const CAPABILITIES: &[&str] = &["text", "vision"];
 impl Application {
-    fn credential_entry(&self, id: &str) -> Result<keyring::Entry, ApiError> {
-        self.provider_get(id)?;
-        keyring::Entry::new("wardrobe-agent.provider", id).map_err(|_| credential_error())
-    }
     pub(crate) fn provider_credential(
         &self,
         operation: &str,
@@ -22,7 +19,17 @@ impl Application {
             },
         )?;
         let id = string(&input, "id")?;
-        let entry = self.credential_entry(id)?;
+        let p = self.provider_get(id)?;
+        if p["authentication"] == "none" {
+            if operation == "provider.credential.set" {
+                return Err(ApiError::new(
+                    "unsupported_authentication",
+                    "无认证模型无需密钥，请先保存API key认证方式",
+                ));
+            }
+            return Ok(json!({"schema_version":1,"id":id,"configured":false}));
+        }
+        let entry = credential_entry_for(&p)?;
         match operation {
             "provider.credential.set" => {
                 let key = string(&input, "api_key")?;
@@ -66,7 +73,7 @@ impl Application {
             .map_err(|_| ApiError::new("connection_error", "无法建立连接客户端"))?;
         let mut request=client.post(format!("{}/chat/completions",p["endpoint"].as_str().unwrap())).json(&json!({"model":p["model"],"messages":[{"role":"user","content":"Reply OK."}],"max_tokens":1}));
         if p["authentication"] == "bearer" {
-            let key = match self.credential_entry(id)?.get_password() {
+            let key = match credential_entry_for(&p)?.get_password() {
                 Ok(key) => key,
                 Err(keyring::Error::NoEntry) => {
                     return Err(ApiError::new("credential_missing", "请先配置系统安全凭据"))
@@ -147,7 +154,10 @@ impl Application {
         let endpoint = string(&input, "endpoint")?.trim().trim_end_matches('/');
         let url = reqwest::Url::parse(endpoint)
             .map_err(|_| ApiError::new("invalid_input", "端点必须是有效URL"))?;
-        let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
+        let local = matches!(
+            url.host_str(),
+            Some("localhost" | "127.0.0.1" | "::1" | "[::1]")
+        );
         if !url.username().is_empty()
             || url.password().is_some()
             || url.query().is_some()
@@ -176,6 +186,7 @@ impl Application {
                 "当前兼容适配器支持文本和视觉，图片生成/试穿须使用专用适配器",
             ));
         }
+        let tx = self.begin_write()?;
         let id = match input.get("id") {
             Some(v) => {
                 let id = v
@@ -187,9 +198,17 @@ impl Application {
             None => Uuid::now_v7().to_string(),
         };
         let existing = self.provider_get(&id).ok();
+        if existing.as_ref().is_some_and(|p| {
+            p["authentication"] == "bearer"
+                && (p["endpoint"] != endpoint || authentication == "none")
+        }) {
+            match credential_entry_for(existing.as_ref().unwrap())?.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => {}
+                Err(_) => return Err(credential_error()),
+            }
+        }
         let now = chrono::Utc::now().to_rfc3339();
         let doc = json!({"schema_version":1,"id":id,"name":name,"endpoint":endpoint,"model":model,"capabilities":capabilities,"adapter":"openai_compatible","authentication":authentication,"created_at":existing.as_ref().map(|v|v["created_at"].clone()).unwrap_or(json!(now)),"updated_at":now});
-        let tx=self.begin_write()?;
         tx.execute("INSERT INTO providers(id,document) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,doc.to_string()])?;
         tx.commit()?;
         Ok(doc)
@@ -225,6 +244,14 @@ impl Application {
         Ok(json!({"schema_version":1,"items":items}))
     }
 }
+fn credential_entry_for(p: &Value) -> Result<keyring::Entry, ApiError> {
+    let account = format!(
+        "{}:{:x}",
+        p["id"].as_str().unwrap(),
+        Sha256::digest(p["endpoint"].as_str().unwrap().as_bytes())
+    );
+    keyring::Entry::new("wardrobe-agent.provider", &account).map_err(|_| credential_error())
+}
 fn credential_error() -> ApiError {
     ApiError::new(
         "credential_store_unavailable",
@@ -249,15 +276,27 @@ fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
     }
     Ok(())
 }
+fn provider_schema() -> Value {
+    json!({"type":"object","required":["schema_version","id","name","endpoint","model","capabilities","adapter","authentication","created_at","updated_at"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"name":{"type":"string"},"endpoint":{"type":"string"},"model":{"type":"string"},"capabilities":{"type":"array","items":{"enum":CAPABILITIES}},"adapter":{"const":"openai_compatible"},"authentication":{"enum":["none","bearer"]},"created_at":{"type":"string"},"updated_at":{"type":"string"}}})
+}
 pub(crate) fn descriptors() -> Vec<Value> {
-    let mut result:Vec<Value> = vec![("provider.save","保存模型端点和能力",json!({"type":"object","required":["name","endpoint","model","capabilities","authentication"],"properties":{"id":{"type":"string"},"name":{"type":"string"},"endpoint":{"type":"string"},"model":{"type":"string"},"capabilities":{"type":"array","items":{"enum":CAPABILITIES}},"authentication":{"enum":["none","bearer"]}},"additionalProperties":false})),("provider.list","读取模型配置，不包含凭据",json!({"type":"object","properties":{},"additionalProperties":false}))].into_iter().map(|(name,description,input)|json!({"name":name,"description":description,"inputSchema":input,"outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":1,"type":"integer"}}}})).collect();
-    result.push(json!({"name":"provider.validate","description":"显式调用配置的文本模型验证连接，会使用供应商额度","inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","id","verified_capabilities","verified_at","usage"],"properties":{"schema_version":{"const":1,"type":"integer"},"id":{"type":"string"},"verified_capabilities":{"type":"array","items":{"const":"text"}},"verified_at":{"type":"string"},"usage":{"type":"object"}}}}));
+    let id_input = json!({"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false});
+    let mut result = vec![
+        json!({"name":"provider.save","description":"保存模型端点和能力；更换端点会移除旧凭据","inputSchema":{"type":"object","required":["name","endpoint","model","capabilities","authentication"],"properties":{"id":{"type":"string"},"name":{"type":"string"},"endpoint":{"type":"string"},"model":{"type":"string"},"capabilities":{"type":"array","items":{"enum":CAPABILITIES}},"authentication":{"enum":["none","bearer"]}},"additionalProperties":false},"outputSchema":provider_schema()}),
+        json!({"name":"provider.list","description":"读取本机模型配置，不包含凭据","inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":provider_schema()}}}}),
+        json!({"name":"provider.validate","description":"显式调用配置的文本模型验证连接，会使用供应商额度","inputSchema":id_input,"outputSchema":{"type":"object","required":["schema_version","id","verified_capabilities","verified_at","usage"],"properties":{"schema_version":{"const":1,"type":"integer"},"id":{"type":"string"},"verified_capabilities":{"type":"array","items":{"const":"text"}},"verified_at":{"type":"string"},"usage":{"type":"object"}}}}),
+    ];
     for name in [
         "provider.credential.set",
         "provider.credential.remove",
         "provider.credential.status",
     ] {
-        result.push(json!({"name":name,"description":"管理系统安全凭据，只返回配置状态","inputSchema":{"type":"object","required":if name.ends_with("set"){vec!["id","api_key"]}else{vec!["id"]},"properties":{"id":{"type":"string"},"api_key":{"type":"string","writeOnly":true}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","id","configured"],"properties":{"schema_version":{"const":1,"type":"integer"},"id":{"type":"string"},"configured":{"type":"boolean"}}}}));
+        let mut input = id_input.clone();
+        if name.ends_with("set") {
+            input["properties"]["api_key"] = json!({"type":"string","writeOnly":true});
+            input["required"] = json!(["id", "api_key"]);
+        }
+        result.push(json!({"name":name,"description":"管理系统安全凭据，只返回配置状态","inputSchema":input,"outputSchema":{"type":"object","required":["schema_version","id","configured"],"properties":{"schema_version":{"const":1,"type":"integer"},"id":{"type":"string"},"configured":{"type":"boolean"}}}}));
     }
     result
 }
