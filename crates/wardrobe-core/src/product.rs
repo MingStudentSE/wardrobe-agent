@@ -32,23 +32,7 @@ impl Application {
         }
         let asset = self.asset_get(json!({"member_id":member,"id":asset_id}))?;
         let provider = self.provider_get(string(&input, "provider_id")?)?;
-        if provider["adapter"] != "ark_seedream"
-            || !provider["capabilities"]
-                .as_array()
-                .is_some_and(|v| v.contains(&json!("image_generation")))
-        {
-            return Err(ApiError::new(
-                "unsupported_capability",
-                "请选择专用 Seedream 图片模型",
-            ));
-        }
-        let model = provider["model"].as_str().unwrap_or("");
-        if !model.starts_with("doubao-seedream-5-0-flash-") {
-            return Err(ApiError::new(
-                "unsupported_model",
-                "当前专用适配器支持 Seedream 5.0 Flash，请确认已开通的模型ID",
-            ));
-        }
+        validate_provider(&provider)?;
         let source = source_image(&asset)?;
         drop(source);
         let key = string(&input, "operation_key")?;
@@ -60,11 +44,14 @@ impl Application {
 }
 impl Application {
     pub(super) fn product_process(&self, input: Value) -> Result<Value, ApiError> {
+        self.cloud_image_process(input, "product_display")
+    }
+    pub(super) fn cloud_image_process(&self, input: Value, kind: &str) -> Result<Value, ApiError> {
         fields(&input, &["member_id", "id"])?;
         let member = self.member(&input)?;
         let id = string(&input, "id")?;
         let existing = self.job_get(input.clone())?;
-        if existing["kind"] != "product_display" {
+        if existing["kind"] != kind {
             return Err(ApiError::new("invalid_input", "此任务不是商品图生成"));
         }
         if existing["submitted_at"].is_string() {
@@ -91,7 +78,11 @@ impl Application {
         }
         let job = self.job_claim(&member, id, 300)?;
         let lease = job["lease_token"].as_str().unwrap();
-        let result = self.product_request(&member, id, lease, &job);
+        let result = match kind {
+            "product_display" => self.product_request(&member, id, lease, &job),
+            "outfit_flatlay" => self.flatlay_request(&member, id, lease, &job),
+            _ => Err(ApiError::new("unsupported_operation", "不支持的图像任务")),
+        };
         match result {
             Ok(value) => Ok(value),
             Err(error) => {
@@ -121,6 +112,33 @@ impl Application {
         lease: &str,
         job: &Value,
     ) -> Result<Value, ApiError> {
+        let provider = &job["payload"]["provider"];
+        let source = self.asset_get(json!({"member_id":member,"id":job["payload"]["asset_id"]}))?;
+        let source_image = source_image(&source)?;
+        let (image,request_id)=self.ark_generate(member,id,lease,job,&[source_image],"Create a clean studio product photograph of this exact garment on a plain neutral background, without a person. Preserve the original garment color, silhouette, cut, fabric texture, pattern, printed text, logos and construction details. Do not invent, remove or change garment features. The reference garment is the only subject.")?;
+        let tx = self.begin_write()?;
+        let mut doc = self.job_get(json!({"member_id":member,"id":id}))?;
+        check_lease(&doc, lease)?;
+        let asset=self.image_derived(&tx,source,image,"product_generation",json!({"provider_id":provider["id"],"model":provider["model"],"adapter":"ark_seedream","job_id":id,"request_id":request_id}))?;
+        doc["state"] = json!("waiting_input");
+        doc["progress"] = json!(100);
+        doc["lease_token"] = Value::Null;
+        doc["lease_expires"] = json!(0);
+        doc["result"] = json!({"asset_id":asset["id"],"request_id":request_id,"verified_capabilities":["image_generation"]});
+        doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
+        crate::jobs::save(&tx, &doc)?;
+        tx.commit()?;
+        Ok(doc)
+    }
+    pub(super) fn ark_generate(
+        &self,
+        member: &str,
+        id: &str,
+        lease: &str,
+        job: &Value,
+        reference_images: &[image::DynamicImage],
+        prompt: &str,
+    ) -> Result<(image::DynamicImage, String), ApiError> {
         use base64::Engine;
         let provider = &job["payload"]["provider"];
         let current = self.provider_get(provider["id"].as_str().unwrap())?;
@@ -170,19 +188,38 @@ impl Application {
                 "账户可用模型中没有所选ID，请检查已开通模型",
             ));
         }
-        let source = self.asset_get(json!({"member_id":member,"id":job["payload"]["asset_id"]}))?;
-        let image = source_image(&source)?;
-        let mut png = std::io::Cursor::new(Vec::new());
-        image
-            .write_to(&mut png, image::ImageFormat::Png)
-            .map_err(|_| ApiError::new("image_processing_failed", "原图规范化失败"))?;
-        if png.get_ref().len() > 30 * 1024 * 1024 {
+
+        validate_provider(provider)?;
+        if reference_images.is_empty() || reference_images.len() > 10 {
             return Err(ApiError::new(
-                "image_limit",
-                "规范化原图超过供应商30MB输入限制",
+                "image_count_limit",
+                "Seedream Flash参考图须为1–10张；不会静默截断",
             ));
         }
-        let body = json!({"model":provider["model"],"prompt":"Create a clean studio product photograph of this exact garment on a plain neutral background, without a person. Preserve the original garment color, silhouette, cut, fabric texture, pattern, printed text, logos and construction details. Do not invent, remove or change garment features. The reference garment is the only subject.","image":format!("data:image/png;base64,{}",base64::engine::general_purpose::STANDARD.encode(png.into_inner())),"size":"2K","response_format":"b64_json","watermark":false});
+        let mut references = vec![];
+        for image in reference_images {
+            validate_reference(image)?;
+            let mut png = std::io::Cursor::new(Vec::new());
+            image
+                .write_to(&mut png, image::ImageFormat::Png)
+                .map_err(|_| ApiError::new("image_processing_failed", "参考图规范化失败"))?;
+            if png.get_ref().len() > 30 * 1024 * 1024 {
+                return Err(ApiError::new(
+                    "image_limit",
+                    "规范化参考图超过供应商30MB输入限制",
+                ));
+            }
+            references.push(json!(format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(png.into_inner())
+            )));
+        }
+        let references = if references.len() == 1 {
+            references.remove(0)
+        } else {
+            json!(references)
+        };
+        let body = json!({"model":provider["model"],"prompt":prompt,"image":references,"size":"2K","response_format":"b64_json","watermark":false});
         {
             let tx = self.begin_write()?;
             let mut current = self.job_get(json!({"member_id":member,"id":id}))?;
@@ -246,19 +283,7 @@ impl Application {
         } else {
             image
         };
-        let tx = self.begin_write()?;
-        let mut doc = self.job_get(json!({"member_id":member,"id":id}))?;
-        check_lease(&doc, lease)?;
-        let asset=self.image_derived(&tx,source,image,"product_generation",json!({"provider_id":provider["id"],"model":provider["model"],"adapter":"ark_seedream","job_id":id,"request_id":request_id}))?;
-        doc["state"] = json!("waiting_input");
-        doc["progress"] = json!(100);
-        doc["lease_token"] = Value::Null;
-        doc["lease_expires"] = json!(0);
-        doc["result"] = json!({"asset_id":asset["id"],"request_id":request_id,"verified_capabilities":["image_generation"]});
-        doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        crate::jobs::save(&tx, &doc)?;
-        tx.commit()?;
-        Ok(doc)
+        Ok((image, request_id))
     }
     pub(super) fn product_adopt(&self, input: Value) -> Result<Value, ApiError> {
         fields(&input, &["member_id", "id"])?;
@@ -325,7 +350,7 @@ impl Application {
         Ok(job)
     }
 }
-fn check_lease(doc: &Value, lease: &str) -> Result<(), ApiError> {
+pub(super) fn check_lease(doc: &Value, lease: &str) -> Result<(), ApiError> {
     if doc["state"] != "running"
         || doc["lease_token"] != lease
         || doc["lease_expires"].as_i64().unwrap_or(0) < chrono::Utc::now().timestamp_millis()
@@ -374,13 +399,7 @@ fn source_image(asset: &Value) -> Result<image::DynamicImage, ApiError> {
         ));
     }
     let image = crate::assets::decode(&bytes)?;
-    let (w, h) = (image.width(), image.height());
-    if w < 15 || h < 15 || u64::from(w) * u64::from(h) > 36_000_000 || w > h * 16 || h > w * 16 {
-        return Err(ApiError::new(
-            "image_limit",
-            "输入每边须大于14px、最多3600万像素，比例1:16至16:1",
-        ));
-    }
+    validate_reference(&image)?;
     Ok(image)
 }
 fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
@@ -400,4 +419,38 @@ pub(super) fn descriptors() -> Vec<Value> {
         result.push(json!({"name":name,"description":"处理或明确采用商品图，保持旧图直到采用","inputSchema":{"type":"object","required":["member_id","id"],"properties":{"member_id":{"type":"string"},"id":{"type":"string"}},"additionalProperties":false},"outputSchema":crate::jobs::output_schema()}));
     }
     result
+}
+
+pub(super) fn validate_provider(provider: &Value) -> Result<(), ApiError> {
+    if provider["adapter"] != "ark_seedream"
+        || !provider["capabilities"]
+            .as_array()
+            .is_some_and(|v| v.contains(&json!("image_generation")))
+    {
+        return Err(ApiError::new(
+            "unsupported_capability",
+            "请选择专用 Seedream 图片模型",
+        ));
+    }
+    if !provider["model"]
+        .as_str()
+        .unwrap_or("")
+        .starts_with("doubao-seedream-5-0-flash-")
+    {
+        return Err(ApiError::new(
+            "unsupported_model",
+            "当前专用适配器支持Seedream5.0Flash，请确认开通的模型ID",
+        ));
+    }
+    Ok(())
+}
+pub(super) fn validate_reference(image: &image::DynamicImage) -> Result<(), ApiError> {
+    let (w, h) = (image.width(), image.height());
+    if w < 15 || h < 15 || u64::from(w) * u64::from(h) > 36_000_000 || w > h * 16 || h > w * 16 {
+        return Err(ApiError::new(
+            "image_limit",
+            "输入每边须大于14px、最多3600万像素，比例1:16至16:1",
+        ));
+    }
+    Ok(())
 }
