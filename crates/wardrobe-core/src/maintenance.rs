@@ -34,6 +34,13 @@ fn save(db: &Connection, doc: &Value) -> Result<(), ApiError> {
     db.execute("INSERT INTO maintenance_jobs VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET document=excluded.document",rusqlite::params![doc["id"].as_str(),doc["operation"].as_str(),doc["operation_key"].as_str(),doc.to_string()])?;
     Ok(())
 }
+fn worker_lock(app:&Application, doc:&Value) -> Result<std::fs::File,ApiError> {
+    let path=doc["_worker_lock_uri"].as_str().and_then(|uri|uri.strip_prefix("file://")).map(PathBuf::from).unwrap_or_else(||Path::new(app.connection.path().unwrap()).parent().unwrap().join(".maintenance-locks").join(format!("{}.lock",doc["id"].as_str().unwrap())));
+    std::fs::create_dir_all(path.parent().unwrap()).map_err(|_|ApiError::new("storage_error","维护执行锁目录不可写"))?;
+    let lock=std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path).map_err(|_|ApiError::new("storage_error","维护执行锁不可用"))?;
+    lock.try_lock().map_err(|_|ApiError::new("job_unavailable","维护任务仍有本机执行者，不能并发接管"))?;
+    Ok(lock)
+}
 fn public(mut doc: Value) -> Value {
     if let Some(map) = doc.as_object_mut() {
         map.retain(|key, _| !key.starts_with('_'));
@@ -230,7 +237,7 @@ impl Application {
         }
         let id = uuid::Uuid::now_v7().to_string();
         let timestamp = chrono::Utc::now().to_rfc3339();
-        let doc = json!({"schema_version":1,"id":id,"job_id":id,"operation":operation,"operation_key":key,"state":"queued","phase":"queued","progress":0,"attempts":0,"input":input,"result":null,"error":null,"created_at":timestamp,"updated_at":timestamp,"_generation":self.installation_generation,"_source_database":self.connection.path(),"_lease":null,"_lease_expires":0});
+        let doc = json!({"schema_version":1,"id":id,"job_id":id,"operation":operation,"operation_key":key,"state":"queued","phase":"queued","progress":0,"attempts":0,"input":input,"result":null,"error":null,"created_at":timestamp,"updated_at":timestamp,"_generation":self.installation_generation,"_source_database":self.connection.path(),"_worker_lock_uri":format!("file://{}",Path::new(self.connection.path().unwrap()).parent().unwrap().join(".maintenance-locks").join(format!("{id}.lock")).to_string_lossy()),"_lease":null,"_lease_expires":0});
         save(&tx, &doc)?;
         tx.commit()?;
         Ok(public(doc))
@@ -406,6 +413,7 @@ impl Application {
             tx.commit()?;
             return Ok(public(doc));
         }
+        let _worker_lock=worker_lock(self,&doc)?;
         let expired =
             doc["state"] == "running" && doc["_lease_expires"].as_i64().unwrap_or(0) <= now();
         if doc["state"] != "queued" && !expired {
