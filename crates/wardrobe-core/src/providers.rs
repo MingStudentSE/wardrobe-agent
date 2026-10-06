@@ -3,7 +3,7 @@ use rusqlite::params;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
-const CAPABILITIES: &[&str] = &["text", "vision"];
+const CAPABILITIES: &[&str] = &["text", "vision", "image_generation"];
 impl Application {
     pub(crate) fn provider_credential(
         &self,
@@ -57,7 +57,7 @@ impl Application {
         let id = string(&input, "id")?;
         let capability = string(&input, "capability")?;
         let p = self.provider_get(id)?;
-        if !CAPABILITIES.contains(&capability)
+        if !["text", "vision"].contains(&capability)
             || !p["capabilities"]
                 .as_array()
                 .unwrap()
@@ -173,6 +173,7 @@ impl Application {
                 "model",
                 "capabilities",
                 "authentication",
+                "adapter",
             ],
         )?;
         let name = text(&input, "name", 120)?;
@@ -199,13 +200,29 @@ impl Application {
         if !["none", "bearer"].contains(&authentication) {
             return Err(ApiError::new("invalid_input", "认证方式必须是none或bearer"));
         }
+        let adapter = match input.get("adapter") {
+            Some(v) => v
+                .as_str()
+                .ok_or_else(|| ApiError::new("invalid_input", "adapter须为字符串"))?,
+            None => "openai_compatible",
+        };
+        if !["openai_compatible", "ark_seedream"].contains(&adapter) {
+            return Err(ApiError::new(
+                "unsupported_adapter",
+                "请选择已支持的专用适配器",
+            ));
+        }
         let capabilities = input["capabilities"]
             .as_array()
             .ok_or_else(|| ApiError::new("invalid_input", "能力必须是数组"))?;
         if capabilities.is_empty()
-            || capabilities
-                .iter()
-                .any(|v| !CAPABILITIES.contains(&v.as_str().unwrap_or("")))
+            || capabilities.iter().any(|v| {
+                if adapter == "ark_seedream" {
+                    v != "image_generation"
+                } else {
+                    !["text", "vision"].contains(&v.as_str().unwrap_or(""))
+                }
+            })
         {
             return Err(ApiError::new(
                 "unsupported_capability",
@@ -240,7 +257,7 @@ impl Application {
             }
         }
         let now = chrono::Utc::now().to_rfc3339();
-        let doc = json!({"schema_version":1,"id":id,"name":name,"endpoint":endpoint,"model":model,"capabilities":capabilities,"adapter":"openai_compatible","authentication":authentication,"created_at":existing.as_ref().map(|v|v["created_at"].clone()).unwrap_or(json!(now)),"updated_at":now});
+        let doc = json!({"schema_version":1,"id":id,"name":name,"endpoint":endpoint,"model":model,"capabilities":capabilities,"adapter":adapter,"authentication":authentication,"created_at":existing.as_ref().map(|v|v["created_at"].clone()).unwrap_or(json!(now)),"updated_at":now});
         tx.execute("INSERT INTO providers(id,document) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,doc.to_string()])?;
         tx.commit()?;
         Ok(doc)
@@ -312,12 +329,12 @@ fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
     Ok(())
 }
 fn provider_schema() -> Value {
-    json!({"type":"object","required":["schema_version","id","name","endpoint","model","capabilities","adapter","authentication","created_at","updated_at"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"name":{"type":"string"},"endpoint":{"type":"string"},"model":{"type":"string"},"capabilities":{"type":"array","items":{"enum":CAPABILITIES}},"adapter":{"const":"openai_compatible"},"authentication":{"enum":["none","bearer"]},"created_at":{"type":"string"},"updated_at":{"type":"string"}}})
+    json!({"type":"object","required":["schema_version","id","name","endpoint","model","capabilities","adapter","authentication","created_at","updated_at"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"name":{"type":"string"},"endpoint":{"type":"string"},"model":{"type":"string"},"capabilities":{"type":"array","items":{"enum":CAPABILITIES}},"adapter":{"enum":["openai_compatible","ark_seedream"]},"authentication":{"enum":["none","bearer"]},"created_at":{"type":"string"},"updated_at":{"type":"string"}}})
 }
 pub(crate) fn descriptors() -> Vec<Value> {
     let id_input = json!({"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false});
     let mut result = vec![
-        json!({"name":"provider.save","description":"保存模型端点和能力；更换端点会移除旧凭据","inputSchema":{"type":"object","required":["name","endpoint","model","capabilities","authentication"],"properties":{"id":{"type":"string"},"name":{"type":"string"},"endpoint":{"type":"string"},"model":{"type":"string"},"capabilities":{"type":"array","items":{"enum":CAPABILITIES}},"authentication":{"enum":["none","bearer"]}},"additionalProperties":false},"outputSchema":provider_schema()}),
+        json!({"name":"provider.save","description":"保存模型端点和能力；更换端点会移除旧凭据","inputSchema":{"type":"object","required":["name","endpoint","model","capabilities","authentication"],"properties":{"id":{"type":"string"},"name":{"type":"string"},"endpoint":{"type":"string"},"model":{"type":"string"},"capabilities":{"type":"array","items":{"enum":CAPABILITIES}},"authentication":{"enum":["none","bearer"]},"adapter":{"enum":["openai_compatible","ark_seedream"]}},"additionalProperties":false},"outputSchema":provider_schema()}),
         json!({"name":"provider.list","description":"读取本机模型配置，不包含凭据","inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":provider_schema()}}}}),
         json!({"name":"provider.validate","description":"显式选择文本或视觉连接验证；视觉仅发送内置测试图，每次调用可能使用供应商额度，不验证图像生成或试穿","inputSchema":{"type":"object","required":["id","capability"],"properties":{"id":{"type":"string"},"capability":{"type":"string","enum":["text","vision"]}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","id","verified_capabilities","verified_at","usage"],"properties":{"schema_version":{"const":1,"type":"integer"},"id":{"type":"string"},"verified_capabilities":{"type":"array","items":{"type":"string","enum":["text","vision"]},"minItems":1,"maxItems":1},"verified_at":{"type":"string"},"usage":{"type":"object"}}}}),
     ];
