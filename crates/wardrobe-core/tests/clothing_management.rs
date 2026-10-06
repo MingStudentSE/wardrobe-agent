@@ -168,3 +168,66 @@ fn canonical_taxonomy_and_color_ids_are_versioned_and_validated() {
         "invalid_input"
     );
 }
+#[test]
+fn clothing_history_lifecycle_and_edit_are_scoped_to_the_owner_member() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let owner = app.execute("space.default", json!({})).unwrap()["member_id"].clone();
+    let other = app
+        .execute("member.create", json!({"name":"另一成员"}))
+        .unwrap()["member_id"]
+        .clone();
+    let item = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":owner,"name":"私人衬衫","category":"top"}),
+        )
+        .unwrap();
+    for operation in [
+        "clothing.get",
+        "clothing.history",
+        "clothing.update",
+        "clothing.archive",
+        "clothing.delete",
+        "clothing.restore",
+    ] {
+        assert_eq!(
+            app.execute(
+                operation,
+                json!({"member_id":other,"id":item["id"],"name":"篡改"})
+            )
+            .unwrap_err()
+            .code,
+            "not_found"
+        );
+    }
+    assert_eq!(
+        app.execute(
+            "clothing.history",
+            json!({"member_id":owner,"id":item["id"]})
+        )
+        .unwrap()["items"][0]["snapshot"]["name"],
+        "私人衬衫"
+    );
+}
+#[test]
+fn unknown_patch_fields_cannot_silently_override_identity_assets_or_lifecycle() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let item = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"衬衫","category":"top"}),
+        )
+        .unwrap();
+    assert_eq!(
+        app.execute(
+            "clothing.update",
+            json!({"member_id":"default","id":item["id"],"status":"deleted"})
+        )
+        .unwrap_err()
+        .code,
+        "invalid_input"
+    );
+}

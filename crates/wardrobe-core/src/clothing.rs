@@ -422,6 +422,28 @@ const TEXT_FACTS: &[&str] = &[
 ];
 const ARRAY_FACTS: &[&str] = &["color", "pattern", "material", "style", "occasion", "tags"];
 fn apply_facts(doc: &mut Value, input: &Value) -> Result<(), ApiError> {
+    for key in input.as_object().unwrap().keys() {
+        if !TEXT_FACTS.contains(&key.as_str())
+            && !ARRAY_FACTS.contains(&key.as_str())
+            && ![
+                "member_id",
+                "id",
+                "name",
+                "category",
+                "seasons",
+                "favorite",
+                "purchase_price_minor",
+                "currency",
+            ]
+            .contains(&key.as_str())
+        {
+            return Err(ApiError::new(
+                "invalid_input",
+                &format!("不支持修改字段 {key}"),
+            ));
+        }
+    }
+
     for key in TEXT_FACTS {
         if let Some(value) = input.get(*key) {
             let max = if *key == "notes" || *key == "description" {
@@ -633,6 +655,9 @@ pub(super) fn descriptors() -> Vec<Value> {
             descriptor["inputSchema"]["properties"]["favorite"] = json!({"type":"boolean"});
         }
         if ["clothing.create", "clothing.update"].contains(&descriptor["name"].as_str().unwrap()) {
+            descriptor["inputSchema"]["additionalProperties"] = json!(false);
+            descriptor["inputSchema"]["properties"]["purchase_price_minor"]["maximum"] =
+                json!(9007199254740991u64);
             for key in TEXT_FACTS {
                 descriptor["inputSchema"]["properties"][*key] = json!({"type":["string","null"],"maxLength":if *key=="notes"||*key=="description"{10000}else{500}});
             }

@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 2;
+pub const DATABASE_SCHEMA_VERSION: u32 = 3;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -91,6 +91,8 @@ impl Application {
             tx.execute_batch("PRAGMA user_version=2;")?;
         }
         tx.execute_batch("CREATE INDEX IF NOT EXISTS clothing_member_status_id ON clothing(member_id,json_extract(document,'$.status'),id);")?;
+        members::migrate(&tx)?;
+        tx.execute_batch("PRAGMA user_version=3;")?;
         tx.commit()?;
         Ok(Self { connection })
     }
@@ -98,11 +100,32 @@ impl Application {
         if !input.is_object() {
             return Err(ApiError::new("invalid_input", "输入必须是 JSON 对象"));
         }
+        let allowed: Option<&[&str]> = match operation {
+            "space.default" | "member.list" => Some(&[]),
+            "member.create" => Some(&["name"]),
+            "member.update" => Some(&["member_id", "name"]),
+            "member.select" => Some(&["member_id"]),
+            _ => None,
+        };
+        if let Some(allowed) = allowed {
+            if input
+                .as_object()
+                .unwrap()
+                .keys()
+                .any(|key| !allowed.contains(&key.as_str()))
+            {
+                return Err(ApiError::new("invalid_input", "成员操作包含不支持的字段"));
+            }
+        }
         match operation {
             "capabilities" => Ok(
                 json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES,"taxonomy":clothing::taxonomy()}),
             ),
             "space.default" => self.default_space(),
+            "member.list" => self.member_list(),
+            "member.create" => self.member_create(input),
+            "member.update" => self.member_update(input),
+            "member.select" => self.member_select(input),
             "clothing.create" => self.clothing_create(input),
             "clothing.history" => self.clothing_history(input),
             "clothing.update" => self.clothing_update(input),
