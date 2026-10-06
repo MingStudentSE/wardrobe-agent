@@ -1,0 +1,23 @@
+# Local reference repositories
+/references/
+
+# OS files
+.DS_Store
+._*
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies and build outputs
+node_modules/
+target/
+dist/
+build/
+coverage/
+
+# Local editor files
+.idea/
