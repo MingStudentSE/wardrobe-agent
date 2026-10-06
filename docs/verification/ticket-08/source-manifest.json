@@ -1,0 +1,32 @@
+[
+  {
+    "file": "01-98884.jpg",
+    "title": "Bridal Robe (Hwarot)",
+    "id": 98884,
+    "url": "https://openaccess-cdn.clevelandart.org/1918.552/1918.552_print.jpg",
+    "source_page": "https://clevelandart.org/art/1918.552",
+    "license": "CC0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_policy": "https://www.clevelandart.org/open-access",
+    "creditline": "The Worcester R. Warner Collection",
+    "width": 3400,
+    "height": 2545,
+    "sha256": "80651b8fa799cd6a20ad963ce3237472944dc1354eba72202f615990a7c2e4ff",
+    "bytes": 4314928
+  },
+  {
+    "file": "02-160469.jpg",
+    "title": "Hat (Kalyeem)",
+    "id": 160469,
+    "url": "https://openaccess-cdn.clevelandart.org/1998.29/1998.29_print.jpg",
+    "source_page": "https://clevelandart.org/art/1998.29",
+    "license": "CC0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_policy": "https://www.clevelandart.org/open-access",
+    "creditline": "John L. Severance Fund",
+    "width": 2733,
+    "height": 3400,
+    "sha256": "ef060d0bc08e9aaeb7935e268b158d6ef1464e9586ad0133c8f9fab59451ab15",
+    "bytes": 4789889
+  }
+]
