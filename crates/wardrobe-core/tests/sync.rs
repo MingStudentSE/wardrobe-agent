@@ -1442,6 +1442,25 @@ fn new_paired_installation_receives_original_remote_histories_on_a_new_target() 
             .unwrap()["items"],
         expected_branch_history
     );
+    let mut paged_history = vec![];
+    let mut feedback_cursor = serde_json::Value::Null;
+    for _ in 0..5 {
+        let mut input = json!({"member_id":member,"root_id":branch_root["root_id"],"limit":1});
+        if !feedback_cursor.is_null() {
+            input["cursor"] = feedback_cursor;
+        }
+        let page = owner.execute("feedback.history", input).unwrap();
+        paged_history.extend(page["items"].as_array().unwrap().iter().cloned());
+        feedback_cursor = page["next_cursor"].clone();
+        if feedback_cursor.is_null() {
+            break;
+        }
+    }
+    assert_eq!(
+        serde_json::Value::Array(paged_history),
+        expected_branch_history,
+        "bounded history pagination must preserve every same-revision branch"
+    );
     pair(
         &owner,
         &newcomer,

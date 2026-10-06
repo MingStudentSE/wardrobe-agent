@@ -232,16 +232,32 @@ impl Application {
                 })
                 .transpose()?
                 .unwrap_or(50);
-            let cursor = input
-                .get("cursor")
-                .map(|v| v.as_u64().ok_or_else(|| invalid("历史游标须为修订整数")))
-                .transpose()?
-                .unwrap_or(0);
-            let mut statement=self.connection.prepare("SELECT document FROM feedback_events WHERE member_id=?1 AND root_id=?2 AND revision>?3 ORDER BY revision,id LIMIT ?4")?;
+            // Legacy integer cursors remain accepted. New composite cursors retain
+            // every immutable branch when a page ends within one numeric revision.
+            let (cursor, cursor_id) = match input.get("cursor") {
+                None => (0u64, String::new()),
+                Some(value) if value.is_u64() => (value.as_u64().unwrap(), "~".to_owned()),
+                Some(value) => {
+                    let (revision, id) = value
+                        .as_str()
+                        .and_then(|v| v.split_once(':'))
+                        .ok_or_else(|| invalid("历史游标格式无效"))?;
+                    let revision = revision
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|n| *n > 0 && *n < i64::MAX as u64)
+                        .ok_or_else(|| invalid("历史游标格式无效"))?;
+                    uuid::Uuid::parse_str(id).map_err(|_| invalid("历史游标格式无效"))?;
+                    (revision, id.to_owned())
+                }
+            };
+            let mut statement=self.connection.prepare("SELECT document FROM feedback_events WHERE member_id=?1 AND root_id=?2 AND (revision>?3 OR (revision=?3 AND id>?4)) ORDER BY revision,id LIMIT ?5")?;
             let mut items = vec![];
-            for row in statement.query_map(params![member, root, cursor, limit + 1], |r| {
-                r.get::<_, String>(0)
-            })? {
+            for row in statement
+                .query_map(params![member, root, cursor, cursor_id, limit + 1], |r| {
+                    r.get::<_, String>(0)
+                })?
+            {
                 items.push(parse(row?)?);
             }
             let exists: bool = self.connection.query_row(
@@ -255,7 +271,12 @@ impl Application {
             let more = items.len() > limit as usize;
             items.truncate(limit as usize);
             let next = if more {
-                items.last().unwrap()["revision"].clone()
+                let last = items.last().unwrap();
+                json!(format!(
+                    "{}:{}",
+                    last["revision"].as_u64().unwrap(),
+                    last["id"].as_str().unwrap()
+                ))
             } else {
                 Value::Null
             };
@@ -511,7 +532,7 @@ pub(super) fn descriptors() -> Vec<Value> {
     ["record","get","list","correct","revoke","history","try_another"].into_iter().map(|op|{
  let mut props=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
  match op {"try_another"=>{required.extend(["operation_key","intent_id","proposal_index"]);props["operation_key"]=json!({"type":"string"});props["intent_id"]=json!({"type":"string"});props["proposal_index"]=json!({"type":"integer","minimum":0});},"record"=>{for f in ["operation_key","intent_id"]{props[f]=json!({"type":"string"});required.push(f);}required.extend(["proposal_index","reaction"]);props["proposal_index"]=json!({"type":"integer","minimum":0});props["reaction"]=json!({"enum":["like","dislike","skip","day_exclude","actual_wore","changed"]});props["wear"]=json!({"type":"object","additionalProperties":false,"required":["confirmed","local_date","timezone"],"properties":{"confirmed":{"const":true},"local_date":{"type":"string"},"timezone":{"type":"string"},"local_time":{"type":"string"},"notes":{"type":"string"},"clothing_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":100,"uniqueItems":true}}});props["timezone"]=json!({"type":"string"});props["clothing_ids"]=json!({"type":"array","minItems":1,"maxItems":100,"uniqueItems":true,"items":{"type":"string"}});props["scores"]=json!({"type":"object","additionalProperties":false,"properties":{"overall":{"type":["integer","null"],"minimum":1,"maximum":5},"comfort":{"type":["integer","null"],"minimum":1,"maximum":5},"style":{"type":["integer","null"],"minimum":1,"maximum":5}}});},"correct"|"revoke"=>{required.extend(["root_id","operation_key","expected_revision"]);props["root_id"]=json!({"type":"string"});props["operation_key"]=json!({"type":"string"});props["expected_revision"]=json!({"type":"integer","minimum":1});if op=="revoke"{required.push("reason");props["reason"]=json!({"type":"string"});}else{props["reaction"]=json!({"enum":["like","dislike","skip"]});props["scores"]=json!({"type":"object","additionalProperties":false,"properties":{"overall":{"type":["integer","null"],"minimum":1,"maximum":5},"comfort":{"type":["integer","null"],"minimum":1,"maximum":5},"style":{"type":["integer","null"],"minimum":1,"maximum":5}}});}},
- "history"=>{required.push("root_id");props["root_id"]=json!({"type":"string"});props["limit"]=json!({"type":"integer","minimum":1,"maximum":100});props["cursor"]=json!({"type":"integer","minimum":0});},
+ "history"=>{required.push("root_id");props["root_id"]=json!({"type":"string"});props["limit"]=json!({"type":"integer","minimum":1,"maximum":100});props["cursor"]=json!({"oneOf":[{"type":"integer","minimum":0},{"type":"string","pattern":"^[1-9][0-9]*:[0-9a-fA-F-]{36}$"}]});},
  "get"=>{required.push("id");props["id"]=json!({"type":"string"});},_=>{props["limit"]=json!({"type":"integer","minimum":1,"maximum":100});props["cursor"]=json!({"type":"string"});props["include_revoked"]=json!({"type":"boolean"});}}
  json!({"name":format!("feedback.{op}"),"description":"显式推荐反馈，不隐式记录穿着","inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"]}})
 }).collect()
