@@ -441,6 +441,36 @@ fn authorized_cli_and_mcp_validate_only_explicit_vision_capability() {
     server.join().unwrap();
 }
 #[test]
+fn cli_saved_outfit_and_immutable_version_are_the_same_through_mcp_after_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    cli(&path, "space.default", json!({}));
+    let clothing = cli(
+        &path,
+        "clothing.create",
+        json!({"member_id":"default","name":"通勤外套","category":"outerwear"}),
+    );
+    let saved = cli(
+        &path,
+        "outfit.create",
+        json!({"member_id":"default","name":"通勤","items":[{"clothing_id":clothing["result"]["id"],"role":"outer","layer":2}]}),
+    );
+    assert_eq!(saved["result"]["version"], 1);
+    let mut process = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":client_token(&path),"name":"outfit.version","arguments":{"member_id":"default","id":saved["result"]["id"],"version":1}}});
+    writeln!(process.stdin.take().unwrap(), "{request}").unwrap();
+    let output = process.wait_with_output().unwrap();
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let actual: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(actual, saved["result"]);
+}
+#[test]
 fn cli_mcp_share_durable_batch_job_ids_cancellation_and_idempotent_commit() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("db");

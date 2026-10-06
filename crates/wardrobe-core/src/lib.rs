@@ -6,6 +6,7 @@ mod image_editing;
 mod imports;
 mod jobs;
 mod members;
+mod outfits;
 mod providers;
 
 use rusqlite::{params, Connection};
@@ -14,7 +15,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 7;
+pub const DATABASE_SCHEMA_VERSION: u32 = 8;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -105,6 +106,7 @@ impl Application {
         )?;
         assets::migrate(&tx)?;
         tx.execute_batch("CREATE TABLE IF NOT EXISTS clients(id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, document TEXT NOT NULL);")?;
+        outfits::migrate(&tx)?;
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
         cutout::migrate(&tx)?;
@@ -196,6 +198,7 @@ impl Application {
             }
             "clothing.get" => self.clothing_get(input),
             "clothing.list" => self.clothing_list(input),
+            op if op.starts_with("outfit.") => self.outfit_execute(op, input),
             "imports.update" => self.imports_update(input),
             "imports.group" => self.imports_group(input),
             "imports.commit" => self.imports_commit(input),
@@ -235,6 +238,7 @@ pub fn operations() -> Value {
     descriptors.extend(providers::descriptors());
     descriptors.extend(authorization::descriptors());
     descriptors.extend(assets::descriptors());
+    descriptors.extend(outfits::descriptors());
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());
     descriptors.extend(image_editing::descriptors());
