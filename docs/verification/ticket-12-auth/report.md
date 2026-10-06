@@ -19,6 +19,8 @@ GUI：
 - 已有member测试定位精确combobox，防止新scope checkbox的“切换当前成员”描述造成宽泛label歧义，原先成员切换、保存竞态行为保持断言。
 - scripts/review-media.py / GUI开发桥 / Playwrightfixture都显式使用--trusted-local。开发桥拒绝跨Origin请求。
 
-运行：cargo test --workspace；cargo fmt --all -- --check；cargo clippy --workspace --all-targets -- -D warnings；npm run build；真实Chrome E2E全部通过。原生HEIC测试env沿用/tmp/wardrobe-media-native/install的pkgconfig及dylib。
+运行：最终50项Rust行为检查（7项authorization、9项CLI/MCP及既有领域/图片检查；OS credential smoke仍明确ignored，不将其计为本次平台新增验收），17项真实Chrome E2E全部通过；cargo test --workspace；cargo fmt --all -- --check；cargo clippy --workspace --all-targets -- -D warnings；npm run build；真实Chrome E2E全部通过。原生HEIC测试env沿用/tmp/wardrobe-media-native/install的pkgconfig及dylib。
 
-安全边界、后续模块接入规则见ADR0007。未实现同步；后续新CLI/MCP适配器必须用execute_as_client，新的空间级操作默认对限定成员拒绝。当前基础满足本机授权slice，真实供应商及其他平台安全存储门槛由root继续验证，#12未由此自动关闭。
+安全边界、后续模块接入规则见ADR0007。未实现同步；后续新CLI/MCP适配器必须用execute_as_client，新的空间级操作默认对限定成员拒绝。verify-packaged-cli.py已适配可信维护登记disposable限定客户端，业务CLI/MCP仅stdin令牌，额外验证无token拒绝；token不写报告/argv/日志。portable README及项目README注明授权流程。发行包脚本结构/语法检查完成；root仍需用修正HEIC FFI的新release产物运行，不把debug图片成功替代release验收。
+
+当前基础满足本机授权slice，真实供应商及其他平台安全存储门槛由root继续验证，#12未由此自动关闭。
