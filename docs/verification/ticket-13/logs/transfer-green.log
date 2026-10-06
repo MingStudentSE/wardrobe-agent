@@ -1,0 +1,11 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-implementation/ticket-13/crates/wardrobe-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.60s
+     Running tests/recognition.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recognition-85ea57061d914daf)
+
+running 3 tests
+test explicit_recognition_records_selected_provider_and_images_without_changing_manual_facts ... ok
+test batch_failure_leaves_independent_manual_drafts_saveable ... ok
+test actual_http_proposal_requires_review_and_reanalysis_preserves_manual_edits ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
