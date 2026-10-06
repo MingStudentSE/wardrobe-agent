@@ -860,3 +860,88 @@ fn legacy_schema_keeps_actual_history_asset_foreign_keys_and_repairs_sync_tables
         0
     );
 }
+#[test]
+#[ignore = "requires actual OS credential store"]
+fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    let ap = a.path().join("db");
+    let bp = b.path().join("db");
+    let owner = Application::open(&ap).unwrap();
+    let peer = Application::open(&bp).unwrap();
+    let _a = Cleanup(ap.clone());
+    let _b = Cleanup(bp.clone());
+    owner
+        .execute(
+            "encryption.create",
+            json!({"password":"temporary bounded sync password","device_name":"bounded owner"}),
+        )
+        .unwrap();
+    let offer = owner
+        .execute(
+            "encryption.pair.offer",
+            json!({"device_name":"bounded peer"}),
+        )
+        .unwrap();
+    let receipt=peer.execute("encryption.pair.accept",json!({"invitation":offer["invitation"],"pairing_secret":offer["pairing_secret"],"password":"temporary bounded peer password"})).unwrap();
+    let confirmation = owner
+        .execute(
+            "encryption.pair.confirm",
+            json!({"receipt":receipt["receipt"]}),
+        )
+        .unwrap();
+    peer.execute(
+        "encryption.device.apply",
+        json!({"manifest":confirmation["manifest"]}),
+    )
+    .unwrap();
+    for i in 0..300 {
+        owner.execute("clothing.create",json!({"member_id":"default","name":format!("bounded actual item {i}"),"category":"top"})).unwrap();
+    }
+    for app in [&owner, &peer] {
+        app.execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    }
+    let first = owner.execute("sync.run", json!({})).unwrap();
+    assert!(
+        first["sent"].as_u64().unwrap() <= 256,
+        "one run must not materialize an unbounded journal"
+    );
+    assert_eq!(first["has_more"], true);
+    drop(owner);
+    let owner = Application::open(&ap).unwrap();
+    for _ in 0..10 {
+        let r = owner.execute("sync.run", json!({})).unwrap();
+        assert!(r["sent"].as_u64().unwrap() <= 256);
+        if r["has_more"] == false {
+            break;
+        }
+    }
+    for _ in 0..10 {
+        let r = peer.execute("sync.run", json!({})).unwrap();
+        if r["has_more"] == false {
+            break;
+        }
+    }
+    let member = owner.execute("space.default", json!({})).unwrap()["member_id"].clone();
+    let mut cursor = serde_json::Value::Null;
+    let mut count = 0;
+    loop {
+        let mut input = json!({"member_id":member,"limit":100});
+        if !cursor.is_null() {
+            input["cursor"] = cursor.clone();
+        }
+        let page = peer.execute("clothing.list", input).unwrap();
+        count += page["items"].as_array().unwrap().len();
+        cursor = page["next_cursor"].clone();
+        if cursor.is_null() {
+            break;
+        }
+    }
+    assert_eq!(count, 300);
+    assert_eq!(owner.execute("sync.run", json!({})).unwrap()["sent"], 0);
+}

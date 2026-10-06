@@ -42,3 +42,11 @@ Evidence logs under `/tmp/wardrobe-implementation/`:
 Not accepted yet: bounded journal publication and scalable remote indexing/cursors, causal completeness across reordered logs, multiple targets/revocation/epoch replay contracts, remaining schema/asset identity and repair contracts, full 10k clothing/100k event behavior, full authorized CLI/MCP synchronization, stale-read GUI member-switch regression, ADR0021/GLOSSARY, accepted root DB17/18 physical coexistence and portable weather projection if applicable, final merged same-source whole-workspace regression and independent merger.
 
 Do not use the green small two-installation story as proof of all Issue27 or #35 gates.
+
+## Resource handoff checkpoint
+
+Root requested releasing this subagent turn after the next real test terminates so the independent weather merger can complete. This is a resource handoff, not Issue27 completion.
+
+`sync-bounded-journal-red.log`: handle 95131 naturally terminated exit 101 (13.24s). New public test creates 300 clothing facts in paired temporary installations and detects that the first run publishes more than the intended 256-operation bound. The current unbounded journal implementation is therefore still red. The test also requires durable remaining publication across restart and eventual exact 300-item receiving inventory; those assertions have not reached green yet. This fixture does not replace the required full Beta 10k clothing / 100k events test.
+
+At handoff there are no live test/build/GUI server handles owned by this agent. Existing exclusive cache remains `/tmp/wardrobe-ticket-07/target`; symlinks `target` and `apps/desktop/node_modules` are local, untracked cache links. Root 9a5698a pure evidence was merged (5805875). Continue from this checkpoint, preserve all failed logs, then implement bounded/scalable indexing before the remaining final gates above.
