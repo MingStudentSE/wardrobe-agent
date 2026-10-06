@@ -1080,6 +1080,8 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
         "one run must not materialize an unbounded journal"
     );
     assert_eq!(first["has_more"], true);
+    #[cfg(unix)]
+    let first_publisher_head = std::fs::read(&index_heads[0]).unwrap();
     drop(owner);
     let owner = Application::open(&ap).unwrap();
     for _ in 0..10 {
@@ -1108,6 +1110,18 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
                 || indexed_receive["pending"].as_u64().unwrap() > 0
         );
         assert_eq!(indexed_receive["sent"], 0);
+        let latest_head = std::fs::read(&index_heads[0]).unwrap();
+        std::fs::write(&index_heads[0], &first_publisher_head).unwrap();
+        let rollback_job = peer.execute("sync.run", json!({})).unwrap();
+        let rollback_result = peer
+            .execute("sync.process", json!({"id":rollback_job["job_id"]}))
+            .unwrap();
+        std::fs::write(&index_heads[0], latest_head).unwrap();
+        assert_eq!(
+            rollback_result["state"], "failed",
+            "an authenticated head cannot roll back after a partial page was received"
+        );
+        assert_eq!(rollback_result["error"]["code"], "storage_corrupt");
     }
     for _ in 0..10 {
         let r = peer.sync_batch().unwrap();
@@ -1145,6 +1159,7 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
         "a remote bootstrap namespace must not create a local member fact or echo publication"
     );
     assert_eq!(owner.sync_batch().unwrap()["sent"], 0);
+
     let second = tempfile::tempdir().unwrap();
     owner
         .execute(
@@ -1170,4 +1185,41 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
         0,
         "returning to a known target must retain its publication receipts"
     );
+    let legacy_fact = peer
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"actual legacy publisher arrival","category":"top"}),
+        )
+        .unwrap();
+    peer.sync_batch().unwrap();
+    let mut mixed_heads = Vec::new();
+    collect_heads(remote.path(), &mut mixed_heads);
+    let peer_head = mixed_heads
+        .iter()
+        .find(|path| **path != index_heads[0])
+        .unwrap();
+    let mut removed_metadata = Vec::new();
+    for entry in std::fs::read_dir(peer_head.parent().unwrap()).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "index")
+        {
+            removed_metadata.push((path.clone(), std::fs::read(&path).unwrap()));
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+    let mixed_receive = owner.sync_batch();
+    for (path, bytes) in removed_metadata {
+        std::fs::write(path, bytes).unwrap();
+    }
+    mixed_receive.unwrap();
+    owner
+        .execute(
+            "clothing.get",
+            json!({"member_id":member,"id":legacy_fact["id"]}),
+        )
+        .expect(
+            "one indexed publisher must not hide another authenticated legacy publisher's facts",
+        );
 }

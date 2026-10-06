@@ -15,6 +15,30 @@ impl Application {
             .ok_or_else(|| error("sync_invalid"))?;
         let space = string(identity, "space_id")?;
         let namespace = format!("{space}/epochs/{epoch}/index/{publisher}");
+        // Advertise the indexed protocol even when this publisher has no facts.
+        // Peers can distinguish a genuinely empty upgraded publisher from legacy data.
+        let mode_key = format!("{namespace}/mode.index");
+        let mode = json!({"protocol_version":1,"space_id":space,"epoch":epoch,"publisher":publisher,"mode":"indexed"});
+        match storage.stat(&mode_key) {
+            Ok(_) => {
+                let envelope: Value = serde_json::from_slice(&bounded(storage, &mode_key)?)
+                    .map_err(|_| error("storage_corrupt"))?;
+                if envelope["identity"]["device_id"] != publisher
+                    || self.sync_decrypt("changes", &envelope)? != mode
+                {
+                    return Err(error("storage_corrupt"));
+                }
+            }
+            Err(e) if e.code == "storage_not_found" => {
+                let envelope = self.sync_encrypt("changes", &mode)?;
+                storage.put(
+                    &mode_key,
+                    &mut envelope.to_string().as_bytes(),
+                    WriteCondition::CreateOnly,
+                )?;
+            }
+            Err(e) => return Err(e),
+        }
         let prepared: Option<String> = self.connection.query_row(
             "SELECT document FROM sync_index_batches WHERE target_id=?1 AND epoch=?2 AND published=0 ORDER BY page LIMIT 1",
             params![target,epoch], |r|r.get(0),
@@ -143,6 +167,7 @@ impl Application {
         let mut objects = Vec::new();
         let mut supported = false;
         let mut more = false;
+        let mut legacy = Vec::new();
         for device in manifest["devices"]
             .as_array()
             .ok_or_else(|| error("sync_invalid"))?
@@ -152,7 +177,27 @@ impl Application {
             let head_key = format!("{namespace}/head.index");
             let bytes = match bounded(storage, &head_key) {
                 Ok(bytes) => bytes,
-                Err(e) if e.code == "storage_not_found" => continue,
+                Err(e) if e.code == "storage_not_found" => {
+                    let mode_key = format!("{namespace}/mode.index");
+                    match bounded(storage, &mode_key) {
+                        Ok(bytes) => {
+                            let envelope: Value = serde_json::from_slice(&bytes)
+                                .map_err(|_| error("storage_corrupt"))?;
+                            let expected = json!({"protocol_version":1,"space_id":space,"epoch":epoch,"publisher":publisher,"mode":"indexed"});
+                            if envelope["identity"]["device_id"] != publisher
+                                || self.sync_decrypt("changes", &envelope)? != expected
+                            {
+                                return Err(error("storage_corrupt"));
+                            }
+                            supported = true;
+                        }
+                        Err(e) if e.code == "storage_not_found" => {
+                            legacy.push(publisher.to_owned())
+                        }
+                        Err(e) => return Err(e),
+                    }
+                    continue;
+                }
                 Err(e) => return Err(e),
             };
             supported = true;
@@ -179,6 +224,9 @@ impl Application {
             if pages < observed {
                 return Err(error("storage_corrupt"));
             }
+            // Head observation is durable even while a page still has pending facts.
+            // Consumed page position remains independent from the advertised frontier.
+            self.connection.execute("INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET observed_head=excluded.observed_head",params![target,epoch,publisher,number,pages,previous])?;
             let mut read_pages = 0;
             while number <= pages {
                 if objects.len() == 256 || read_pages == 2 {
@@ -254,6 +302,46 @@ impl Application {
                 number += 1;
                 self.connection.execute("INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET next_page=excluded.next_page,observed_head=excluded.observed_head,previous_digest=excluded.previous_digest",params![target,epoch,publisher,number,pages,previous])?;
             }
+        }
+        // Only publishers without an authenticated indexed-protocol declaration
+        // use compatibility enumeration. Indexed publishers keep their direct pages.
+        if !legacy.is_empty() {
+            let mut cursor = None;
+            'legacy: loop {
+                let page = storage.list(changes, cursor.as_deref(), 64)?;
+                for object in page.items {
+                    if !object.key.ends_with(".commit") {
+                        continue;
+                    }
+                    let consumed: bool = self.connection.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM sync_cursors WHERE target_id=?1 AND key=?2)",
+                        params![target, object.key],
+                        |r| r.get(0),
+                    )?;
+                    if consumed {
+                        continue;
+                    }
+                    let envelope: Value = serde_json::from_slice(&bounded(storage, &object.key)?)
+                        .map_err(|_| error("storage_corrupt"))?;
+                    if !legacy
+                        .iter()
+                        .any(|publisher| envelope["identity"]["device_id"] == publisher.as_str())
+                    {
+                        continue;
+                    }
+                    self.sync_decrypt("changes", &envelope)?;
+                    if objects.len() == 256 {
+                        more = true;
+                        break 'legacy;
+                    }
+                    objects.push(object);
+                }
+                cursor = page.cursor;
+                if cursor.is_none() {
+                    break;
+                }
+            }
+            supported = true;
         }
         Ok((supported.then_some(objects), more))
     }
