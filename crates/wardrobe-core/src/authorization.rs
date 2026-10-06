@@ -72,6 +72,13 @@ impl Application {
         operation: &str,
         input: Value,
     ) -> Result<Value, ApiError> {
+        if self.installation_changed()? {
+            return Application::open(std::path::Path::new(self.connection.path().unwrap()))?
+                .execute_as_client(token, operation, input);
+        }
+        if let Some(path) = self.redirected()? {
+            return Application::open(&path)?.execute_as_client(token, operation, input);
+        }
         self.check_schema()?;
         if !input.is_object() {
             return Err(ApiError::new("invalid_input", "输入必须是JSON对象"));
@@ -152,8 +159,15 @@ impl Application {
                 ));
             }
         }
+        #[cfg(test)]
+        AFTER_AUTHORIZATION.with(|hook| {
+            let callback = hook.borrow_mut().take();
+            if let Some(callback) = callback {
+                callback();
+            }
+        });
         if operation == "capabilities" {
-            let mut result = self.execute(operation, input)?;
+            let mut result = self.execute_current(operation, input)?;
             result["operations"].as_array_mut().unwrap().retain(|o| {
                 !privileged(o["name"].as_str().unwrap())
                     && (grant["mode"] == "full"
@@ -165,7 +179,7 @@ impl Application {
         if operation == "provider.save" {
             return self.provider_save_from_client(input);
         }
-        self.execute(operation, input)
+        self.execute_current(operation, input)
     }
 
     pub(super) fn client_list(&self, input: Value) -> Result<Value, ApiError> {
@@ -310,4 +324,43 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({"name":"client.list","description":"仅可信本机入口列出客户端，无连接令牌或hash","inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":grant_schema()}}}}),
         json!({"name":"client.revoke","description":"仅可信本机入口撤销客户端授权","inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false},"outputSchema":grant_schema()}),
     ]
+}
+
+#[cfg(test)]
+thread_local! {
+    static AFTER_AUTHORIZATION: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+mod restore_boundary_tests {
+    use super::*;
+    #[test]
+    fn restore_after_grant_validation_never_reopens_as_trusted() {
+        let installation = tempfile::tempdir().unwrap();
+        let archive = tempfile::tempdir().unwrap();
+        let db = installation.path().join("wardrobe.sqlite");
+        let app = Application::open(&db).unwrap();
+        let package = archive.path().join("backup");
+        app.execute("backup.create", json!({"directory":package}))
+            .unwrap();
+        let grant = app.execute("client.authorize",json!({"name":"deterministic authorization seam","mode":"full","operations":[],"member_ids":null,"expires_at":null})).unwrap();
+        let restorer = Application::open(&db).unwrap();
+        AFTER_AUTHORIZATION.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                restorer
+                    .execute(
+                        "backup.restore",
+                        json!({"directory":package,"confirm_overwrite":true}),
+                    )
+                    .unwrap();
+            }))
+        });
+        let result = app.execute_as_client(grant["token"].as_str().unwrap(), "clothing.create", json!({"member_id":"default","name":"must not bypass lost authorization","category":"top"}));
+        assert_eq!(result.unwrap_err().code, "data_restored");
+        assert!(app
+            .execute("clothing.list", json!({"member_id":"default"}))
+            .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
 }

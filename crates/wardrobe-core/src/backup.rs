@@ -1,6 +1,6 @@
 //! Portable facts: credentials and device trust are deliberately installation-local.
 use crate::{string, ApiError, Application, DATABASE_SCHEMA_VERSION};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -26,11 +26,17 @@ const TABLES: &[&str] = &[
     "care_receipts",
     "care_asset_refs",
     "insights_preferences",
+    "recommendation_intents",
+    "recommendation_saves",
 ];
+pub(super) fn migrate(tx: &rusqlite::Transaction<'_>) -> Result<(), ApiError> {
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS backup_preferences(id INTEGER PRIMARY KEY CHECK(id=1),document TEXT NOT NULL);CREATE TABLE IF NOT EXISTS local_installation_state(id INTEGER PRIMARY KEY CHECK(id=1),generation INTEGER NOT NULL);INSERT OR IGNORE INTO local_installation_state VALUES(1,0);")?;
+    Ok(())
+}
 fn io(_: std::io::Error) -> ApiError {
     ApiError::new("backup_io", "备份文件操作失败，原数据保留")
 }
-fn checksum(path: &Path) -> Result<(String, u64), ApiError> {
+pub(super) fn checksum(path: &Path) -> Result<(String, u64), ApiError> {
     let metadata = fs::symlink_metadata(path).map_err(io)?;
     if !metadata.is_file() {
         return Err(ApiError::new("backup_invalid", "备份文件必须是普通文件"));
@@ -125,7 +131,84 @@ fn counts(db: &Connection) -> Result<Value, ApiError> {
     }
     Ok(Value::Object(result))
 }
-fn validate_media(db: &Connection, manifest: &Value) -> Result<(), ApiError> {
+fn validate_references(db: &Connection) -> Result<(), ApiError> {
+    let catalog = db
+        .prepare("SELECT member_id,id FROM assets")?
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<Result<std::collections::HashSet<_>, _>>()?;
+    fn visit(
+        value: &Value,
+        member: &str,
+        catalog: &std::collections::HashSet<(String, String)>,
+    ) -> Result<(), ApiError> {
+        match value {
+            Value::Object(map) => {
+                for (key, item) in map {
+                    if ["display_asset_id", "asset_id", "source_asset_id"].contains(&key.as_str()) {
+                        if let Some(id) = item.as_str() {
+                            if !catalog.contains(&(member.to_owned(), id.to_owned())) {
+                                return Err(ApiError::new(
+                                    "backup_invalid",
+                                    "业务展示资产引用缺失或不属成员",
+                                ));
+                            }
+                        }
+                    } else if key == "asset_ids" {
+                        if let Some(ids) = item.as_array() {
+                            for id in ids {
+                                let id = id.as_str().ok_or_else(|| {
+                                    ApiError::new("backup_invalid", "资产引用格式不支持")
+                                })?;
+                                if !catalog.contains(&(member.to_owned(), id.to_owned())) {
+                                    return Err(ApiError::new(
+                                        "backup_invalid",
+                                        "业务资产引用缺失或不属成员",
+                                    ));
+                                }
+                            }
+                        }
+                    } else {
+                        visit(item, member, catalog)?;
+                    }
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    visit(item, member, catalog)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    for table in TABLES {
+        let fields = columns(db, table)?;
+        if !fields.iter().any(|(name, _, _)| name == "document") {
+            continue;
+        }
+        let has_member = fields.iter().any(|(name, _, _)| name == "member_id");
+        let query = if has_member {
+            format!("SELECT member_id,document FROM \"{table}\"")
+        } else {
+            format!("SELECT NULL,document FROM \"{table}\"")
+        };
+        let mut statement = db.prepare(&query)?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let member: Option<String> = row.get(0)?;
+            let raw: String = row.get(1)?;
+            let document: Value = serde_json::from_str(&raw)
+                .map_err(|_| ApiError::new("backup_invalid", "业务文档格式损坏"))?;
+            let member = member
+                .as_deref()
+                .or_else(|| document["member_id"].as_str())
+                .unwrap_or("");
+            visit(&document, member, &catalog)?;
+        }
+    }
+    Ok(())
+}
+fn validate_media(db: &Connection, manifest: &Value, directory: &Path) -> Result<(), ApiError> {
     let files = manifest["files"]
         .as_array()
         .ok_or_else(|| ApiError::new("backup_invalid", "缺少清单"))?;
@@ -141,6 +224,7 @@ fn validate_media(db: &Connection, manifest: &Value) -> Result<(), ApiError> {
     if !inventory.contains("facts.sqlite") {
         return Err(ApiError::new("backup_invalid", "缺少事实数据库"));
     }
+    let mut decoded = std::collections::HashMap::new();
     let mut stmt = db.prepare("SELECT document FROM assets")?;
     let mut rows = stmt.query([])?;
     while let Some(row) = rows.next()? {
@@ -151,6 +235,22 @@ fn validate_media(db: &Connection, manifest: &Value) -> Result<(), ApiError> {
             if let Some(name) = document[variant]["local_path"].as_str() {
                 if !name.starts_with("media/") || !inventory.contains(name) {
                     return Err(ApiError::new("backup_invalid", "图片引用缺失"));
+                }
+                if variant != "original" {
+                    let dimensions = if let Some(dimensions) = decoded.get(name) {
+                        *dimensions
+                    } else {
+                        let image = crate::assets::read_display(&directory.join(name))
+                            .map_err(|_| ApiError::new("backup_invalid", "展示图片内容损坏"))?;
+                        let dimensions = (image.width(), image.height());
+                        decoded.insert(name.to_owned(), dimensions);
+                        dimensions
+                    };
+                    if document[variant]["width"] != dimensions.0
+                        || document[variant]["height"] != dimensions.1
+                    {
+                        return Err(ApiError::new("backup_invalid", "展示图片尺寸与记录不一致"));
+                    }
                 }
             } else if variant != "original" {
                 return Err(ApiError::new("backup_invalid", "展示引用缺失"));
@@ -165,6 +265,47 @@ impl Application {
         operation: &str,
         input: Value,
     ) -> Result<Value, ApiError> {
+        if operation == "backup.settings.get" {
+            if !input.as_object().unwrap().is_empty() {
+                return Err(ApiError::new("invalid_input", "不支持的设置参数"));
+            }
+            return Ok(self
+                .connection
+                .query_row(
+                    "SELECT document FROM backup_preferences WHERE id=1",
+                    [],
+                    |r| r.get::<_, String>(0),
+                )
+                .optional()?
+                .map(|raw| serde_json::from_str(&raw))
+                .transpose()
+                .map_err(|_| ApiError::new("storage_error", "备份设置损坏"))?
+                .unwrap_or(json!({"directory":"","include_originals":false,"revision":0})));
+        }
+        if operation == "backup.settings.set" {
+            if input.as_object().unwrap().keys().any(|key| {
+                !["directory", "include_originals", "expected_revision"].contains(&key.as_str())
+            }) || !input["include_originals"].is_boolean()
+            {
+                return Err(ApiError::new("invalid_input", "备份设置字段不支持"));
+            }
+            let directory = string(&input, "directory")?;
+            if !Path::new(directory).is_absolute() || directory.len() > 4096 {
+                return Err(ApiError::new("invalid_input", "备份目录需要有效绝对路径"));
+            }
+            let expected = input["expected_revision"]
+                .as_u64()
+                .ok_or_else(|| ApiError::new("invalid_input", "缺少设置版本"))?;
+            let tx = self.begin_write()?;
+            let current = self.backup_operation("backup.settings.get", json!({}))?;
+            if current["revision"] != expected {
+                return Err(ApiError::new("conflict", "备份设置已改变，请重新读取"));
+            }
+            let document = json!({"directory":directory,"include_originals":input["include_originals"],"revision":expected+1});
+            tx.execute("INSERT INTO backup_preferences VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET document=excluded.document",[document.to_string()])?;
+            tx.commit()?;
+            return Ok(document);
+        }
         let allowed: &[&str] = match operation {
             "backup.create" => &["directory", "include_originals"],
             "backup.preview" => &["directory"],
@@ -194,10 +335,14 @@ impl Application {
                 let staging = directory.with_extension(format!("staging-{}", uuid::Uuid::now_v7()));
                 fs::create_dir_all(&staging).map_err(io)?;
                 let result = (|| {
-                    let snapshot = rusqlite::Transaction::new_unchecked(
-                        &self.connection,
-                        rusqlite::TransactionBehavior::Deferred,
-                    )?;
+                    let snapshot = if self.connection.is_autocommit() {
+                        Some(rusqlite::Transaction::new_unchecked(
+                            &self.connection,
+                            rusqlite::TransactionBehavior::Deferred,
+                        )?)
+                    } else {
+                        None
+                    };
                     let destination = Connection::open(staging.join("facts.sqlite"))?;
                     destination.execute_batch("PRAGMA journal_mode=DELETE;PRAGMA foreign_keys=OFF;PRAGMA secure_delete=ON;BEGIN IMMEDIATE;")?;
                     for table in TABLES {
@@ -251,7 +396,13 @@ impl Application {
                                 continue;
                             }
                             if let Some(source) = doc[variant]["local_path"].as_str() {
-                                let relative = format!("media/{}", uuid::Uuid::now_v7());
+                                let extension = if variant == "original" {
+                                    "original"
+                                } else {
+                                    "webp"
+                                };
+                                let relative =
+                                    format!("media/{}.{extension}", uuid::Uuid::now_v7());
                                 let mut reader = fs::File::open(source).map_err(io)?;
                                 let mut writer = fs::OpenOptions::new()
                                     .create_new(true)
@@ -272,8 +423,9 @@ impl Application {
                             rusqlite::params![doc.to_string(), id, member],
                         )?;
                     }
-                    snapshot.commit()?;
-                    destination.execute_batch("VACUUM;")?;
+                    if let Some(snapshot) = snapshot {
+                        snapshot.commit()?;
+                    }
                     let (hash, bytes) = checksum(&staging.join("facts.sqlite"))?;
                     inventory.push(json!({"path":"facts.sqlite","sha256":hash,"bytes":bytes}));
                     fs::write(staging.join("manifest.json"),json!({"format":"wardrobe-backup","version":1,"database_version":DATABASE_SCHEMA_VERSION,"includes_originals":include_originals,"files":inventory}).to_string()).map_err(io)?;
@@ -305,9 +457,11 @@ impl Application {
                     let relative = entry["path"]
                         .as_str()
                         .ok_or_else(|| ApiError::new("backup_invalid", "无效文件路径"))?;
-                    if Path::new(relative)
-                        .components()
-                        .any(|c| !matches!(c, std::path::Component::Normal(_)))
+                    if relative.contains(['\\', ':'])
+                        || !(relative == "facts.sqlite" || relative.starts_with("media/"))
+                        || Path::new(relative)
+                            .components()
+                            .any(|c| !matches!(c, std::path::Component::Normal(_)))
                     {
                         return Err(ApiError::new("backup_invalid", "非法文件路径"));
                     }
@@ -353,19 +507,51 @@ impl Application {
                 if check.query([])?.next()?.is_some() {
                     return Err(ApiError::new("backup_invalid", "备份引用缺失"));
                 }
-                validate_media(&db, &manifest)?;
+                validate_media(&db, &manifest, directory)?;
+                validate_references(&db)?;
                 Ok(
-                    json!({"valid":true,"manifest":manifest,"incoming":counts(&db)?,"current":counts(&self.connection)?,"overwrites_current_facts":true,"local_credentials_included":false,"device_trust_included":false}),
+                    json!({"valid":true,"manifest":manifest,"incoming":counts(&db)?,"current":counts(&self.connection)?,"overwrites_current_facts":true,"local_credentials_included":false,"device_trust_included":false,"clears_existing_authorization_and_device_trust":true,"discarded_local_jobs":self.connection.query_row("SELECT COUNT(*) FROM jobs",[],|r|r.get::<_,u64>(0))?}),
                 )
             }
             "backup.restore" => {
-                self.backup_operation("backup.preview", json!({"directory":directory}))?;
+                let preview =
+                    self.backup_operation("backup.preview", json!({"directory":directory}))?;
                 if input["confirm_overwrite"] != true {
                     return Err(ApiError::new(
                         "confirmation_required",
                         "恢复会覆盖当前事实，请明确确认",
                     ));
                 }
+                let media = self
+                    .asset_root
+                    .join(format!("restore-{}", uuid::Uuid::now_v7()));
+                fs::create_dir_all(media.join("media")).map_err(io)?;
+                let staged = (|| {
+                    fs::write(media.join("manifest.json"), preview["manifest"].to_string())
+                        .map_err(io)?;
+                    for entry in preview["manifest"]["files"].as_array().unwrap() {
+                        let relative = entry["path"].as_str().unwrap();
+                        let mut reader = fs::File::open(directory.join(relative)).map_err(io)?;
+                        if let Some(parent) = media.join(relative).parent() {
+                            fs::create_dir_all(parent).map_err(io)?;
+                        }
+                        let mut writer = fs::OpenOptions::new()
+                            .write(true)
+                            .create_new(true)
+                            .open(media.join(relative))
+                            .map_err(io)?;
+                        std::io::copy(&mut reader, &mut writer).map_err(io)?;
+                        writer.sync_all().map_err(io)?;
+                    }
+                    self.backup_operation("backup.preview", json!({"directory":media}))?;
+                    Ok::<(), ApiError>(())
+                })();
+                if let Err(error) = staged {
+                    let _ = fs::remove_dir_all(&media);
+                    return Err(error);
+                }
+                let tx = self.begin_write()?;
+                let previous_credential:Option<String>=self.connection.query_row("SELECT json_extract(document,'$.credential_id') FROM encryption_state WHERE id=1",[],|r|r.get(0)).optional()?.flatten();
                 let rollback = self
                     .asset_root
                     .parent()
@@ -376,22 +562,12 @@ impl Application {
                     "backup.create",
                     json!({"directory":rollback,"include_originals":true}),
                 )?;
-                let media = self
-                    .asset_root
-                    .join(format!("restore-{}", uuid::Uuid::now_v7()));
-                fs::create_dir_all(media.join("media")).map_err(io)?;
-                for item in fs::read_dir(directory.join("media")).map_err(io)? {
-                    let item = item.map_err(io)?;
-                    fs::copy(item.path(), media.join("media").join(item.file_name()))
-                        .map_err(io)?;
-                }
                 self.connection.execute(
                     "ATTACH DATABASE ?1 AS restore_source",
-                    [directory.join("facts.sqlite").to_string_lossy().as_ref()],
+                    [media.join("facts.sqlite").to_string_lossy().as_ref()],
                 )?;
                 let result = (|| {
-                    let tx = self.begin_write()?;
-                    tx.execute_batch("PRAGMA defer_foreign_keys=ON;")?;
+                    tx.execute_batch("PRAGMA defer_foreign_keys=ON;DELETE FROM recognition_suggestions;DELETE FROM import_drafts;DELETE FROM import_batches;DELETE FROM jobs;DELETE FROM encryption_pairings;DELETE FROM encryption_state;DELETE FROM clients;")?;
                     for table in TABLES.iter().rev() {
                         tx.execute_batch(&format!("DELETE FROM \"{table}\""))?;
                     }
@@ -401,12 +577,29 @@ impl Application {
                         ))?;
                     }
                     rewrite_paths(&tx, &media)?;
+                    tx.execute(
+                        "UPDATE local_installation_state SET generation=generation+1 WHERE id=1",
+                        [],
+                    )?;
                     tx.commit()?;
-                    Ok(json!({"restored":true,"rollback_backup":rollback}))
+                    let credential_cleanup = previous_credential.as_deref().is_none_or(|id| {
+                        keyring::Entry::new("wardrobe-agent.encryption", id).is_ok_and(|entry| {
+                            matches!(
+                                entry.delete_credential(),
+                                Ok(()) | Err(keyring::Error::NoEntry)
+                            )
+                        })
+                    });
+                    Ok(
+                        json!({"restored":true,"rollback_backup":rollback,"local_trust_reset":true,"previous_unlock_key_removed":credential_cleanup}),
+                    )
                 })();
                 let _ = self
                     .connection
                     .execute_batch("DETACH DATABASE restore_source");
+                if result.is_err() {
+                    let _ = fs::remove_dir_all(&media);
+                }
                 result
             }
             _ => Err(ApiError::new("unsupported_operation", "此备份操作尚不可用")),
@@ -414,5 +607,24 @@ impl Application {
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
-    ["backup.create","backup.preview","backup.restore"].into_iter().map(|name|json!({"name":name,"description":"本地备份、预览与显式恢复","input_schema":{"type":"object","required":["directory"],"properties":{"directory":{"type":"string"},"include_originals":{"type":"boolean"},"confirm_overwrite":{"type":"boolean"}}}})).collect()
+    ["backup.create", "backup.preview", "backup.restore", "backup.settings.get", "backup.settings.set"].into_iter().map(|name| {
+        let mut properties = serde_json::Map::new();
+        let mut required = Vec::new();
+        if name != "backup.settings.get" {
+            properties.insert("directory".into(), json!({"type":"string"}));
+            required.push("directory");
+        }
+        if matches!(name, "backup.create" | "backup.settings.set") {
+            properties.insert("include_originals".into(), json!({"type":"boolean"}));
+        }
+        if name == "backup.restore" {
+            properties.insert("confirm_overwrite".into(), json!({"type":"boolean"}));
+            required.push("confirm_overwrite");
+        }
+        if name == "backup.settings.set" {
+            properties.insert("expected_revision".into(), json!({"type":"integer","minimum":0}));
+            required.extend(["include_originals", "expected_revision"]);
+        }
+        json!({"name":name,"description":"本地备份、预览与显式恢复","outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":1}}},"inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties}})
+    }).collect()
 }

@@ -1,0 +1,12 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 2.59s
+     Running tests/backup.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/backup-cbbda9a3225d5625)
+
+running 4 tests
+test credentials_are_absent_from_every_backup_file_and_never_authorize_restored_installation ... ok
+test portable_backup_preview_restore_preserves_actual_history_after_restart ... ok
+test restored_display_is_self_contained_and_corrupt_archive_never_overwrites_current_facts ... ok
+test preview_explains_overwrite_and_real_prebackup_can_restore_previous_installation ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

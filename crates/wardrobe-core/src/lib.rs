@@ -4,6 +4,7 @@ mod backup;
 mod care;
 mod clothing;
 mod cutout;
+mod data_directory;
 mod encryption;
 mod flatlay;
 mod image_editing;
@@ -25,7 +26,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 15;
+pub const DATABASE_SCHEMA_VERSION: u32 = 17;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -48,9 +49,12 @@ impl From<rusqlite::Error> for ApiError {
 pub struct Application {
     connection: Connection,
     asset_root: PathBuf,
+    installation_generation: i64,
 }
 impl Application {
     pub fn open(path: &Path) -> Result<Self, ApiError> {
+        let resolved = data_directory::resolve(path)?;
+        let path = resolved.as_path();
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent)
                 .map_err(|_| ApiError::new("storage_error", "无法创建数据目录"))?;
@@ -126,12 +130,19 @@ impl Application {
         cutout::migrate(&tx)?;
         recognition::migrate(&tx)?;
         encryption::migrate(&tx)?;
+        backup::migrate(&tx)?;
         tx.execute_batch(&format!(
             "PRAGMA user_version={};",
             version.max(DATABASE_SCHEMA_VERSION)
         ))?;
         tx.commit()?;
+        let installation_generation = connection.query_row(
+            "SELECT generation FROM local_installation_state WHERE id=1",
+            [],
+            |row| row.get(0),
+        )?;
         Ok(Self {
+            installation_generation,
             connection,
             asset_root: path.parent().unwrap_or(Path::new(".")).join("assets"),
         })
@@ -148,15 +159,57 @@ impl Application {
         }
         Ok(())
     }
+    fn installation_changed(&self) -> Result<bool, ApiError> {
+        let current: i64 = self.connection.query_row(
+            "SELECT generation FROM local_installation_state WHERE id=1",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(current != self.installation_generation)
+    }
     fn begin_write(&self) -> Result<rusqlite::Transaction<'_>, ApiError> {
         let tx = rusqlite::Transaction::new_unchecked(
             &self.connection,
             rusqlite::TransactionBehavior::Immediate,
         )?;
         self.check_schema()?;
+        if self.installation_changed()? {
+            return Err(ApiError::new(
+                "data_restored",
+                "数据已恢复，请重新读取并重试操作",
+            ));
+        }
+        if self.redirected()?.is_some() {
+            return Err(ApiError::new(
+                "data_directory_moved",
+                "数据目录已切换，请重试操作",
+            ));
+        }
         Ok(tx)
     }
     pub fn execute(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
+        if self.installation_changed()? {
+            return Application::open(Path::new(self.connection.path().unwrap()))?
+                .execute(operation, input);
+        }
+        if let Some(path) = self.redirected()? {
+            return Application::open(&path)?.execute(operation, input);
+        }
+        self.execute_current(operation, input)
+    }
+    pub(crate) fn execute_current(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
+        if self.installation_changed()? {
+            return Err(ApiError::new(
+                "data_restored",
+                "数据已恢复，请重新验证授权后重试",
+            ));
+        }
+        if self.redirected()?.is_some() {
+            return Err(ApiError::new(
+                "data_directory_moved",
+                "数据目录已切换，请重新验证授权后重试",
+            ));
+        }
         self.check_schema()?;
         if !input.is_object() {
             return Err(ApiError::new("invalid_input", "输入必须是 JSON 对象"));
@@ -189,6 +242,7 @@ impl Application {
             }
         }
         match operation {
+            name if name.starts_with("data_directory.") => self.directory_operation(name, input),
             name if name.starts_with("backup.") => self.backup_operation(name, input),
             name if name.starts_with("encryption.") => self.encryption_operation(name, input),
             "capabilities" => Ok(
@@ -266,7 +320,12 @@ impl Application {
             "assets.detach" => self.asset_detach(input),
             "assets.sync_manifest" => self.asset_sync_manifest(input),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
-        }
+        }.map(|mut result| {
+            if operation.starts_with("backup.") || operation.starts_with("data_directory.") {
+                result["schema_version"] = json!(1);
+            }
+            result
+        })
     }
 }
 fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
@@ -278,6 +337,7 @@ fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
 pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
     descriptors.extend(backup::descriptors());
+    descriptors.extend(data_directory::descriptors());
     descriptors.extend(encryption::descriptors());
     descriptors.extend(clothing::descriptors());
     descriptors.extend(providers::descriptors());

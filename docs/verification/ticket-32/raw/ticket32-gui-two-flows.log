@@ -1,0 +1,46 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test backup.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5332 --strictPort
+[WebServer] (node:23000) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 2 tests using 1 worker
+
+(node:23017) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/backup.spec.ts:3:1 › 备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度 (1.7s)
+  ✘  2 tests/backup.spec.ts:18:1 › 独立安装实际移动目录后 GUI 与旧路径 CLI 读取同一数据 (1.4s)
+
+
+  1) tests/backup.spec.ts:18:1 › 独立安装实际移动目录后 GUI 与旧路径 CLI 读取同一数据 ───────────────────────────────────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('旧路径工具迁移后新增', { exact: true })
+    Expected: visible
+    Error: strict mode violation: getByText('旧路径工具迁移后新增', { exact: true }) resolved to 4 elements:
+        1) <h3>旧路径工具迁移后新增</h3> aka getByRole('heading', { name: '旧路径工具迁移后新增' })
+        2) <option value="01a11302-42ab-7693-90b2-73ed18149597">旧路径工具迁移后新增</option> aka getByLabel('选择实际单品请选择单品目录迁移的实际衣物旧路径工具迁移后新增')
+        3) <strong>旧路径工具迁移后新增</strong> aka locator('#recommendations').getByText('旧路径工具迁移后新增')
+        4) <option value="01a11302-42ab-7693-90b2-73ed18149597">旧路径工具迁移后新增</option> aka getByLabel('选择洗护单品选择单品目录迁移的实际衣物旧路径工具迁移后新增')
+
+    Call log:
+      - Expect "toBeVisible" getByText('旧路径工具迁移后新增', { exact: true }) with timeout 5000ms
+      - waiting for getByText('旧路径工具迁移后新增', { exact: true })
+
+
+      28 |   await page.goto(url);await page.getByText('备份与数据目录',{exact:true}).click();await page.getByLabel('新数据目录',{exact:true}).fill(destination);await expect(page.getByRole('button',{name:'复制验证并切换目录',exact:true})).toBeDisabled();await page.getByLabel('确认复制验证后切换并保留旧目录').check();await page.getByRole('button',{name:'复制验证并切换目录',exact:true}).click();await expect(page.getByRole('status').filter({hasText:'数据目录已切换'})).toBeVisible();await expect(page.getByLabel('当前数据目录',{exact:true})).toHaveValue(/moved$/);
+      29 |   expect(call('clothing.get',{member_id:'default',id:garment.id})).toEqual(garment);
+    > 30 |   const created=call('clothing.create',{member_id:'default',name:'旧路径工具迁移后新增',category:'shoes'});await page.reload();await expect(page.getByText(created.name,{exact:true})).toBeVisible();
+         |                                                                                                                                                                              ^
+      31 |  }finally{server.kill('SIGTERM');await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',()=>resolve());});rmSync(folder,{recursive:true,force:true});}
+      32 | });
+      33 |
+        at /private/tmp/wardrobe-ticket-32/apps/desktop/tests/backup.spec.ts:30:174
+
+    Error Context: test-results/backup-独立安装实际移动目录后-GUI-与旧路径-CLI-读取同一数据/error-context.md
+
+  1 failed
+    tests/backup.spec.ts:18:1 › 独立安装实际移动目录后 GUI 与旧路径 CLI 读取同一数据 ────────────────────────────────────
+  1 passed (4.4s)
