@@ -1,0 +1,37 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test recommendations.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5174 --strictPort
+[WebServer] (node:82497) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:82499) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+  ✘  1 tests/recommendations.spec.ts:2:1 › 离线推荐硬约束、替换换套、显式保存与重启不记穿着 (30.0s)
+
+
+  1) tests/recommendations.spec.ts:2:1 › 离线推荐硬约束、替换换套、显式保存与重启不记穿着 ──────────────────────────────────
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByRole('link', { name: '推荐', exact: true })
+
+
+      1 | import {test,expect} from '@playwright/test';
+      2 | test('离线推荐硬约束、替换换套、显式保存与重启不记穿着',async({page})=>{
+    > 3 |  await page.goto('/');await page.getByRole('link',{name:'推荐',exact:true}).click();const panel=page.locator('#recommendations');
+        |                                                                           ^
+      4 |  const call=async(operation:string,input:object={})=>{const response=await page.request.post('/__wardrobe_dev_api',{data:{operation,input:{member_id:'default',...input}}});const body=await response.json();if(body.error)throw new Error(body.error.message);return body.result;};
+      5 |  const bottom=await call('clothing.create',{name:'推荐裤子',category:'bottom'});await call('clothing.create',{name:'推荐鞋',category:'shoes'});await panel.getByRole('button',{name:'刷新推荐库存',exact:true}).click();await panel.getByLabel('固定 推荐裤子').check();await panel.getByLabel('排除 分页单品 25').check();
+      6 |  await panel.getByRole('button',{name:'生成离线搭配',exact:true}).click();await expect(panel.locator('.recommendation-proposal')).toHaveCount(3);const first=panel.locator('.recommendation-proposal').first();await expect(first).toContainText('推荐裤子');await expect(first).not.toContainText('分页单品 25');
+        at /private/tmp/wardrobe-ticket-15/apps/desktop/tests/recommendations.spec.ts:3:75
+
+    Error Context: test-results/recommendations-离线推荐硬约束、替换换套、显式保存与重启不记穿着/error-context.md
+
+  1 failed
+    tests/recommendations.spec.ts:2:1 › 离线推荐硬约束、替换换套、显式保存与重启不记穿着 ───────────────────────────────────

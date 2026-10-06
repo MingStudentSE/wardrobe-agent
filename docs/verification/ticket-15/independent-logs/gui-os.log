@@ -1,0 +1,17 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/encrypted-package.spec.ts tests/encryption.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5186 --strictPort
+[WebServer] (node:8208) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 3 tests using 1 worker
+
+(node:8210) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+  ✓  1 tests/encrypted-package.spec.ts:7:1 › 真实系统密钥导出独立密文包，窄屏可操作并验证读取 (2.2s)
+  ✓  2 tests/encryption.spec.ts:3:1 › 加密空间设置展示恢复与配对流程，窄屏没有溢出 (560ms)
+  ✓  3 tests/encryption.spec.ts:4:1 › 真实系统安全存储建立空间，换密码后解除配对，再用恢复码恢复 (4.7s)
+
+  3 passed (8.4s)

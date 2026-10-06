@@ -1,0 +1,24 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-15/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.93s
+     Running tests/recommendations.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recommendations-4b434e0f15914463)
+
+running 1 test
+test dress_and_fixed_layers_and_shortage_never_invent_inventory ... FAILED
+
+failures:
+
+---- dress_and_fixed_layers_and_shortage_never_invent_inventory stdout ----
+
+thread 'dress_and_fixed_layers_and_shortage_never_invent_inventory' (3352977) panicked at crates/wardrobe-core/tests/recommendations.rs:110:2:
+assertion `left == right` failed
+  left: Number(0)
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    dress_and_fixed_layers_and_shortage_never_invent_inventory
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p wardrobe-core --test recommendations`
