@@ -1,6 +1,8 @@
 mod assets;
 mod authorization;
 mod clothing;
+mod cutout;
+mod image_editing;
 mod imports;
 mod jobs;
 mod members;
@@ -12,7 +14,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 6;
+pub const DATABASE_SCHEMA_VERSION: u32 = 7;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -105,6 +107,7 @@ impl Application {
         tx.execute_batch("CREATE TABLE IF NOT EXISTS clients(id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, document TEXT NOT NULL);")?;
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
+        cutout::migrate(&tx)?;
         tx.execute_batch(&format!(
             "PRAGMA user_version={};",
             version.max(DATABASE_SCHEMA_VERSION)
@@ -139,6 +142,9 @@ impl Application {
         self.check_schema()?;
         if !input.is_object() {
             return Err(ApiError::new("invalid_input", "输入必须是 JSON 对象"));
+        }
+        if operation.starts_with("images.") {
+            image_editing::validate_input(operation, &input)?;
         }
         let allowed: Option<&[&str]> = match operation {
             "imports.create" => Some(&["member_id", "operation_key", "paths"]),
@@ -200,6 +206,11 @@ impl Application {
             "jobs.get" => self.job_get(input),
             "jobs.list" => self.job_list(input),
             "jobs.cancel" | "jobs.retry" => self.job_action(operation, input),
+            "images.merge" | "images.replace" | "images.main" => self.image_links(operation, input),
+            "images.model.download" | "images.cutout" => self.cutout_enqueue(operation, input),
+            "images.worker.run" => self.cutout_run(input),
+            "images.model.status" => self.cutout_model_status(input),
+            "images.rotate" | "images.restore" => self.image_transform(operation, input),
             "assets.import" => self.asset_import(input),
             "assets.get" => self.asset_get(input),
             "assets.preview" => self.asset_preview(input),
@@ -226,6 +237,7 @@ pub fn operations() -> Value {
     descriptors.extend(assets::descriptors());
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());
+    descriptors.extend(image_editing::descriptors());
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );

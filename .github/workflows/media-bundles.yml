@@ -7,6 +7,9 @@ on:
       - .github/workflows/media-bundles.yml
       - scripts/prepare-media-distribution.py
       - scripts/verify-packaged-cli.py
+      - scripts/verify-cutout-cli.py
+      - crates/wardrobe-core/src/cutout.rs
+      - crates/wardrobe-core/src/image_editing.rs
       - scripts/bootstrap-media-*.sh
       - scripts/bootstrap-media-*.ps1
 jobs:
@@ -76,6 +79,7 @@ jobs:
           extension=''
           if [[ "$RUNNER_OS" == Windows ]]; then extension='.exe'; fi
           python scripts/verify-packaged-cli.py "$RUNNER_TEMP/distribution/portable/wardrobe-cli$extension" crates/wardrobe-core/tests/fixtures/generated-colors.heic --report "$RUNNER_TEMP/distribution/standalone-runtime.json"
+          python scripts/verify-cutout-cli.py "$RUNNER_TEMP/distribution/portable/wardrobe-cli$extension" crates/wardrobe-core/tests/fixtures/OKM_Shirt_Front.jpg --report "$RUNNER_TEMP/distribution/standalone-cutout-runtime.json"
       - name: Inspect and execute extracted Debian and AppImage CLI
         if: runner.os == 'Linux'
         shell: bash
@@ -88,12 +92,14 @@ jobs:
           grep -F "$RUNNER_TEMP/deb-extracted/usr/bin/../lib/wardrobe-agent/libheif.so.1" "$RUNNER_TEMP/distribution/deb-gui-loader.txt"
           if grep -q 'not found' "$RUNNER_TEMP/distribution/deb-gui-loader.txt"; then exit 1; fi
           python3 scripts/verify-packaged-cli.py "$RUNNER_TEMP/deb-extracted/usr/bin/wardrobe-cli" crates/wardrobe-core/tests/fixtures/generated-colors.heic --report "$RUNNER_TEMP/distribution/deb-runtime.json"
+          python3 scripts/verify-cutout-cli.py "$RUNNER_TEMP/deb-extracted/usr/bin/wardrobe-cli" crates/wardrobe-core/tests/fixtures/OKM_Shirt_Front.jpg --report "$RUNNER_TEMP/distribution/deb-cutout-runtime.json"
           image=$(find apps/desktop/src-tauri/target/release/bundle/appimage -name '*.AppImage' -type f -print -quit)
           test -n "$image"
           image=$(realpath "$image")
           mkdir -p "$RUNNER_TEMP/appimage-extracted"
           (cd "$RUNNER_TEMP/appimage-extracted" && "$image" --appimage-extract >/dev/null)
           python3 scripts/verify-packaged-cli.py "$RUNNER_TEMP/appimage-extracted/squashfs-root/usr/bin/wardrobe-cli" crates/wardrobe-core/tests/fixtures/generated-colors.heic --report "$RUNNER_TEMP/distribution/appimage-runtime.json"
+          python3 scripts/verify-cutout-cli.py "$RUNNER_TEMP/appimage-extracted/squashfs-root/usr/bin/wardrobe-cli" crates/wardrobe-core/tests/fixtures/OKM_Shirt_Front.jpg --report "$RUNNER_TEMP/distribution/appimage-cutout-runtime.json"
       - name: Install NSIS into isolated directory and execute installed CLI
         if: runner.os == 'Windows'
         shell: pwsh
@@ -104,6 +110,8 @@ jobs:
           $process=Start-Process $installer.FullName -ArgumentList @('/S',"/D=$install") -Wait -PassThru
           if ($process.ExitCode) { throw "Installer failed $($process.ExitCode)" }
           python scripts/verify-packaged-cli.py "$install/wardrobe-cli.exe" crates/wardrobe-core/tests/fixtures/generated-colors.heic --report "$env:RUNNER_TEMP/distribution/nsis-runtime.json"
+          if ($LASTEXITCODE) { throw 'Installed HEIC verification failed' }
+          python scripts/verify-cutout-cli.py "$install/wardrobe-cli.exe" crates/wardrobe-core/tests/fixtures/OKM_Shirt_Front.jpg --report "$env:RUNNER_TEMP/distribution/nsis-cutout-runtime.json"
           if ($LASTEXITCODE) { throw 'Installed CLI failed' }
       - name: Archive standalone Linux CLI preserving executable mode
         if: runner.os == 'Linux'
