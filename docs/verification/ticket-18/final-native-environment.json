@@ -1,0 +1,16 @@
+{
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "source_commit": "4095912f21cd182591930984b448dc1f0f22c235",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "node": "v26.0.0",
+  "build_jobs": "2",
+  "incremental": "0",
+  "dev_debug": "0",
+  "test_debug": "0",
+  "target": "/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target",
+  "native_pkgconfig": "/tmp/wardrobe-media-native/install/lib/pkgconfig",
+  "native_runtime": "/tmp/wardrobe-media-native/install/lib",
+  "scope": "native macOS author validation; not five-platform beta acceptance"
+}

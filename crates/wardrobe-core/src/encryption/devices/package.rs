@@ -137,16 +137,235 @@ fn items(v: &Value, assets: &HashSet<String>) -> Value {
             .collect::<Vec<_>>())
         .unwrap_or_default())
 }
+fn learning_doc(table: &str, v: &Value) -> Value {
+    let keys: &[&str] = match table {
+        "learning_profiles" => &[
+            "schema_version",
+            "id",
+            "member_id",
+            "algorithm_version",
+            "inferred",
+            "reset_boundary",
+            "include_prior",
+            "created_at",
+        ],
+        "learning_state" => &["member_id", "cutoff", "suppressed"],
+        _ => &[
+            "schema_version",
+            "id",
+            "member_id",
+            "operation",
+            "profile_id",
+            "dimension",
+            "value",
+            "weight",
+            "note",
+            "source",
+            "algorithm_version",
+            "root_id",
+            "deleted",
+            "revision",
+            "created_at",
+            "state",
+        ],
+    };
+    let mut safe = projection(v, keys);
+    if let Some(signals) = safe["inferred"].as_array_mut() {
+        for signal in signals {
+            let source = projection(&signal["source"], &["kind", "feedback_ids", "wear_ids"]);
+            *signal = projection(
+                signal,
+                &["dimension", "value", "weight", "algorithm_version"],
+            );
+            signal["source"] = source;
+        }
+    }
+    if safe.get("source").is_some() {
+        safe["source"] = projection(&safe["source"], &["kind", "feedback_ids", "wear_ids"]);
+    }
+    safe
+}
+fn recommendation_controls(v: &Value) -> Value {
+    projection(
+        v,
+        &[
+            "member_id",
+            "operation_key",
+            "timezone",
+            "limit",
+            "strategy",
+            "temperature_c",
+            "occasion",
+            "fixed_ids",
+            "excluded_ids",
+            "inventory_priority_ids",
+            "retained_ids",
+            "retained_items",
+            "action_excluded_ids",
+            "excluded_sets",
+            "source_intent",
+            "replacement_category",
+        ],
+    )
+}
+fn recommendation_proposal(v: &Value) -> Value {
+    let mut safe = projection(
+        v,
+        &["complete", "missing_roles", "repeat_relaxed", "reasons"],
+    );
+    safe["items"] = json!(v["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|v| projection(v, &["clothing_id", "name", "category", "role", "layer"]))
+        .collect::<Vec<_>>());
+    safe
+}
+fn recommendation_doc(v: &Value) -> Value {
+    let mut safe = projection(
+        v,
+        &[
+            "schema_version",
+            "id",
+            "member_id",
+            "created_at",
+            "updated_at",
+            "requested_count",
+            "actual_count",
+            "offline",
+            "creates_wear",
+            "shortage_reasons",
+            "recent_window",
+            "learning_context",
+            "feedback_context",
+        ],
+    );
+    safe["controls"] = recommendation_controls(&v["controls"]);
+    safe["proposals"] = json!(v["proposals"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(recommendation_proposal)
+        .collect::<Vec<_>>());
+    safe
+}
+fn feedback_doc(v: &Value, assets: &HashSet<String>) -> Value {
+    let mut safe = projection(
+        v,
+        &[
+            "schema_version",
+            "id",
+            "member_id",
+            "root_id",
+            "revision",
+            "revoked",
+            "intent_id",
+            "proposal_index",
+            "inventory_observed_at",
+            "controls",
+            "reaction",
+            "wear_event_id",
+            "day_scope",
+            "clothing_ids",
+            "scores",
+            "created_at",
+            "reason",
+        ],
+    );
+    safe["inventory_snapshots"] = json!(v["inventory_snapshots"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|v| garment(v, assets))
+        .collect::<Vec<_>>());
+    safe["proposal"] = recommendation_proposal(&v["proposal"]);
+    safe["controls"] = recommendation_controls(&v["controls"]);
+    safe
+}
+fn portable_receipts(
+    app: &Application,
+    table: &str,
+    assets: &HashSet<String>,
+) -> Result<Vec<Value>, ApiError> {
+    let mut st=app.connection.prepare(&format!("SELECT member_id,operation_key,request,result FROM {table} ORDER BY member_id,operation_key"))?;
+    let mut rows = st.query([])?;
+    let mut result = vec![];
+    let mut total = 0usize;
+    while let Some(row) = rows.next()? {
+        let member: String = row.get(0)?;
+        let key: String = row.get(1)?;
+        let request: Value =
+            serde_json::from_str(&row.get::<_, String>(2)?).map_err(|_| error())?;
+        let result_doc: Value =
+            serde_json::from_str(&row.get::<_, String>(3)?).map_err(|_| error())?;
+        let input = if request.get("operation").is_some() {
+            &request["input"]
+        } else {
+            &request
+        };
+        let input = projection(
+            input,
+            &[
+                "member_id",
+                "operation_key",
+                "dimension",
+                "value",
+                "weight",
+                "note",
+                "root_id",
+                "expected_revision",
+                "scope",
+                "include_prior",
+                "intent_id",
+                "proposal_index",
+                "reaction",
+                "scores",
+                "timezone",
+                "clothing_ids",
+                "wear",
+                "reason",
+            ],
+        );
+        let request = if request.get("operation").is_some() {
+            json!({"operation":request["operation"],"input":input})
+        } else {
+            input
+        };
+        let result_doc = if table == "feedback_receipts" {
+            feedback_doc(&result_doc, assets)
+        } else {
+            learning_doc("learning_history", &result_doc)
+        };
+        let row =
+            json!({"member_id":member,"operation_key":key,"request":request,"result":result_doc});
+        total += row.to_string().len();
+        if total > MAX_BYTES {
+            return Err(ApiError::new(
+                "package_too_large",
+                "学习或反馈收据超出单包容量，未导出任何文件",
+            ));
+        }
+        result.push(row);
+    }
+    Ok(result)
+}
 fn facts(app: &Application, table: &str, assets: &HashSet<String>) -> Result<Vec<Value>, ApiError> {
     // Identifiers come only from this private, fixed call site list.
-    let mut statement = app
-        .connection
-        .prepare(&format!("SELECT document FROM {table} ORDER BY rowid"))?;
-    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    let mut statement = app.connection.prepare(&format!(
+        "SELECT document,{} FROM {table} ORDER BY rowid",
+        if table == "learning_state" {
+            "member_id"
+        } else {
+            "NULL"
+        }
+    ))?;
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+    })?;
     let mut result = Vec::new();
     let mut total = 0usize;
     for row in rows {
-        let row = row?;
+        let (row, owner) = row?;
         total = total.checked_add(row.len()).ok_or_else(error)?;
         if total > MAX_BYTES {
             return Err(ApiError::new(
@@ -155,7 +374,17 @@ fn facts(app: &Application, table: &str, assets: &HashSet<String>) -> Result<Vec
             ));
         }
         let v: Value = serde_json::from_str(&row).map_err(|_| error())?;
-        let safe = if table == "clothing" {
+        let safe = if table.starts_with("learning_") {
+            let mut value = v.clone();
+            if table == "learning_state" {
+                value["member_id"] = json!(owner);
+            }
+            learning_doc(table, &value)
+        } else if table == "recommendation_intents" {
+            recommendation_doc(&v)
+        } else if table == "feedback_events" {
+            feedback_doc(&v, assets)
+        } else if table == "clothing" {
             garment(&v, assets)
         } else if table == "insights_preferences" {
             projection(
@@ -241,10 +470,14 @@ fn facts(app: &Application, table: &str, assets: &HashSet<String>) -> Result<Vec
     }
     Ok(result)
 }
-fn care_refs(app: &Application, assets: &HashSet<String>) -> Result<Vec<Value>, ApiError> {
-    let mut stmt = app.connection.prepare(
-        "SELECT event_id,asset_id,member_id FROM care_asset_refs ORDER BY event_id,asset_id",
-    )?;
+fn history_refs(
+    app: &Application,
+    table: &str,
+    assets: &HashSet<String>,
+) -> Result<Vec<Value>, ApiError> {
+    let mut stmt = app.connection.prepare(&format!(
+        "SELECT event_id,asset_id,member_id FROM {table} ORDER BY event_id,asset_id"
+    ))?;
     let rows = stmt.query_map([], |r| {
         Ok((
             r.get::<_, String>(0)?,
@@ -395,7 +628,7 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             .iter()
             .filter_map(|a| a["id"].as_str().map(str::to_owned))
             .collect();
-        let snapshot = json!({"schema_version":1,"space_id":s["space_id"],"members":members,"clothing":facts(app,"clothing",&ids)?,"outfits":facts(app,"outfits",&ids)?,"outfit_versions":facts(app,"outfit_versions",&ids)?,"wear_events":facts(app,"wear_events",&ids)?,"care_config":facts(app,"care_config",&ids)?,"care_events":facts(app,"care_events",&ids)?,"care_asset_refs":care_refs(app,&ids)?,"insights_preferences":facts(app,"insights_preferences",&ids)?});
+        let snapshot = json!({"schema_version":1,"space_id":s["space_id"],"members":members,"clothing":facts(app,"clothing",&ids)?,"outfits":facts(app,"outfits",&ids)?,"outfit_versions":facts(app,"outfit_versions",&ids)?,"wear_events":facts(app,"wear_events",&ids)?,"care_config":facts(app,"care_config",&ids)?,"care_events":facts(app,"care_events",&ids)?,"care_asset_refs":history_refs(app,"care_asset_refs",&ids)?,"insights_preferences":facts(app,"insights_preferences",&ids)?,"recommendation_intents":facts(app,"recommendation_intents",&ids)?,"feedback_events":facts(app,"feedback_events",&ids)?,"feedback_receipts":portable_receipts(app,"feedback_receipts",&ids)?,"feedback_asset_refs":history_refs(app,"feedback_asset_refs",&ids)?,"learning_memories":facts(app,"learning_memories",&ids)?,"learning_profiles":facts(app,"learning_profiles",&ids)?,"learning_state":facts(app,"learning_state",&ids)?,"learning_history":facts(app,"learning_history",&ids)?,"learning_receipts":portable_receipts(app,"learning_receipts",&ids)?});
         let snapshot_object = encrypt_object(&s, &w, &package, "snapshots", snapshot)?;
         total_bytes = total_bytes
             .checked_add(snapshot_object.1.len() as u64)

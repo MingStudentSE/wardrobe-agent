@@ -1,0 +1,20 @@
+npm notice run wardrobe-desktop@0.1.0 npx
+npm notice run 'playwright' test tests/clothing-management.spec.ts tests/pagination.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5174 --strictPort
+[WebServer] (node:36750) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 7 tests using 1 worker
+
+(node:36752) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/clothing-management.spec.ts:2:1 › details edit, archive, recycle and restore clothing without losing facts (1.0s)
+  ✓  2 tests/clothing-management.spec.ts:14:1 › management controls remain reachable at supported narrow and desktop widths (2.7s)
+  ✓  3 tests/clothing-management.spec.ts:17:1 › large minor-unit prices display and edit without floating-point rounding (660ms)
+  ✓  4 tests/pagination.spec.ts:2:1 › repeated load-more clicks show every real item once (630ms)
+  ✓  5 tests/pagination.spec.ts:13:1 › fresh save invalidates an older pending page response (1.6s)
+  ✓  6 tests/pagination.spec.ts:26:1 › manual price input preserves a three-decimal currency exactly (515ms)
+  ✓  7 tests/pagination.spec.ts:37:1 › load-more stays unavailable during post-save replacement query (1.7s)
+
+  7 passed (10.0s)

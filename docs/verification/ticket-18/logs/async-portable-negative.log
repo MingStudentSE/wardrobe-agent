@@ -1,0 +1,9 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 1.02s
+     Running tests/learning_jobs.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/learning_jobs-1f9e18dda37ffc00)
+
+running 1 test
+test resigned_portable_learning_domain_corruption_is_rejected_without_replacing_local_facts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.11s
+

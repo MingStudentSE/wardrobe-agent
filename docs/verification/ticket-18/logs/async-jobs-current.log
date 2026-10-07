@@ -1,0 +1,15 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 4.52s
+     Running tests/learning_jobs.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/learning_jobs-1f9e18dda37ffc00)
+
+running 7 tests
+test queued_rebuild_cannot_undo_later_reset_and_cancel_survives_reopen ... ok
+test recompute_returns_durable_job_before_profile_changes_and_explicit_worker_publishes ... ok
+test worker_only_client_cannot_lift_reset_boundary ... ok
+test portable_learning_keeps_preferences_and_marks_foreign_inference_stale ... ok
+test accepted_db19_archive_restores_empty_learning_without_relaxing_current_schema ... ok
+test resigned_portable_learning_domain_corruption_is_rejected_without_replacing_local_facts ... ok
+test running_worker_cannot_publish_after_public_reset_or_cancel ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.86s
+

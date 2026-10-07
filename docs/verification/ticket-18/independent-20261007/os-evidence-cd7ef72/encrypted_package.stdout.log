@@ -1,0 +1,8 @@
+
+running 3 tests
+test secondary_display_referenced_by_immutable_outfit_version_remains_in_encrypted_package ... ok
+test oversized_real_fact_snapshot_fails_before_publishing_and_preserves_local_facts ... ok
+test paired_installation_reads_application_generated_ciphertext_package_without_original_or_local_secrets ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 4.28s
+

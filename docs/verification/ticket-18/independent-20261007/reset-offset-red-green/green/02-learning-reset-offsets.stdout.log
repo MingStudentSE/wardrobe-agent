@@ -1,0 +1,11 @@
+
+running 2 tests
+learning_reset_offsets: wear original_created_at=2026-10-07T01:34:53.802607+00:00 reexpressed_created_at=2026-10-07T15:34:53.802607+14:00 same_actual_instant=true representation_offset=+14:00
+learning_reset_offsets: feedback original_created_at=2026-10-07T01:34:53.804056+00:00 reexpressed_created_at=2026-10-07T15:34:53.804056+14:00 same_actual_instant=true representation_offset=+14:00
+learning_reset_offsets: wear reset_cutoff=2026-10-07T01:34:53.863243+00:00 offset_string_sorts_after_cutoff=true
+learning_reset_offsets: feedback reset_cutoff=2026-10-07T01:34:53.863643+00:00 offset_string_sorts_after_cutoff=true
+test wear_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset ... ok
+test feedback_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

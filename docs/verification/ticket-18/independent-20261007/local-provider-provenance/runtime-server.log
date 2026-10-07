@@ -1,0 +1,21 @@
+warning: no usable GPU found, --gpu-layers option will be ignored
+warning: one possible reason is that llama.cpp was compiled without GPU support
+warning: consult docs/build.md for compilation instructions
+0.00.003.457 I srv  llama_server: initializing ...
+0.00.003.460 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.006.069 W srv  llama_server: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)
+0.00.008.165 I srv    load_model: loading model '/Users/links/.codex/wardrobe-execution/local-provider/weights/qwen2.5-0.5b-instruct-q4_k_m.gguf'
+0.00.199.514 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.00.613.103 I cmn          init: llama threadpool init, n_threads = 2
+0.00.655.977 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'
+0.00.660.832 I srv  llama_server: model loaded
+0.00.660.835 I srv  llama_server: listening on http://127.0.0.1:18087
+10.54.837.913 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+10.54.840.213 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+10.58.621.432 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =   2048, progress = 0.81, t =   3.78 s / 541.65 tokens per second
+11.02.836.302 I slot print_timing: id  0 | task 0 | n_gen =    240, tg =  79.44 t/s, tg_3s =  79.77 t/s
+11.03.204.042 I slot print_timing: id  0 | task 0 | prompt eval time =    4987.43 ms /  2529 tokens (    1.97 ms per token,   507.08 tokens per second)
+11.03.204.045 I slot print_timing: id  0 | task 0 |        eval time =    3376.24 ms /   270 tokens (   12.55 ms per token,    79.67 tokens per second)
+11.03.204.045 I slot print_timing: id  0 | task 0 |       total time =    8363.66 ms /  2799 tokens
+11.03.204.045 I slot print_timing: id  0 | task 0 |    graphs reused =        268
+11.03.204.607 I slot      release: id  0 | task 0 | stop processing: n_tokens = 2798, truncated = 0
