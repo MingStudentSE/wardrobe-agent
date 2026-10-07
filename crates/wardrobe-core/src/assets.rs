@@ -387,7 +387,32 @@ pub(super) fn descriptors() -> Vec<Value> {
             _=>asset.clone()
         };
         let description=match *action {"import"=>"导入本地原图并规范压缩，先预览", "get"=>"读取当前成员的本地图片元数据", "preview"=>"读取压缩展示图或缩略图", "rebuild_thumbnail"=>"从展示图重建本地缩略图", "adopt"=>"保留已有图片并采用指定图片为主图", "reorder"=>"调整现有图片顺序", "detach"=>"移除单品图片关联，保留本地文件和其他引用", _=>"只列出已采用且允许同步的展示图"};
-        json!({"name":format!("assets.{action}"),"description":description,"inputSchema":{"type":"object","required":required,"properties":properties},"outputSchema":output})
+        let mut descriptor=json!({"name":format!("assets.{action}"),"description":description,"inputSchema":{"type":"object","required":required,"properties":properties},"outputSchema":output});
+        let mut effect = match *action {
+            "import" | "rebuild_thumbnail" => json!({"kind":"mutation","network":"none","local_files":true,"async":null}),
+            "preview" => json!({"kind":"query","network":"none","local_files":true,"async":null}),
+            "get" | "sync_manifest" => json!({"kind":"query","network":"none","local_files":false,"async":null}),
+            _ => json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+        };
+        if *action == "preview" {
+            // 缩略图文件缺失时走 asset_rebuild_thumbnail：本地 blob 写 + 资产文档更新（条件性变更）
+            effect["conditional_effects"] = json!([{
+                "when": {"variant": "thumbnail", "thumbnail_file_missing": true},
+                "effect": {"kind": "mutation", "local_files": true},
+            }]);
+        }
+        descriptor["effect"] = effect;
+        descriptor["examples"] = match *action {
+            "import" => json!([{"request":{"member_id":"<已授权成员ID>","path":"</绝对/本地/图片路径>"},"prerequisites":["读取提供的本地图片文件并写入本机受管资产字节；原图保持本地"]}]),
+            "get" => json!([{"request":{"member_id":"<已授权成员ID>","id":"<assets.import 返回的ID>"},"prerequisites":["读取资产文档，不含文件字节"]}]),
+            "preview" => json!([{"request":{"member_id":"<已授权成员ID>","id":"<资产ID>"},"prerequisites":["读取本机受管图片字节生成预览；缩略图文件缺失时会同步重建本地缩略图"]}]),
+            "rebuild_thumbnail" => json!([{"request":{"member_id":"<已授权成员ID>","id":"<资产ID>"},"prerequisites":["同步重建 local_only 缩略图，非异步任务"]}]),
+            "adopt" => json!([{"request":{"member_id":"<已授权成员ID>","asset_id":"<资产ID>","clothing_id":"<单品ID>"},"prerequisites":["原图保持本地；仅采纳后的压缩商品展示图参与同步"]}]),
+            "reorder" => json!([{"request":{"member_id":"<已授权成员ID>","clothing_id":"<单品ID>","asset_ids":["<资产ID>"]},"prerequisites":["调整现有图片顺序"]}]),
+            "detach" => json!([{"request":{"member_id":"<已授权成员ID>","clothing_id":"<单品ID>","asset_id":"<资产ID>"},"prerequisites":["解除关联，保留本地文件和其他引用"]}]),
+            _ => json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按穿搭/穿着/洗护/反馈引用重算可同步展示图清单；原图与个人图片保持本地"]}]),
+        };
+        json!(descriptor)
     }).collect()
 }
 

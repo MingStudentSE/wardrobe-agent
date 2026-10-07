@@ -125,6 +125,20 @@ impl Application {
 }
 pub(super) fn descriptors() -> Vec<Value> {
     let member = json!({"type":"object","required":["schema_version","member_id","name"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"name":{"type":"string"}}});
+    let examples = json!({
+        "space.default": [{"request":{},"prerequisites":["首次调用将初始化工作空间与默认成员"]}],
+        "member.list": [{"request":{},"prerequisites":["space.default 之后调用；受限授权仅返回授权成员"]}],
+        "member.create": [{"request":{"name":"<成员名称>"},"prerequisites":["名称为1-80字符"]}],
+        "member.update": [{"request":{"member_id":"<成员ID>","name":"<新名称>"},"prerequisites":["成员ID来自 member.list 或 space.default"]}],
+        "member.select": [{"request":{"member_id":"<成员ID>"},"prerequisites":["切换工作空间选中成员"]}],
+    });
+    let effects = json!({
+        "space.default": {"kind":"query","network":"none","local_files":false,"async":null},
+        "member.list": {"kind":"query","network":"none","local_files":false,"async":null},
+        "member.create": {"kind":"mutation","network":"none","local_files":false,"async":null},
+        "member.update": {"kind":"mutation","network":"none","local_files":false,"async":null},
+        "member.select": {"kind":"mutation","network":"none","local_files":false,"async":null},
+    });
     let mut result = vec![];
     for (operation, description, required, properties, output) in [
         (
@@ -165,5 +179,10 @@ pub(super) fn descriptors() -> Vec<Value> {
     ] {
         result.push(json!({"name":operation,"description":description,"inputSchema":{"type":"object","required":required,"properties":properties,"additionalProperties":false},"outputSchema":output}));
     }
-    result
+    let mut collected = result;
+    for descriptor in collected.iter_mut() {
+        descriptor["effect"] = effects[descriptor["name"].as_str().unwrap()].clone();
+        descriptor["examples"] = examples[descriptor["name"].as_str().unwrap()].clone();
+    }
+    collected
 }

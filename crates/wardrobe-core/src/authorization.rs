@@ -14,6 +14,63 @@ fn privileged(operation: &str) -> bool {
         || operation.starts_with("provider.credential.")
         || operation.starts_with("encryption.")
 }
+/// 描述符 scope 元数据：与上方 privileged()、maintenance::is_global_operation()
+/// 及 execute_as_client 中的精确授权条件同源派生；只描述既有执行语义，不改变授权。
+/// 成员约束在 member_ids 为数组时生效（含 full 模式）；有效输入不含 member_id 的
+/// 操作（除显式空间级豁免）受限成员授权无法执行，按 all-members 标注。
+/// 组合条件与 execute_as_client 中对应分支一一对应，公开契约测试钉住二者一致。
+pub(crate) fn scope_metadata(operation: &str, input_schema: &Value) -> Value {
+    let access = if privileged(operation) {
+        "trusted-local-only"
+    } else {
+        "external"
+    };
+    // capabilities 对有限授权免 primary 检查（execute_as_client 精确豁免）；
+    // 仅本机可信入口的操作外部一律拒绝，primary/member 不参与判定。
+    let primary_grant_required = access == "external" && operation != "capabilities";
+    let member_grant = if crate::maintenance::is_global_operation(operation) {
+        // 受限成员授权直接 member_denied，须授权全部成员
+        "all-members"
+    } else if ["capabilities", "provider.list", "provider.validate"].contains(&operation) {
+        "space-level"
+    } else if operation == "member.list" {
+        "filtered"
+    } else if input_schema["properties"].get("member_id").is_some() {
+        // 受限成员授权必须提供且仅能使用授权内 member_id
+        "per-member_id"
+    } else {
+        // 有效输入没有 member_id：受限成员授权在执行分支 member_denied
+        "all-members"
+    };
+    let mut scope = json!({
+        "access": access,
+        "primary": operation,
+        "primary_grant_required": primary_grant_required,
+        "member": {"grant": member_grant},
+    });
+    let additional = match operation {
+        "feedback.record" => json!([{
+            "when": {"reaction": ["actual_wore", "changed"]},
+            "requires": ["wear.record"],
+        }]),
+        "feedback.try_another" => json!([{
+            "requires": ["feedback.record", "recommendation.change"],
+        }]),
+        "learning.worker.run" | "jobs.retry" | "jobs.cancel" => json!([{
+            "when_job_kind": "learning_recompute",
+            "requires": ["learning.recompute"],
+        }]),
+        other if other.starts_with("maintenance.") && other != "maintenance.list" => json!([{
+            "requires_original_job_scope": true,
+            "job_field": "id",
+        }]),
+        _ => Value::Null,
+    };
+    if !additional.is_null() {
+        scope["additional"] = additional;
+    }
+    scope
+}
 fn parse_grant(stored: &str) -> Result<Value, ApiError> {
     let grant: Value = serde_json::from_str(stored)
         .map_err(|_| ApiError::new("storage_error", "客户端授权损坏"))?;
@@ -431,9 +488,9 @@ pub(super) fn descriptors() -> Vec<Value> {
     issued_schema["properties"]["token"] =
         json!({"type":"string","readOnly":true,"description":"一次性连接令牌，不落普通配置或日志"});
     vec![
-        json!({"name":"client.authorize","description":"仅可信本机入口登记客户端授权，一次性返回连接令牌","inputSchema":{"type":"object","required":["name","mode","operations","member_ids","expires_at"],"properties":{"name":{"type":"string"},"mode":{"enum":["full","limited"]},"operations":{"type":"array","items":{"type":"string"}},"member_ids":{"type":["array","null"],"items":{"type":"string"}},"expires_at":{"type":["string","null"]}},"additionalProperties":false},"outputSchema":issued_schema}),
-        json!({"name":"client.list","description":"仅可信本机入口列出客户端，无连接令牌或hash","inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":grant_schema()}}}}),
-        json!({"name":"client.revoke","description":"仅可信本机入口撤销客户端授权","inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false},"outputSchema":grant_schema()}),
+        json!({"name":"client.authorize","description":"仅可信本机入口登记客户端授权，一次性返回连接令牌","effect":{"kind":"mutation","network":"none","local_files":false,"async":null},"examples":[{"request":{"name":"<1-120字客户端名称>","mode":"limited","operations":["recommendation.generate"],"member_ids":null,"expires_at":null},"prerequisites":["仅可信本机入口可用；外部客户端不能自我授权","完整授权operations须为空数组；限定授权至少一个已知非特权操作","令牌仅在本次响应中一次性显示，不落普通配置或日志"]}],"inputSchema":{"type":"object","required":["name","mode","operations","member_ids","expires_at"],"properties":{"name":{"type":"string"},"mode":{"enum":["full","limited"]},"operations":{"type":"array","items":{"type":"string"}},"member_ids":{"type":["array","null"],"items":{"type":"string"}},"expires_at":{"type":["string","null"]}},"additionalProperties":false},"outputSchema":issued_schema}),
+        json!({"name":"client.list","description":"仅可信本机入口列出客户端，无连接令牌或hash","effect":{"kind":"query","network":"none","local_files":false,"async":null},"examples":[{"request":{},"prerequisites":["列出全部客户端授权记录；不含连接令牌或令牌hash"]}],"inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":grant_schema()}}}}),
+        json!({"name":"client.revoke","description":"仅可信本机入口撤销客户端授权","effect":{"kind":"mutation","network":"none","local_files":false,"async":null},"examples":[{"request":{"id":"<client.list返回的授权ID>"},"prerequisites":["撤销后该客户端令牌立即失效","授权记录保留revoked状态与撤销时间"]}],"inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false},"outputSchema":grant_schema()}),
     ]
 }
 
