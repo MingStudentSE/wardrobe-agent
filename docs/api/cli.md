@@ -2,6 +2,16 @@
 
 关联任务：[完整外部 Agent 工作流 #33](https://github.com/MingStudentSE/wardrobe-agent/issues/33)。本文件描述必须交付的契约，不代表当前实现已经满足。
 
+## Stage 1 已实现参数语法
+
+类型化解析在打开任何数据库之前完成；语法错误一律返回 `invalid_arguments`，退出码 2，且不创建数据库、目录或 WAL。
+
+- 元数据命令：`wardrobe-cli --help`、`--version`、`help <operation>`、`schema <operation>`（`help` 不带参数等同 `--help`）。元数据必须独立使用，仅可与全局 `--db` 同时出现；输出为单个版本化 JSON 信封 `{"schema_version":1,"result":…}`，退出码 0，无任何存储副作用。`help`/`schema` 的操作元数据来自 `wardrobe_core::operations()` 静态注册表；未知操作返回 `unsupported_operation`（退出码 2），不显示为可用能力。`--version`、帮助内容与 MCP `serverInfo.version` 均使用 Cargo 包版本。
+- 全局参数：`--db <路径>` 恰好消耗其后一个参数作为值（即使该参数形如 `--help` 或 `mcp`，也是字面量路径）；`--db` 重复、缺值，`--trusted-local` 重复，未知旗标，多余位置参数，`--input-stdin` 与 `--client-stdin` 同时出现或缺少操作命令，均在打开数据库前以 `invalid_arguments` 拒绝。`--` 之后所有参数按字面量处理（命令槽与 JSON 输入槽）。
+- 传输切换：仅当第一个位置参数就是 `mcp` 时进入 MCP JSON-RPC 传输；`--db mcp capabilities` 或把 `mcp` 用作输入参数都是普通 CLI 调用，绝不读取 MCP 标准输入。MCP 启动失败向 stderr 输出非secret诊断并以退出码 1 结束，stdout 保持纯 JSON-RPC 流。CLI 专属参数不得进入传输解析。
+- 授权模式：`--trusted-local` 是本机人工维护通道（绕过客户端授权）；外部 AI 一律使用 `--client-stdin` 的 `{token,input}` scope 限定客户端路径；令牌与供应商密钥禁止进入命令行参数。`provider.credential.set` 与 `encryption.*` 仅接受标准输入（`secret_requires_stdin`），该检查同样先于任何数据库打开。
+- 信封与退出码：CLI stdout 恰好一行可解析 JSON；成功 `{"schema_version":1,"result":…}`，拒绝 `{"schema_version":1,"error":{"code":…,"message":…}}` 退出码 2；存储失败（任何执行阶段 `storage_error`，含启动失败）退出码 1（MCP 传输除外，见上，其业务错误保持 JSON-RPC isError 语义）。stderr 仅输出非secret诊断。
+
 ## 安装与独立运行
 
 macOS Beta 安装后提供稳定可执行命令 `wardrobe-cli` 和明确的 PATH 安装/验证方式；用户及 AI 不需要源码、Rust 工具链或正在运行的 GUI。`wardrobe-cli --version`、`wardrobe-cli --help` 和操作级帮助说明数据目录、授权、输入输出与可运行示例。卸载/升级与 GUI 共用数据保留策略。Windows/Linux 发行延后，CLI 的参数解析、协议与业务核心保持跨平台。
