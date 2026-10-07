@@ -19,6 +19,7 @@ mod maintenance;
 mod members;
 mod outfits;
 mod pairing;
+pub mod profiles;
 mod product;
 mod providers;
 mod recognition;
