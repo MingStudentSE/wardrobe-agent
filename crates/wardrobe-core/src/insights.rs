@@ -209,8 +209,22 @@ impl Application {
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
-    vec![
+    let effects = json!({
+        "insights.summary": {"kind":"query","network":"none","local_files":false,"async":null},
+        "insights.configure": {"kind":"mutation","network":"none","local_files":false,"async":null},
+    });
+    let examples = json!({
+        "insights.summary": [{"request":{"member_id":"<已授权成员ID>","as_of_date":"2020-04-01","timezone":"Asia/Shanghai"},"prerequisites":["按有效实际穿着重算统计；读取持久化配置与穿着记录"]}],
+        "insights.configure": [{"request":{"member_id":"<已授权成员ID>","stale_days":91,"expected_revision":0},"prerequisites":["expected_revision 乐观锁；null 重置默认90天，不保存派生统计"]}],
+    });
+    let mut descriptors = vec![
         json!({"name":"insights.summary","description":"按有效实际穿着重算衣橱数量、分布、次数与当地天数；不从搭配推断穿过","inputSchema":{"type":"object","required":["member_id","as_of_date","timezone"],"properties":{"member_id":{"type":"string"},"as_of_date":{"type":"string"},"timezone":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id","inventory","frequency","stale","stale_days","never_worn","combinations","rules","preferences"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"inventory":{"type":"object"},"frequency":{"type":"array"},"stale":{"type":"array"},"stale_days":{"type":"integer"},"never_worn":{"type":"array"},"combinations":{"type":"array"},"rules":{"type":"object"},"preferences":{"type":"object"}}}}),
         json!({"name":"insights.configure","description":"按成员保存久未穿阈值；null重置90天，不保存派生统计","inputSchema":{"type":"object","required":["member_id","stale_days","expected_revision"],"properties":{"member_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":0},"stale_days":{"type":["integer","null"],"minimum":1,"maximum":36500}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","id","member_id","stale_days","revision","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"revision":{"type":"integer","minimum":1},"created_at":{"type":"string"},"updated_at":{"type":"string"},"member_id":{"type":"string"},"stale_days":{"type":"integer","minimum":1,"maximum":36500}}}}),
-    ]
+    ];
+    for descriptor in descriptors.iter_mut() {
+        let name = descriptor["name"].as_str().unwrap().to_string();
+        descriptor["effect"] = effects[&name].clone();
+        descriptor["examples"] = examples[&name].clone();
+    }
+    descriptors
 }
