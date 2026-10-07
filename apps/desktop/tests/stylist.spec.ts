@@ -121,12 +121,13 @@ test('explicit instruction records an actual wear with server-owned idempotency'
  expect(toolCall.arguments.local_date).not.toBe('1999-01-01');
  expect(toolCall.arguments.clothing_ids).toEqual([itemId]);
  // Durable read-back: exactly one actual wear event for this member, citing
- // the seeded item and today's UTC date; the fact value is the real event id.
+ // the seeded item and the server-injected calendar date (today in the
+ // timezone the GUI sent — not UTC); the fact value is the real event id.
  const wears=await api('wear.list',{member_id:member});
  const events=(wears.result.items as {id:string;kind:string;local_date:string;items:{clothing_id:string}[]}[]);
  expect(events.length).toBe(1);
  expect(events[0].kind).toBe('record');
- expect(events[0].local_date).toBe(new Date().toISOString().slice(0,10));
+ expect(events[0].local_date).toBe(toolCall.arguments.local_date);
  expect(events[0].items.map(v=>v.clothing_id)).toContain(itemId);
  const factValue=await panel.locator('.stylist-facts li span').first().textContent();
  expect(events[0].id).toBe(factValue);
