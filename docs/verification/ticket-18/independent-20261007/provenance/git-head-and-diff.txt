@@ -1,0 +1,20 @@
+generated_at_utc=2026-10-07T01:51:24Z
+worktree=/Users/links/.codex/wardrobe-execution/worktrees/merge-18
+business_commit_HEAD=7a4e3a21a2230ab9c6ddcb1cfee7172abd95f10b
+business_commit_subject=fix(learning): compare reset boundaries by RFC3339 instant
+label_source_commit_cd7ef72=cd7ef72e1b5dfb0423bc3937f2ea59553664ae09  # OS-evidence run + reset-offset red/green ran on this HEAD (fix uncommitted then); business commit 7a4e3a2 committed the fix
+review_diff_base_b6ee5c8=b6ee5c852b49c7eab80f5f24d2cc32cce789b239  # both independent reviews pinned b6ee5c8...7a4e3a2 (127 files, +9546/-21)
+diff_base_to_HEAD=8_commits
+
+# copied screenshots (worktree-dirty copies of docs/verification/ticket-18/*.png, mtime 2026-10-07 09:45, GUI-run outputs; not committed)
+learning-1280.png git_blob=b662a8e4405879ff58f0e023e3e111e4e358cda4 sha256=75b5912c8b5cbfaf14bba5f9c9b2e0856f527db7f8534bf85ee02e1d5ff578bb
+learning-320.png git_blob=9d5ee3f79f1779a4582df3916f59ba7e21503c60 sha256=2bef0a81100ecc241f897768416573bae6876e90146eddbffa9c60963bdbf0fe
+learning-sources-1280.png git_blob=e8f2c4aa78ddd1b57f312337fb84397a8b256130 sha256=2e9ebc038b459ea345bc0ecf7e4711328d7549345e65068a60a730c6e34d5e42
+learning-sources-320.png git_blob=3137a7d1f377eecb7738b1d746302b240aaa1d73 sha256=a33ccfa659a0721543e8b617e6cde0f1b9ae03ed26e3ede42d0af487b6de8492
+
+# key source file at business commit (git blob hash)
+crates/wardrobe-core/src/learning.rs blob=5fbfffe4b263d0f2372ae89ce107095b4c4aa567
+
+# git status of shared worktree at packaging time (pre-existing dirty screenshot copies only; packaging added new folder + README append)
+?? docs/verification/ticket-18/independent-20261007/
+non-ticket18-dirty-lines=1

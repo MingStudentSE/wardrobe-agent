@@ -1,0 +1,152 @@
+{
+  "generated_at_utc": "2026-10-07T01:39:22+00:00",
+  "scope": "green verification of root's semantic RFC3339 instant comparison in learning.rs (feedback + wear reset boundary paths); both accepted public archive red tests flipped green; no source or test semantics modified by this task",
+  "root_finding_addressed": "learning.rs reset cutoff compared event created_at RFC3339 strings lexicographically; a same actual instant re-expressed with +14:00 sorted after a UTC cutoff and was reabsorbed after learning.reset",
+  "root_fix_verified": "crates/wardrobe-core/src/learning.rs now parses the cutoff once and each event created_at via chrono DateTime::parse_from_rfc3339 and compares instants through one shared predates_reset closure in BOTH the feedback path and the effective_wears path, surfacing ApiError storage_error (学习重置时间损坏 / 学习来源记录时间损坏) for malformed timestamps",
+  "source": {
+    "worktree": "/Users/links/.codex/wardrobe-execution/worktrees/merge-18",
+    "head": "cd7ef72e1b5dfb0423bc3937f2ea59553664ae09",
+    "head_subject": "Merge ticket 18 for independent verification",
+    "author": "MingStudent <23649003+MingStudentSE@users.noreply.github.com>",
+    "diff_sha256_learning_rs": "33793413313d0efc19b00669b11bc5c1d7ac66982108922835e799b2005c5d74",
+    "worktree_sha256_learning_rs": "cb9872a46835aa12a3b58e1ed7e6bbf5a01d13fa25bac6e7fe294c181dbb9ece",
+    "sha256_learning_reset_offsets_rs": "28924a9a6801919d3742fc7073f40035262b64c0c9b306238477af433d9884ce",
+    "diff_stat": "crates/wardrobe-core/src/learning.rs | 21 ++++++++++++++++++--- (5 files with the 4 accepted prior ticket-18 GUI screenshots, binary; untracked tests/learning_reset_offsets.rs)",
+    "changes_allowed_and_present": [
+      "crates/wardrobe-core/src/learning.rs (root's fix, uncommitted)",
+      "crates/wardrobe-core/tests/learning_reset_offsets.rs (accepted public regression, untracked)",
+      "docs/verification/ticket-18/*.png (accepted prior GUI screenshots, untouched by this task)"
+    ],
+    "unrelated_source_modifications": "none; final git status identical to pre-run except zero changes made by this task (fmt --all was a no-op)"
+  },
+  "environment": {
+    "env_source": "/Users/links/.codex/wardrobe-execution/native-env.sh",
+    "cargo_target_dir": "/Users/links/.codex/wardrobe-execution/cache/learning",
+    "cargo_incremental": "0",
+    "cargo_build_jobs": "2",
+    "cache_ownership": "sole owner this run (prior regression author exited)"
+  },
+  "commands": [
+    {
+      "order": 1,
+      "command": "cargo fmt --all",
+      "exit": 0,
+      "stdout": "results/learning-reset-offset-green-evidence/01-fmt-write.stdout.log",
+      "stderr": "results/learning-reset-offset-green-evidence/01-fmt-write.stderr.log",
+      "note": "run FIRST as instructed; no reformatting applied (git status unchanged)"
+    },
+    {
+      "order": 2,
+      "command": "cargo test -p wardrobe-core --test learning_reset_offsets -- --nocapture",
+      "exit": 0,
+      "stdout": "results/learning-reset-offset-green-evidence/02-learning-reset-offsets.stdout.log",
+      "stderr": "results/learning-reset-offset-green-evidence/02-learning-reset-offsets.stderr.log",
+      "tests": "2 passed; 0 failed; 0 ignored",
+      "flipped_tests": [
+        "wear_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset ... ok",
+        "feedback_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset ... ok"
+      ]
+    },
+    {
+      "order": 3,
+      "command": "cargo test --workspace",
+      "exit": 0,
+      "stdout": "results/learning-reset-offset-green-evidence/03-workspace-test.stdout.log",
+      "stderr": "results/learning-reset-offset-green-evidence/03-workspace-test.stderr.log",
+      "tests": "247 passed; 0 failed; 13 ignored across 33 test binaries (counted from actual 'test result:' lines; prior accepted baseline 245/32, +2 = the new regression test)"
+    },
+    {
+      "order": 4,
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit": 0,
+      "stdout": "results/learning-reset-offset-green-evidence/04-clippy.stdout.log",
+      "stderr": "results/learning-reset-offset-green-evidence/04-clippy.stderr.log"
+    },
+    {
+      "order": 5,
+      "command": "cargo fmt --all --check",
+      "exit": 0,
+      "stdout": "results/learning-reset-offset-green-evidence/05-fmt-check.stdout.log",
+      "stderr": "results/learning-reset-offset-green-evidence/05-fmt-check.stderr.log",
+      "note": "empty output, no diffs"
+    },
+    {
+      "order": 6,
+      "command": "cargo test -p wardrobe-core --test learning_scale -- --ignored --nocapture",
+      "exit": 0,
+      "stdout": "results/learning-reset-offset-green-evidence/06-learning-scale-ignored.stdout.log",
+      "stderr": "results/learning-reset-offset-green-evidence/06-learning-scale-ignored.stderr.log",
+      "tests": "1 passed; 0 failed (nonempty_learning_ranks_ten_thousand_inventory_hundred_thousand_effective_wears)",
+      "duration_s": 73.79,
+      "note": "exact existing accepted selector reused from results/learning-independent-core-summary.json; no invented scenario"
+    },
+    {
+      "order": 7,
+      "command": "cargo build -p wardrobe-cli",
+      "exit": 0,
+      "stdout": "results/learning-reset-offset-green-evidence/07-wardrobe-cli-build.stdout.log",
+      "stderr": "results/learning-reset-offset-green-evidence/07-wardrobe-cli-build.stderr.log",
+      "note": "built ONCE after all checks passed, to refresh the existing hardcoded target symlink CLI for the later GUI full-suite on final source"
+    }
+  ],
+  "scale_explicit_ignored_run": {
+    "test": "nonempty_learning_ranks_ten_thousand_inventory_hundred_thousand_effective_wears",
+    "terminal_exit": 0,
+    "wall_s": 74,
+    "test_reported_s": 73.79,
+    "measured": {
+      "business_profile_portable_scale": {
+        "enqueue_ms": 0,
+        "profile_bytes": 11726241,
+        "create_ms": 1747,
+        "preview_ms": 18329,
+        "restore_ms": 38334,
+        "source_removed": true,
+        "reopen": true,
+        "explicit": 65,
+        "inferred_stale": true,
+        "facts_10k100k_preserved": true
+      },
+      "learning_scale_recompute": {
+        "recompute_ms": 4734,
+        "explicit": 65,
+        "inferred": 3,
+        "inventory": 10000,
+        "effective_wears": 100000,
+        "requested": 5,
+        "actual": 5,
+        "fixed_preserved": true,
+        "elapsed_ms": 4518,
+        "db_bytes": 190259200
+      }
+    },
+    "comparison_to_accepted_baseline": {
+      "prior_s": 78.07,
+      "verdict": "within noise of the prior accepted run; default 10k/100k performance and portable stale guards unchanged under the timestamp parse change"
+    },
+    "interpretation": "single-run capacity PASS (terminal exit 0); one measurement, not a p95 statistic"
+  },
+  "cli_artifact_for_gui_full_suite": {
+    "binary": "/Users/links/.codex/wardrobe-execution/cache/learning/debug/wardrobe-cli",
+    "sha256": "3bfee5e6bbd1e75aa38cee386bf6aefe580e574e92b5efc4900ab7b8a3b7ea7a",
+    "built_at": "2026-10-07 09:38:48 (local)",
+    "symlink": "/Users/links/.codex/wardrobe-execution/worktrees/merge-18/target/debug/wardrobe-cli",
+    "symlink_resolves_sha256": "3bfee5e6bbd1e75aa38cee386bf6aefe580e574e92b5efc4900ab7b8a3b7ea7a",
+    "evidence": "results/learning-reset-offset-green-evidence/08-cli-binary-hash.txt"
+  },
+  "explicitly_pending_not_executed": [
+    "root source review of the learning.rs fix (this task verifies, does not accept)",
+    "full GUI verification on final source (CLI binary refreshed and symlinked for it; GUI not run by this task)",
+    "native/OS verification",
+    "CI gates"
+  ],
+  "boundaries_respected": {
+    "no_semantic_source_or_test_modification_by_this_task": true,
+    "no_local_model_or_paid_api_started": true,
+    "no_user_keys_or_photos_read": true,
+    "no_git_commit_push_merge_or_issue_close": true,
+    "gui_and_model_service_not_run": true,
+    "evidence_from_actual_command_outputs": true
+  },
+  "issue_or_beta_status": "NOT claimed complete; red-to-green flip and all local gates pass, ticket still pending root source review / full GUI / native / CI gates"
+}

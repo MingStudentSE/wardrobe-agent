@@ -1,0 +1,10 @@
+checked_at=2026-10-07T01:11:17Z
+worktree=/Users/links/.codex/wardrobe-execution/worktrees/merge-18
+HEAD=cd7ef72e1b5dfb0423bc3937f2ea59553664ae09
+git_status_porcelain_lines=0
+fmt.exit.txt=0
+workspace-test.exit.txt=0
+clippy.exit.txt=0
+learning-scale-ignored.exit.txt=0
+actual_cargo_processes:
+  (none)

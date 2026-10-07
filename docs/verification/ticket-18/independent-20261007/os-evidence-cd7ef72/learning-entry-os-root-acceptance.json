@@ -1,0 +1,19 @@
+{
+  "source_head": "cd7ef72e1b5dfb0423bc3937f2ea59553664ae09",
+  "root_checked_command_exits": {
+    "build": 0,
+    "reproduce": 0,
+    "encryption": 0,
+    "encrypted_package": 0
+  },
+  "durable_async_receipts": 4,
+  "all_queued_to_succeeded": true,
+  "os_keychain_tests": 6,
+  "encrypted_package_tests": 3,
+  "pending": [
+    "GUI acceptance",
+    "formal source review",
+    "whole ticket integration"
+  ],
+  "ticket_complete": false
+}

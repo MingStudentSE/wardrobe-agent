@@ -1,0 +1,17 @@
+
+running 2 tests
+learning_reset_offsets: wear original_created_at=2026-10-07T01:30:09.842859+00:00 reexpressed_created_at=2026-10-07T15:30:09.842859+14:00 same_actual_instant=true representation_offset=+14:00
+learning_reset_offsets: feedback original_created_at=2026-10-07T01:30:09.844332+00:00 reexpressed_created_at=2026-10-07T15:30:09.844332+14:00 same_actual_instant=true representation_offset=+14:00
+learning_reset_offsets: wear reset_cutoff=2026-10-07T01:30:09.896094+00:00 offset_string_sorts_after_cutoff=true
+test wear_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset ... FAILED
+learning_reset_offsets: feedback reset_cutoff=2026-10-07T01:30:09.901226+00:00 offset_string_sorts_after_cutoff=true
+test feedback_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset ... FAILED
+
+failures:
+
+failures:
+    feedback_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset
+    wear_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

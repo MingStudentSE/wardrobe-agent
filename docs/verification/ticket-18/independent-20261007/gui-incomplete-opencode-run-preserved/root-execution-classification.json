@@ -1,0 +1,13 @@
+{
+  "classification": "incomplete_execution_runner_disappeared",
+  "playwright_exit_missing": true,
+  "actual_playwright_process_absent": true,
+  "last_completed_test": 12,
+  "opencode_wrapper_exit": 0,
+  "passed_claim": false,
+  "owned_orphan_pids": [
+    28961,
+    28993
+  ],
+  "next_action": "rerun with persistent Codex exec owner, preserve original logs"
+}
