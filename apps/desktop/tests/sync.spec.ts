@@ -4,9 +4,14 @@ import {fileURLToPath} from 'node:url';
 import {mkdtempSync,writeFileSync,readdirSync,renameSync,rmSync,mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+const openSyncPanel=async(page:import('@playwright/test').Page)=>{
+ await page.getByRole('button',{name:'设置',exact:true}).click();
+ await page.getByRole('button',{name:/同步.*连接本地同步目标/}).click();
+ await page.getByText('跨设备同步',{exact:true}).click();
+};
 test('同步目标无配置时真实Application状态与窄屏手工配置入口',async({page})=>{
  await page.goto('/');
- await page.getByText('跨设备同步',{exact:true}).click();
+ await openSyncPanel(page);
  const panel=page.locator('#sync-settings');
  await expect(panel.getByLabel('同步文件夹')).toBeVisible();
  await expect(panel.getByRole('button',{name:'立即同步',exact:true})).toBeDisabled();
@@ -33,7 +38,7 @@ test('实际双安装GUI配置、断网名称冲突人工选择与缺图重试',
  const garment=await owner('clothing.create',{member_id:member,name:'GUI owner original',category:'top'});
  for(let i=0;i<260;i++)await owner('clothing.create',{member_id:member,name:`GUI bounded batch ${i}`,category:'top'});
  peer('sync.configure',{provider_kind:'local_folder',directory:remote});
- await page.goto('/');await page.getByText('跨设备同步',{exact:true}).click();const panel=page.locator('#sync-settings');
+ await page.goto('/');await openSyncPanel(page);const panel=page.locator('#sync-settings');
  await panel.getByLabel('同步文件夹').fill(remote);await panel.getByRole('button',{name:'保存同步目标',exact:true}).click();await expect(panel.getByRole('status')).toContainText('同步目标已保存');
  let release!:()=>void,markReady!:()=>void;const held=new Promise<void>(r=>{release=r;}),ready=new Promise<void>(r=>{markReady=r;});let holdOnce=true;
  await page.route('**/__wardrobe_dev_api',async route=>{if(holdOnce&&route.request().postDataJSON()?.operation==='sync.run'){holdOnce=false;const response=await route.fetch();markReady();await held;await route.fulfill({response});}else await route.continue();});
@@ -42,7 +47,7 @@ test('实际双安装GUI配置、断网名称冲突人工选择与缺图重试',
  await panel.getByRole('button',{name:'立即同步',exact:true}).click();await expect(panel.getByRole('status')).toContainText('本次发布',{timeout:60000});await expect(panel.getByRole('button',{name:'立即同步',exact:true})).toBeEnabled({timeout:60000});expect((await owner('sync.run')).sent).toBe(0);while(peer('sync.run').has_more){};
  await owner('clothing.update',{member_id:member,id:garment.id,name:'GUI owner candidate'});peer('clothing.update',{member_id:member,id:garment.id,name:'GUI peer candidate'});
  await owner('sync.run');peer('sync.run');await owner('sync.run');
- await page.reload();await page.getByText('跨设备同步',{exact:true}).click();
+ await page.reload();await openSyncPanel(page);
  const conflict=panel.locator('.sync-conflicts>li').filter({hasText:'单品 · 名称'});await expect(conflict).toContainText('GUI owner candidate');await expect(conflict).toContainText('GUI peer candidate');
  mkdirSync('../../docs/verification/ticket-27',{recursive:true});
  for(const width of[320,375,414,768,1024,1280,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();if(width===320||width===1280)await panel.screenshot({path:`../../docs/verification/ticket-27/conflicts-${width}.png`});}
