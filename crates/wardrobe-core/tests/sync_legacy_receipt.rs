@@ -48,6 +48,10 @@ fn maintenance(a: &Application, operation: &str, input: serde_json::Value) -> se
 /// Rebuild ONLY the exported archive's feedback_receipts primary key to the
 /// requested shape, keeping the four column names/types and every real row,
 /// and stamp the legitimate old schema version 20 (never the active database).
+/// A real schema-20 archive predates the schema-21 `wardrobe_categories`
+/// dictionary table, so that anachronistic table is dropped from the exported
+/// copy to keep the fixture historically accurate (the active database keeps
+/// its own current table shapes).
 fn rebuild_receipts_primary_key(package: &std::path::Path, primary_key: &str) {
     let db = rusqlite::Connection::open(package.join("facts.sqlite")).unwrap();
     db.execute_batch(&format!(
@@ -55,6 +59,7 @@ fn rebuild_receipts_primary_key(package: &std::path::Path, primary_key: &str) {
          CREATE TABLE feedback_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY({primary_key}));
          INSERT INTO feedback_receipts SELECT * FROM feedback_receipts_legacy;
          DROP TABLE feedback_receipts_legacy;
+         DROP TABLE IF EXISTS wardrobe_categories;
          PRAGMA user_version=20;"
     ))
     .unwrap();
