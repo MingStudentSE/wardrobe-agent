@@ -431,7 +431,22 @@ impl Application {
         if include_prior {
             state = json!({"cutoff":null,"suppressed":[]});
         }
-        let cutoff = state["cutoff"].as_str();
+        // RFC3339 offsets describe instants, not a sortable textual representation.
+        let cutoff = state["cutoff"]
+            .as_str()
+            .map(|value| {
+                chrono::DateTime::parse_from_rfc3339(value)
+                    .map_err(|_| ApiError::new("storage_error", "学习重置时间损坏"))
+            })
+            .transpose()?;
+        let predates_reset = |event: &Value| -> Result<bool, ApiError> {
+            let Some(cutoff) = cutoff.as_ref() else {
+                return Ok(false);
+            };
+            let created = chrono::DateTime::parse_from_rfc3339(string(event, "created_at")?)
+                .map_err(|_| ApiError::new("storage_error", "学习来源记录时间损坏"))?;
+            Ok(created <= *cutoff)
+        };
         type Signal = (
             i64,
             std::collections::BTreeSet<String>,
@@ -484,7 +499,7 @@ impl Application {
             let mut st=tx.prepare("SELECT e.document FROM feedback_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM feedback_events WHERE root_id=e.root_id) AND json_extract(document,'$.revoked')=0 ORDER BY root_id")?;
             for row in st.query_map([&member], |r| r.get::<_, String>(0))? {
                 let event = parse(row?)?;
-                if cutoff.is_some_and(|c| event["created_at"].as_str().is_some_and(|t| t <= c)) {
+                if predates_reset(&event)? {
                     continue;
                 }
                 let weight = match event["reaction"].as_str() {
@@ -505,7 +520,7 @@ impl Application {
             }
         }
         for event in self.effective_wears(&member)? {
-            if cutoff.is_some_and(|c| event["created_at"].as_str().is_some_and(|t| t <= c)) {
+            if predates_reset(&event)? {
                 continue;
             }
             absorb(
