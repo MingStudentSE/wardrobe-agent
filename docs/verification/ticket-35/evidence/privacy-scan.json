@@ -1,0 +1,124 @@
+{
+  "targets": {
+    "dmg-app": {
+      "files_total": 14,
+      "binary_files": 8,
+      "credential_hits": [
+        {
+          "path": "Contents/MacOS/wardrobe-cli",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf"
+        },
+        {
+          "path": "Contents/MacOS/wardrobe-cli",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf"
+        },
+        {
+          "path": "Contents/MacOS/wardrobe-desktop",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf"
+        },
+        {
+          "path": "Contents/MacOS/wardrobe-desktop",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf"
+        },
+        {
+          "path": "Contents/Resources/third-party/U-2-Net-NOTICE.md",
+          "pattern": "64hex-ish constant",
+          "context": "309c8469258dda742793dce0ebea8e6dd393174f"
+        }
+      ],
+      "credential_hits_analyzed": [
+        {
+          "path": "Contents/MacOS/wardrobe-cli",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf",
+          "classification": "public_build_metadata"
+        },
+        {
+          "path": "Contents/MacOS/wardrobe-cli",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf",
+          "classification": "public_build_metadata"
+        },
+        {
+          "path": "Contents/MacOS/wardrobe-desktop",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf",
+          "classification": "public_build_metadata"
+        },
+        {
+          "path": "Contents/MacOS/wardrobe-desktop",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf",
+          "classification": "public_build_metadata"
+        },
+        {
+          "path": "Contents/Resources/third-party/U-2-Net-NOTICE.md",
+          "pattern": "64hex-ish constant",
+          "context": "309c8469258dda742793dce0ebea8e6dd393174f",
+          "classification": "public_build_metadata"
+        }
+      ],
+      "credential_unresolved": [],
+      "images": [
+        {
+          "path": "Contents/Resources/icon.icns",
+          "bytes": 57337,
+          "format": "icns",
+          "has_exif_marker": false
+        }
+      ],
+      "images_over_1_5mb": [],
+      "model_weights_present": []
+    },
+    "portable-cli": {
+      "files_total": 11,
+      "binary_files": 5,
+      "credential_hits": [
+        {
+          "path": "third-party/U-2-Net-NOTICE.md",
+          "pattern": "64hex-ish constant",
+          "context": "309c8469258dda742793dce0ebea8e6dd393174f"
+        },
+        {
+          "path": "wardrobe-cli",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf"
+        },
+        {
+          "path": "wardrobe-cli",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf"
+        }
+      ],
+      "credential_hits_analyzed": [
+        {
+          "path": "third-party/U-2-Net-NOTICE.md",
+          "pattern": "64hex-ish constant",
+          "context": "309c8469258dda742793dce0ebea8e6dd393174f",
+          "classification": "public_build_metadata"
+        },
+        {
+          "path": "wardrobe-cli",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf",
+          "classification": "public_build_metadata"
+        },
+        {
+          "path": "wardrobe-cli",
+          "pattern": "64hex-ish constant",
+          "context": "96c92aba00c8375bc32fafcdf12429c58bd8aabf",
+          "classification": "public_build_metadata"
+        }
+      ],
+      "credential_unresolved": [],
+      "images": [],
+      "images_over_1_5mb": [],
+      "model_weights_present": []
+    }
+  },
+  "overall_clean": true
+}
