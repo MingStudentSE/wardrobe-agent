@@ -57,6 +57,7 @@ impl Application {
                 "output_format",
                 "operation_key",
                 "timezone",
+                "target_date",
                 "limit",
                 "fixed_ids",
                 "excluded_ids",
@@ -285,7 +286,22 @@ impl Application {
         for id in fixed.iter().chain(excluded.iter()) {
             self.clothing_get(json!({"member_id":member,"id":id}))?;
         }
-        let feedback_excluded = self.feedback_day_exclusions(&member)?;
+        let feedback_excluded = self.feedback_day_exclusions(
+            &member,
+            input
+                .get("target_date")
+                .and_then(Value::as_str)
+                .map(|text| {
+                    let date = chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d")
+                        .map_err(|_| invalid("目标日期无效"))?;
+                    use chrono::TimeZone;
+                    zone.from_local_datetime(&date.and_hms_opt(12, 0, 0).unwrap())
+                        .earliest()
+                        .map(|v| v.with_timezone(&chrono::Utc))
+                        .ok_or_else(|| invalid("目标当地日期不存在"))
+                })
+                .transpose()?,
+        )?;
         for id in &feedback_excluded {
             if fixed.contains(id) {
                 return Err(ApiError::new(
@@ -353,7 +369,14 @@ impl Application {
         if !["balanced", "least_worn", "favorites"].contains(&target) {
             return Err(invalid("请选择平衡、少穿优先或收藏优先目标"));
         }
-        let today = chrono::Utc::now().with_timezone(&zone).date_naive();
+        let today = input
+            .get("target_date")
+            .map(|v| {
+                chrono::NaiveDate::parse_from_str(v.as_str().unwrap_or(""), "%Y-%m-%d")
+                    .map_err(|_| invalid("目标日期须为YYYY-MM-DD"))
+            })
+            .transpose()?
+            .unwrap_or_else(|| chrono::Utc::now().with_timezone(&zone).date_naive());
         let from = today - chrono::Duration::days(6);
         let mut recent = std::collections::BTreeSet::new();
         let mut counts = std::collections::HashMap::<String, usize>::new();
@@ -931,7 +954,7 @@ fn entry(c: &Value, role: &str, layer: i32) -> Value {
 pub(super) fn descriptors() -> Vec<Value> {
     ["generate","get","list","replace","change","save","worker.run"].into_iter().map(|op|{
  let mut properties=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
- if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["strategy"]=json!({"enum":["rules","ai"]});properties["provider_id"]=json!({"type":"string"});properties["json_output"]=json!({"type":"boolean"});properties["output_format"]=json!({"enum":["plain","json_object","llama_cpp_schema"]});properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids","retained_ids","action_excluded_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true});}properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["replacement_category"]=json!({"enum":crate::CATEGORIES});properties["retained_items"]=json!({"type":"array","maxItems":100,"items":{"type":"object","required":["clothing_id","role","layer"],"properties":{"clothing_id":{"type":"string"},"role":{"type":"string"},"layer":{"type":"integer"}},"additionalProperties":false}});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual","automatic"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"&&op!="worker.run"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}
+ if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["target_date"]=json!({"type":"string","format":"date"});properties["strategy"]=json!({"enum":["rules","ai"]});properties["provider_id"]=json!({"type":"string"});properties["json_output"]=json!({"type":"boolean"});properties["output_format"]=json!({"enum":["plain","json_object","llama_cpp_schema"]});properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids","retained_ids","action_excluded_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true});}properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["replacement_category"]=json!({"enum":crate::CATEGORIES});properties["retained_items"]=json!({"type":"array","maxItems":100,"items":{"type":"object","required":["clothing_id","role","layer"],"properties":{"clothing_id":{"type":"string"},"role":{"type":"string"},"layer":{"type":"integer"}},"additionalProperties":false}});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual","automatic"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"&&op!="worker.run"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}
 if op=="save"{properties["name"]=json!({"type":"string","minLength":1,"maxLength":120});required.push("name");}}}}
  json!({"name":format!("recommendation.{op}"),"description":format!("本地离线搭配 {op}；仅使用同成员真实可用衣物，生成与保存均不记录穿着"),"inputSchema":{"type":"object","required":required,"properties":properties,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"id":{"type":"string"},"job_id":{"type":"string"},"state":{"type":"string"},"intent_id":{"type":["string","null"]},"next_due":{"type":"integer"},"proposals":{"type":"array"},"items":{"type":"array"}}}})
  }).collect()
@@ -1090,6 +1113,7 @@ pub(super) fn generate_fields(input: &Value) -> Result<(), ApiError> {
             "member_id",
             "operation_key",
             "timezone",
+            "target_date",
             "limit",
             "fixed_ids",
             "excluded_ids",
@@ -1110,6 +1134,10 @@ pub(super) fn generate_fields(input: &Value) -> Result<(), ApiError> {
             "output_format",
         ],
     )?;
+    if let Some(date) = input.get("target_date") {
+        chrono::NaiveDate::parse_from_str(date.as_str().unwrap_or(""), "%Y-%m-%d")
+            .map_err(|_| invalid("目标日期须为YYYY-MM-DD"))?;
+    }
     for field in [
         "fixed_ids",
         "excluded_ids",

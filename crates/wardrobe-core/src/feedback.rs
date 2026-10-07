@@ -221,7 +221,11 @@ impl Application {
         }
         Ok(sets)
     }
-    pub(super) fn feedback_day_exclusions(&self, member: &str) -> Result<Vec<String>, ApiError> {
+    pub(super) fn feedback_day_exclusions(
+        &self,
+        member: &str,
+        target_instant: Option<chrono::DateTime<Utc>>,
+    ) -> Result<Vec<String>, ApiError> {
         let mut statement=self.connection.prepare("SELECT e.document FROM feedback_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM feedback_events WHERE root_id=e.root_id) AND json_extract(document,'$.revoked')=0 AND json_extract(document,'$.reaction')='day_exclude'")?;
         let mut ids = vec![];
         for row in statement.query_map([member], |r| r.get::<_, String>(0))? {
@@ -230,7 +234,19 @@ impl Application {
                 .as_str()
                 .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
                 .ok_or_else(|| ApiError::new("storage_error", "当天排除期限损坏"))?;
-            if end > Utc::now() {
+            if target_instant.map_or_else(
+                || end > Utc::now(),
+                |instant| {
+                    let zone: chrono_tz::Tz = doc["day_scope"]["timezone"]
+                        .as_str()
+                        .unwrap()
+                        .parse()
+                        .unwrap();
+                    instant < end.with_timezone(&Utc)
+                        && instant.with_timezone(&zone).date_naive().to_string()
+                            == doc["day_scope"]["local_date"]
+                },
+            ) {
                 for id in doc["clothing_ids"]
                     .as_array()
                     .ok_or_else(|| ApiError::new("storage_error", "排除ID损坏"))?

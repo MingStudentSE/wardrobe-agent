@@ -20,6 +20,7 @@ mod product;
 mod providers;
 mod recognition;
 mod recommendations;
+mod schedules;
 mod tryon;
 mod wears;
 mod weather;
@@ -30,7 +31,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 19;
+pub const DATABASE_SCHEMA_VERSION: u32 = 21;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -138,6 +139,7 @@ impl Application {
         care::migrate(&tx)?;
         recommendations::migrate(&tx)?;
         weather::migrate(&tx)?;
+        schedules::migrate(&tx)?;
         feedback::migrate(&tx)?;
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
@@ -311,6 +313,7 @@ impl Application {
             op if op.starts_with("wear.") => self.wear_execute(op, input),
             op if op.starts_with("feedback.") => self.feedback_execute(op, input),
             op if op.starts_with("weather.") => self.weather_execute(op, input),
+            op if op.starts_with("schedule.") => self.schedule_execute(op, input),
             op if op.starts_with("recommendation.") => self.recommendation_execute(op, input),
             "insights.summary" => self.insights_summary(input),
             "insights.configure" => self.insights_configure(input),
@@ -373,6 +376,7 @@ pub fn operations() -> Value {
     descriptors.extend(care::descriptors());
     descriptors.extend(recommendations::descriptors());
     descriptors.extend(weather::descriptors());
+    descriptors.extend(schedules::descriptors());
     descriptors.extend(feedback::descriptors());
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());

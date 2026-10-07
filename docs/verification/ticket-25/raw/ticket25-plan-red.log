@@ -1,0 +1,22 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-25/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 4.56s
+     Running tests/schedules.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/schedules-efb0ba118c835291)
+
+running 1 test
+test member_plan_survives_restart_and_revision_protects_edit_pause ... FAILED
+
+failures:
+
+---- member_plan_survives_restart_and_revision_protects_edit_pause stdout ----
+
+thread 'member_plan_survives_restart_and_revision_protects_edit_pause' (3971635) panicked at crates/wardrobe-core/tests/schedules.rs:9:60:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "unsupported_operation", message: "此操作尚不可用" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    member_plan_survives_restart_and_revision_protects_edit_pause
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p wardrobe-core --test schedules`

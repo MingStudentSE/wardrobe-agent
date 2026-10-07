@@ -246,6 +246,9 @@ impl Application {
             catalog.push(json!({"clothing_id":c["id"],"name":c["name"],"category":c["category"],"occasion":c["occasion"],"favorite":c["favorite"]}));
         }
         let mut model_controls = json!({});
+        if let Some(date) = input.get("target_date") {
+            model_controls["target_date"] = date.clone();
+        }
         for field in [
             "limit",
             "fixed_ids",
@@ -498,6 +501,7 @@ impl Application {
         let tx = self.begin_write()?;
         let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
         text_lease(&job, lease)?;
+        crate::schedules::validate_related_job(&tx, &job)?;
         if job["submitted_at"].is_string() {
             let invalid = job["last_outcome"] == "invalid_output"
                 && attempt == job["output_attempt"].as_u64().unwrap_or(1) + 1

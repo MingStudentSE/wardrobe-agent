@@ -1,0 +1,13 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-25/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 4.09s
+     Running tests/schedules.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/schedules-efb0ba118c835291)
+
+running 5 tests
+test member_plan_survives_restart_and_revision_protects_edit_pause ... ok
+test creation_and_edits_are_not_retroactive_and_paused_queue_cannot_execute ... ok
+test durable_care_worker_publishes_one_notification_and_cancelled_job_cannot_publish ... ok
+test resume_runs_only_latest_due_once_marks_old_missed_and_never_runs_other_device ... ok
+test external_worker_scope_does_not_grant_care_business_or_another_member ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+

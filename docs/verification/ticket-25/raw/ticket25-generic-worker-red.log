@@ -1,0 +1,22 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-25/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 2.87s
+     Running tests/schedules.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/schedules-efb0ba118c835291)
+
+running 1 test
+test generic_ai_worker_cannot_bypass_scheduled_original_business_scope ... FAILED
+
+failures:
+
+---- generic_ai_worker_cannot_bypass_scheduled_original_business_scope stdout ----
+
+thread 'generic_ai_worker_cannot_bypass_scheduled_original_business_scope' (4065029) panicked at crates/wardrobe-core/tests/schedules.rs:630:5:
+Ok(Object {"attempts": Number(1), "created_at": String("2026-10-07T00:31:03.234573+00:00"), "error": Object {"code": String("provider_outcome_unknown"), "message": String("请求结果未知；已提供离线建议，不盲重发"), "retryable": Bool(false)}, "id": String("01a113c5-5a42-73c2-bffb-ff48d636a5aa"), "kind": String("text_recommendation"), "last_outcome": String("unknown"), "lease_expires": Number(0), "lease_token": Null, "member_id": String("01a113c5-5a3b-7527-a456-1f1611e5f0ff"), "next_due": Number(0), "operation_key": String("01a113c5-5a41-733d-9a1b-66d63ecc31c5:1791333060"), "output_attempt": Number(1), "payload": Object {"member_id": String("01a113c5-5a3b-7527-a456-1f1611e5f0ff"), "occasion": String("daily"), "operation_key": String("01a113c5-5a41-733d-9a1b-66d63ecc31c5:1791333060"), "provider_id": String("01a113c5-5a40-702a-9e27-bbb93b522ee4"), "strategy": String("ai"), "target_date": String("2026-10-08"), "timezone": String("UTC"), "weather": Object {"mode": String("off")}}, "progress": Number(100), "result": Object {"intent_id": String("01a113c5-5a53-755a-8cf1-ef7a54493f78")}, "schema_version": Number(1), "state": String("waiting_input"), "submission_count": Number(1), "submitted_at": String("2026-10-07T00:31:03.250660+00:00"), "updated_at": String("2026-10-07T00:31:03.251750+00:00")})
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    generic_ai_worker_cannot_bypass_scheduled_original_business_scope
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p wardrobe-core --test schedules`

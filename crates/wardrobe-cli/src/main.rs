@@ -18,6 +18,56 @@ fn main() {
             std::process::exit(1);
         }
     };
+    if args.iter().any(|a| a == "scheduler") {
+        if !args.iter().any(|a| a == "--trusted-local") {
+            fail(ApiError {
+                code: "scope_denied".into(),
+                message: "本机调度服务须显式--trusted-local；外部客户端使用成员限定schedule API"
+                    .into(),
+            });
+        }
+        use std::io::Write;
+        println!(
+            "{}",
+            json!({"service":"scheduler","state":"running","notifications":"native_host_required","pid":std::process::id()})
+        );
+        let _ = io::stdout().flush();
+        loop {
+            match Application::open(&db).and_then(|app| {
+                if !app.schedule_host_should_run(false)? {
+                    return Ok(json!({"queued":[],"results":[],"paused":true}));
+                }
+                let due = app.schedule_tick_at(chrono::Utc::now())?;
+                let pending = app.schedule_pending_jobs()?;
+                let mut results = vec![];
+                for job in pending {
+                    let value = app.execute(
+                        "schedule.worker.run",
+                        json!({"member_id":job["member_id"],"id":job["id"]}),
+                    );
+                    results.push(match value {
+                        Ok(job) => json!({"id":job["id"],"state":job["state"]}),
+                        Err(error) => json!({"id":job["id"],"error":error}),
+                    });
+                }
+                Ok(json!({"queued":due["queued"],"results":results}))
+            }) {
+                Ok(value) => {
+                    if !value["queued"].as_array().unwrap().is_empty()
+                        || !value["results"].as_array().unwrap().is_empty()
+                    {
+                        println!("{value}");
+                    }
+                }
+                Err(error) => println!("{}", json!({"error":error})),
+            }
+            let _ = io::stdout().flush();
+            if args.iter().any(|a| a == "--once") {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        }
+    }
     if args.iter().any(|a| a == "mcp") {
         let mut client_token = None;
         for line in io::stdin().lock().lines() {

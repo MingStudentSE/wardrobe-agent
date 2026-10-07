@@ -1,0 +1,82 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-25/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 4.05s
+     Running tests/schedules.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/schedules-fea63b72fc99c5e9)
+
+running 1 test
+backup_test_phase=external_preview
+backup_test_phase=owned_copy_and_preview
+backup_test_phase=write_lock_and_prebackup
+backup_test_phase=attach
+backup_test_phase=insert:members
+backup_test_phase=insert:workspace
+backup_test_phase=insert:clothing
+backup_test_phase=insert:audit
+backup_test_phase=insert:outbox
+backup_test_phase=insert:assets
+backup_test_phase=insert:outfits
+backup_test_phase=insert:outfit_items
+backup_test_phase=insert:outfit_versions
+backup_test_phase=insert:wear_events
+backup_test_phase=insert:wear_receipts
+backup_test_phase=insert:wear_asset_refs
+backup_test_phase=insert:care_config
+backup_test_phase=insert:care_events
+backup_test_phase=insert:care_receipts
+backup_test_phase=insert:care_asset_refs
+backup_test_phase=insert:insights_preferences
+backup_test_phase=insert:recommendation_intents
+backup_test_phase=insert:recommendation_saves
+backup_test_phase=insert:weather_preferences
+backup_test_phase=insert:feedback_events
+backup_test_phase=insert:feedback_receipts
+backup_test_phase=insert:feedback_asset_refs
+backup_test_phase=insert:schedule_plans
+backup_test_phase=insert:schedule_executions
+backup_test_phase=commit
+backup_test_phase=external_preview
+backup_test_phase=owned_copy_and_preview
+backup_test_phase=write_lock_and_prebackup
+backup_test_phase=attach
+backup_test_phase=insert:members
+backup_test_phase=insert:workspace
+backup_test_phase=insert:clothing
+backup_test_phase=insert:audit
+backup_test_phase=insert:outbox
+backup_test_phase=insert:assets
+backup_test_phase=insert:outfits
+backup_test_phase=insert:outfit_items
+backup_test_phase=insert:outfit_versions
+backup_test_phase=insert:wear_events
+backup_test_phase=insert:wear_receipts
+backup_test_phase=insert:wear_asset_refs
+backup_test_phase=insert:care_config
+backup_test_phase=insert:care_events
+backup_test_phase=insert:care_receipts
+backup_test_phase=insert:care_asset_refs
+backup_test_phase=insert:insights_preferences
+backup_test_phase=insert:recommendation_intents
+backup_test_phase=insert:recommendation_saves
+backup_test_phase=insert:weather_preferences
+backup_test_phase=insert:feedback_events
+backup_test_phase=insert:feedback_receipts
+backup_test_phase=insert:feedback_asset_refs
+backup_test_phase=insert:schedule_plans
+backup_test_phase=insert:schedule_executions
+backup_test_phase=commit
+backup_test_sqlite_code=ConstraintViolation extended_code=787
+
+thread 'portable_plans_and_history_restore_without_device_permissions_or_repeating_same_space_execution' (4009116) panicked at crates/wardrobe-core/tests/schedules.rs:484:5:
+assertion `left == right` failed: {"attempts":1,"created_at":"2026-10-07T00:18:21.137741+00:00","error":{"code":"storage_error","message":"本地数据库操作失败"},"id":"01a113b9-b951-71ad-a543-6f65b33df0b3","input":{"confirm_overwrite":true,"directory":"/var/folders/zg/mwcsv72133b9lfjg5sftc7440000gn/T/.tmpoHfyfZ/old"},"job_id":"01a113b9-b951-71ad-a543-6f65b33df0b3","operation":"backup.restore","operation_key":"01a113b9-b951-71ad-a543-6f64963acab6","phase":"failed","progress":0,"result":null,"schema_version":1,"state":"failed","updated_at":"2026-10-07T00:18:21.158215+00:00"}
+  left: String("failed")
+ right: "succeeded"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test portable_plans_and_history_restore_without_device_permissions_or_repeating_same_space_execution ... FAILED
+
+failures:
+
+failures:
+    portable_plans_and_history_restore_without_device_permissions_or_repeating_same_space_execution
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `-p wardrobe-core --test schedules`
