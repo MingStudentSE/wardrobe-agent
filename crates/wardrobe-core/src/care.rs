@@ -130,6 +130,9 @@ impl Application {
             return parse(d.ok_or_else(|| ApiError::new("not_found", "洗护事件不存在"))?);
         }
         if op == "care.list" || op == "care.history" {
+            if op == "care.list" {
+                crate::sync::require_resolved_events(&self.connection, "care_events", &member)?;
+            }
             let mut st=self.connection.prepare(if op=="care.history"{"SELECT document FROM care_events WHERE member_id=?1 ORDER BY root_event_id,revision"}else{"SELECT document FROM care_events e WHERE member_id=?1 AND id=(SELECT id FROM care_events WHERE root_event_id=e.root_event_id ORDER BY revision DESC,id DESC LIMIT 1) ORDER BY json_extract(document,'$.occurred_at') DESC,root_event_id DESC"})?;
             let revoked = input
                 .get("include_revoked")

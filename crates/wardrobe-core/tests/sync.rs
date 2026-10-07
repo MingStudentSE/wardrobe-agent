@@ -1,6 +1,7 @@
 use serde_json::json;
 use wardrobe_core::Application;
 trait SyncBatch {
+    #[track_caller]
     fn sync_batch(&self) -> Result<serde_json::Value, wardrobe_core::ApiError>;
 }
 impl SyncBatch for Application {
@@ -251,8 +252,14 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         json!({"member_id":member["member_id"],"id":garment["id"],"name":"第二设备可编辑"}),
     )
     .unwrap();
-    peer.sync_batch().unwrap();
-    owner.sync_batch().unwrap();
+    let peer_edit_step = peer.sync_batch().unwrap();
+    let owner_edit_step = owner.sync_batch().unwrap();
+    assert_eq!(peer_edit_step["sent"], 1);
+    assert_eq!(owner_edit_step["pending"], 0);
+    assert_eq!(
+        owner_edit_step["has_more"], false,
+        "both authenticated pages fit the declared small fixture budget"
+    );
     assert_eq!(
         owner
             .execute(
@@ -391,6 +398,9 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
         let request = json!({"member_id":member["member_id"],"entity_type":table,"entity_id":entity,"field":"branch","branch_id":selected["branch_id"],"expected_token":conflict["token"],"operation_key":format!("review {table}")});
         let result = owner.execute("sync.resolve", request.clone()).unwrap();
         assert_eq!(owner.execute("sync.resolve", request).unwrap(), result);
+        if table == "wear_events" {
+            assert_eq!(owner.execute("care.status", json!({"member_id":member["member_id"],"clothing_id":garment["id"]})).expect_err("wash projection must independently disclose an unresolved care branch after wear is selected").code, "sync_conflict");
+        }
         assert_eq!(
             result["document"][if table == "outfit_versions" {
                 "version"
@@ -653,6 +663,95 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
             .unwrap();
         malformed_ids.push(malformed_id);
     }
+    // This generated-key malicious publisher advertises actual immutable wire
+    // objects through its authenticated index. Only its transport journal is
+    // seeded; no receiver business rows or accepted clocks are fabricated.
+    let publisher = original["identity"]["device_id"].as_str().unwrap();
+    let namespace = format!("{space}/epochs/1/index/{publisher}");
+    let head_key = format!("{namespace}/head.index");
+    let head_meta = storage.stat(&head_key).unwrap();
+    let old_head_envelope: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(remote.path().join(&head_key)).unwrap()).unwrap();
+    let old_head: serde_json::Value = serde_json::from_slice(&open(
+        &changes_key,
+        &old_head_envelope["envelope"],
+        "changes",
+    ))
+    .unwrap();
+    let old_number = old_head["pages"].as_u64().unwrap();
+    let previous_envelope: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            remote
+                .path()
+                .join(format!("{namespace}/{old_number:020}.page")),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let previous_page: serde_json::Value = serde_json::from_slice(&open(
+        &changes_key,
+        &previous_envelope["envelope"],
+        "changes",
+    ))
+    .unwrap();
+    let hash = |bytes: &[u8]| {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    let ids: Vec<_> = [
+        malicious_id.clone(),
+        invalid_id.clone(),
+        reassigned_id.clone(),
+    ]
+    .into_iter()
+    .chain(malformed_ids.iter().cloned())
+    .collect();
+    let entries: Vec<_> = ids
+        .iter()
+        .map(|id| {
+            let key = format!("{space}/changes/{id}.commit");
+            let bytes = std::fs::read(remote.path().join(&key)).unwrap();
+            json!({"op_id":id,"key":key,"digest":hash(&bytes),"bytes":bytes.len()})
+        })
+        .collect();
+    let number = old_number + 1;
+    let advertised_page = json!({"protocol_version":1,"space_id":space,"epoch":1,"publisher":publisher,"page":number,"previous_digest":hash(previous_page.to_string().as_bytes()),"entries":entries});
+    let bytes = wrap(&advertised_page);
+    storage
+        .put(
+            &format!("{namespace}/{number:020}.page"),
+            &mut bytes.as_slice(),
+            WriteCondition::CreateOnly,
+        )
+        .unwrap();
+    let head = json!({"protocol_version":1,"space_id":space,"epoch":1,"publisher":publisher,"pages":number,"last_page_digest":hash(&bytes)});
+    storage
+        .put(
+            &head_key,
+            &mut wrap(&head).as_slice(),
+            WriteCondition::MatchVersion(head_meta.version),
+        )
+        .unwrap();
+    let source_transport = rusqlite::Connection::open(&ap).unwrap();
+    let target: String = source_transport
+        .query_row(
+            "SELECT json_extract(document,'$.target_key') FROM sync_targets WHERE id='primary'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    source_transport.execute("INSERT INTO sync_index_batches(target_id,epoch,page,document,published) VALUES(?1,1,?2,?3,1)", rusqlite::params![target,number,advertised_page.to_string()]).unwrap();
+    for id in &ids {
+        source_transport
+            .execute(
+                "INSERT INTO sync_index_entries(target_id,epoch,op_id,page) VALUES(?1,1,?2,?3)",
+                rusqlite::params![target, id, number],
+            )
+            .unwrap();
+    }
+    drop(source_transport);
     owner
         .execute(
             "clothing.update",

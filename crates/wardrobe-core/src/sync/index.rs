@@ -165,6 +165,38 @@ impl Application {
             .as_u64()
             .ok_or_else(|| error("sync_invalid"))?;
         let mut objects = Vec::new();
+        // Discovery of an absent marker is durable work, independent of an
+        // applied fact/causal clock. Retrying bounded known keys survives restart
+        // and lets the authenticated page move past an unavailable object.
+        self.connection.execute("DELETE FROM sync_missing WHERE target_id=?1 AND epoch=?2 AND EXISTS(SELECT 1 FROM sync_cursors c WHERE c.target_id=sync_missing.target_id AND c.key=sync_missing.key)", params![target, epoch])?;
+        let mut retry = self.connection.prepare("SELECT key,document FROM sync_missing WHERE target_id=?1 AND epoch=?2 ORDER BY attempts,key LIMIT 32")?;
+        let retries = retry
+            .query_map(params![target, epoch], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(retry);
+        for (key, raw) in retries {
+            let entry: Value = serde_json::from_str(&raw).map_err(|_| error("storage_corrupt"))?;
+            self.connection.execute("UPDATE sync_missing SET attempts=attempts+1 WHERE target_id=?1 AND epoch=?2 AND key=?3", params![target,epoch,key])?;
+            match bounded(storage, &key) {
+                Ok(marker)
+                    if entry["digest"] == digest(&marker) && entry["bytes"] == marker.len() =>
+                {
+                    objects.push(storage::ObjectMeta {
+                        key,
+                        version: digest(&marker),
+                        bytes: marker.len() as u64,
+                    });
+                }
+                Ok(_) => {
+                    self.connection.execute("UPDATE sync_missing SET code='storage_corrupt' WHERE target_id=?1 AND epoch=?2 AND key=?3",params![target,epoch,key])?;
+                }
+                Err(e) if ["storage_not_found", "storage_transient"].contains(&e.code.as_str()) => {
+                }
+                Err(e) => return Err(e),
+            }
+        }
         let mut supported = false;
         let mut more = false;
         let mut legacy = Vec::new();
@@ -228,6 +260,7 @@ impl Application {
             // Consumed page position remains independent from the advertised frontier.
             self.connection.execute("INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET observed_head=excluded.observed_head",params![target,epoch,publisher,number,pages,previous])?;
             let mut read_pages = 0;
+            let mut consumed_prefix = true;
             while number <= pages {
                 if objects.len() == 256 || read_pages == 2 {
                     more = true;
@@ -269,19 +302,33 @@ impl Application {
                         return Err(error("storage_corrupt"));
                     }
                     let consumed: bool = self.connection.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM sync_cursors WHERE target_id=?1 AND key=?2)",
-                        params![target, key],
+                        "SELECT EXISTS(SELECT 1 FROM sync_cursors WHERE target_id=?1 AND key=?2) OR EXISTS(SELECT 1 FROM sync_missing WHERE target_id=?1 AND epoch=?3 AND key=?2)",
+                        params![target, key, epoch],
                         |r| r.get(0),
                     )?;
                     if consumed {
                         continue;
                     }
-                    complete = false;
                     if objects.len() == 256 {
+                        complete = false;
                         more = true;
                         break;
                     }
-                    let marker = bounded(storage, key)?;
+                    let marker = match bounded(storage, key) {
+                        Ok(marker) => marker,
+                        Err(e)
+                            if ["storage_not_found", "storage_transient"]
+                                .contains(&e.code.as_str()) =>
+                        {
+                            let tx = self.begin_write()?;
+                            tx.execute("INSERT OR IGNORE INTO sync_missing(target_id,epoch,publisher,key,document,code) VALUES(?1,?2,?3,?4,?5,?6)",params![target,epoch,publisher,key,entry.to_string(),e.code])?;
+                            tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.transport_pending',?2)",params![id,json!({"publisher":publisher,"epoch":epoch,"key":key,"code":e.code}).to_string()])?;
+                            tx.commit()?;
+                            continue;
+                        }
+                        Err(e) => return Err(e),
+                    };
+                    complete = false;
                     if entry["digest"] != digest(&marker) || entry["bytes"] != marker.len() {
                         return Err(error("storage_corrupt"));
                     }
@@ -292,15 +339,16 @@ impl Application {
                     });
                 }
                 read_pages += 1;
-                if !complete {
-                    if number < pages {
-                        more = true;
-                    }
-                    break;
-                }
+                consumed_prefix &= complete;
+                // Read the next authenticated chained page within the same bounded
+                // budget even when this page has just queued facts for application.
+                // Persist only the contiguous already-consumed prefix, never the
+                // optimistic read position of queued or pending facts.
                 previous = Some(digest(page.to_string().as_bytes()));
                 number += 1;
-                self.connection.execute("INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET next_page=excluded.next_page,observed_head=excluded.observed_head,previous_digest=excluded.previous_digest",params![target,epoch,publisher,number,pages,previous])?;
+                if consumed_prefix {
+                    self.connection.execute("INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET next_page=excluded.next_page,observed_head=excluded.observed_head,previous_digest=excluded.previous_digest",params![target,epoch,publisher,number,pages,previous])?;
+                }
             }
         }
         // Only publishers without an authenticated indexed-protocol declaration

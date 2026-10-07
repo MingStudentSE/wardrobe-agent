@@ -15,14 +15,7 @@ fn invalid(s: &str) -> ApiError {
 }
 impl Application {
     fn feedback_require_resolved(&self, member: &str) -> Result<(), ApiError> {
-        let ambiguous: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM feedback_events e WHERE member_id=?1 AND revision=(SELECT max(revision) FROM feedback_events WHERE member_id=?1 AND root_id=e.root_id) GROUP BY root_id HAVING count(*)>1)", [member], |row| row.get(0))?;
-        if ambiguous {
-            return Err(ApiError::new(
-                "sync_conflict",
-                "反馈存在未选择的并发修订，请先查看同步冲突",
-            ));
-        }
-        Ok(())
+        crate::sync::require_resolved_events(&self.connection, "feedback_events", member)
     }
     pub(super) fn feedback_disliked_sets(
         &self,

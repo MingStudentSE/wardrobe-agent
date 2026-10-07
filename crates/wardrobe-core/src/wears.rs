@@ -403,6 +403,7 @@ impl Application {
             .get("cursor")
             .map(|v| v.as_str().ok_or_else(|| invalid("游标须为字符串")))
             .transpose()?;
+        crate::sync::require_resolved_events(&self.connection, "wear_events", member)?;
         let mut statement=self.connection.prepare("SELECT document FROM wear_events e WHERE member_id=?1 AND id=(SELECT id FROM wear_events WHERE root_event_id=e.root_event_id ORDER BY revision DESC,id DESC LIMIT 1) ORDER BY json_extract(document,'$.occurred_at') DESC,root_event_id DESC")?;
         let mut events = vec![];
         for row in statement.query_map([member], |r| r.get::<_, String>(0))? {
@@ -439,6 +440,7 @@ impl Application {
     }
     // One stable projection shared by downstream care and insights; never materialized counters.
     pub(super) fn effective_wears(&self, member: &str) -> Result<Vec<Value>, ApiError> {
+        crate::sync::require_resolved_events(&self.connection, "wear_events", member)?;
         let mut statement=self.connection.prepare("SELECT document FROM wear_events e WHERE member_id=?1 AND id=(SELECT id FROM wear_events WHERE root_event_id=e.root_event_id ORDER BY revision DESC,id DESC LIMIT 1) ORDER BY json_extract(document,'$.occurred_at'),root_event_id")?;
         let mut result = vec![];
         for row in statement.query_map([member], |r| r.get::<_, String>(0))? {
