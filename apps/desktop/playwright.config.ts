@@ -8,7 +8,7 @@ const port=process.env.WARDROBE_TEST_PORT??'5174';
 const fresh=!process.env.WARDROBE_TEST_DATA_DIR;
 const dataDir=process.env.WARDROBE_TEST_DATA_DIR??mkdtempSync(join(tmpdir(),'wardrobe-pagination-'));
 process.env.WARDROBE_TEST_DATA_DIR=dataDir;
-const cli=fileURLToPath(new URL('../../target/debug/wardrobe-cli'+(process.platform==='win32'?'.exe':''),import.meta.url));
+const cli=process.env.WARDROBE_CLI_BIN??fileURLToPath(new URL('../../target/debug/wardrobe-cli'+(process.platform==='win32'?'.exe':''),import.meta.url));
 const run=(command:string,input:object={})=>execFileSync(cli,['--trusted-local',command,JSON.stringify(input)],{env:{...process.env,WARDROBE_DATA_DIR:dataDir}});
 if(fresh)run('space.default');
 for(let i=1;fresh&&i<=25;i++)run('clothing.create',{member_id:'default',name:`分页单品 ${i}`,category:'top'});
