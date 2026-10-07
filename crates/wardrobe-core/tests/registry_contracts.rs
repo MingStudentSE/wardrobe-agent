@@ -1686,3 +1686,98 @@ fn jobs_weather_client_capabilities_family_contract() {
         c["when"]["config.mode"] == json!("automatic") && c["effect"]["network"] == json!("web-weather")
     }));
 }
+
+#[test]
+fn imports_family_effects_examples_and_runtime_output_contract() {
+    // 真实本地文件端到端：create读取图片→process本地派生→group归并→update/commit幂等入库
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("shirt.png");
+    image::RgbImage::from_pixel(4, 6, image::Rgb([245, 245, 245]))
+        .save(&source)
+        .unwrap();
+    let second = dir.path().join("pants.png");
+    image::RgbImage::from_pixel(3, 5, image::Rgb([30, 30, 60]))
+        .save(&second)
+        .unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let batch = app
+        .execute(
+            "imports.create",
+            json!({"member_id":member,"operation_key":"imp-1","paths":[source.to_string_lossy(),second.to_string_lossy()]}),
+        )
+        .unwrap();
+    assert_eq!(batch["items"].as_array().unwrap().len(), 2);
+    assert_result_matches_schema(&schema_of("imports.create"), &batch, "create");
+    let mut processed = Value::Null;
+    for _ in 0..3 {
+        processed = app
+            .execute("imports.process", json!({"member_id":member,"id":batch["id"]}))
+            .unwrap();
+    }
+    assert_result_matches_schema(&schema_of("imports.process"), &processed, "process");
+    let item_ids: Vec<&str> = batch["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["id"].as_str().unwrap())
+        .collect();
+    let grouped = app
+        .execute(
+            "imports.group",
+            json!({"member_id":member,"id":batch["id"],"item_ids":item_ids}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("imports.group"), &grouped, "group");
+    let draft_id = grouped["drafts"].as_array().unwrap().last().unwrap()["id"].clone();
+    let got = app
+        .execute("imports.get", json!({"member_id":member,"id":batch["id"]}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("imports.get"), &got, "get");
+    let listed = app.execute("imports.list", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("imports.list"), &listed, "list");
+    let updated = app
+        .execute(
+            "imports.update",
+            json!({"member_id":member,"id":batch["id"],"draft_id":draft_id,"facts":{"name":"白衬衫","category":"top"}}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("imports.update"), &updated, "update");
+    let committed = app
+        .execute(
+            "imports.commit",
+            json!({"member_id":member,"id":batch["id"],"draft_id":draft_id,"operation_key":"imp-commit-1","facts":{"name":"白衬衫","category":"top"}}),
+        )
+        .unwrap();
+    assert_eq!(committed["name"], json!("白衬衫"), "commit入库真实衣物");
+    assert_result_matches_schema(&schema_of("imports.commit"), &committed, "commit");
+
+    let family = [
+        ("imports.create", "mutation", true),
+        ("imports.get", "query", false),
+        ("imports.list", "query", false),
+        ("imports.process", "mutation", true),
+        ("imports.group", "mutation", false),
+        ("imports.commit", "mutation", false),
+        ("imports.update", "mutation", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+}
