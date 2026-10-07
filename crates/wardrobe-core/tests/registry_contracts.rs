@@ -1781,3 +1781,82 @@ fn imports_family_effects_examples_and_runtime_output_contract() {
     ];
     assert_family_effects_and_examples(&descriptors, &family);
 }
+
+#[test]
+fn images_family_effects_examples_and_runtime_output_contract() {
+    // 真实本地图片：rotate/main/restore与model.status运行时输出对照声明schema
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("shirt.png");
+    image::RgbImage::from_pixel(48, 24, image::Rgb([247, 246, 242]))
+        .save(&source)
+        .unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let asset = app
+        .execute("assets.import", json!({"member_id":member,"path":source}))
+        .unwrap();
+    let clothing = app
+        .execute("clothing.create", json!({"member_id":member,"name":"白衬衣","category":"top"}))
+        .unwrap();
+    app.execute("assets.adopt", json!({"member_id":member,"asset_id":asset["id"],"clothing_id":clothing["id"]})).unwrap();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let status = app.execute("images.model.status", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("images.model.status"), &status, "model.status");
+    let rotated = app
+        .execute("images.rotate", json!({"member_id":member,"asset_id":asset["id"],"degrees":90}))
+        .unwrap();
+    assert_eq!(rotated["lineage"][0]["action"], json!("rotate"));
+    assert_result_matches_schema(&schema_of("images.rotate"), &rotated, "rotate");
+    let main = app
+        .execute("images.main", json!({"member_id":member,"clothing_id":clothing["id"],"asset_id":asset["id"]}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("images.main"), &main, "main");
+    let restored = app
+        .execute("images.restore", json!({"member_id":member,"asset_id":asset["id"]}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("images.restore"), &restored, "restore");
+
+    let family = [
+        ("images.rotate", "mutation", true),
+        ("images.restore", "mutation", true),
+        ("images.merge", "mutation", true),
+        ("images.replace", "mutation", false),
+        ("images.main", "mutation", false),
+        ("images.model.status", "query", true),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    let cutout = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("images.cutout"))
+        .unwrap();
+    let async_meta = cutout["effect"]["async"].as_object().expect("cutout须声明异步入队");
+    assert_eq!(async_meta["job_kind"], json!("local_cutout"));
+    assert_eq!(async_meta["process"], json!("images.worker.run"));
+    let worker = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("images.worker.run"))
+        .unwrap();
+    assert_eq!(
+        worker["effect"]["conditional_effects"][0]["effect"]["network"],
+        json!("model-download"),
+        "模型下载任务真实下载并校验SHA256"
+    );
+    // remaining：cutout/model.download运行时需真实模型文件，由既有行为测试覆盖；本测试不联网下载
+}
