@@ -5865,6 +5865,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hkdf 0.13.0",
+ "hmac 0.13.0",
  "image",
  "iso_currency",
  "keyring",
