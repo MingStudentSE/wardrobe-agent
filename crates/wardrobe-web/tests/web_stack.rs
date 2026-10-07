@@ -843,3 +843,62 @@ fn s4_batch_upload_rejects_oversize_and_leaves_no_residue() {
         "拒绝的批量不得残留临时文件"
     );
 }
+
+// ---------- S5：备份与恢复经 Web 会话（maintenance 通道，ADR0022 边界不变） ----------
+
+#[test]
+fn s5_backup_and_preview_drive_through_web_session() {
+    let data = tempfile::tempdir().unwrap();
+    let port = start(0, data.path(), None);
+    let (cookie, csrf, _token) = bootstrap_and_login(port, data.path());
+    let backup_dir = data.path().join("backups").join("pkg-1");
+    let clothing = session_post(
+        port,
+        &cookie,
+        Some(&csrf),
+        "/api",
+        serde_json::json!({"operation":"clothing.create","input":{"member_id":"default","name":"备份前的大衣","category":"outerwear"}})
+            .to_string(),
+    );
+    assert!(clothing.json()["result"]["id"].is_string(), "{}", clothing.text());
+    let queued = session_post(
+        port,
+        &cookie,
+        Some(&csrf),
+        "/api",
+        serde_json::json!({"operation":"backup.create","input":{"directory":backup_dir.display().to_string(),"include_originals":false}})
+            .to_string(),
+    );
+    assert_eq!(queued.status, 200, "{}", queued.text());
+    let job = queued.json()["result"]["id"].as_str().unwrap().to_string();
+    let driven = session_post(
+        port,
+        &cookie,
+        Some(&csrf),
+        "/api",
+        serde_json::json!({"operation":"maintenance.worker.run","input":{"id":job}}).to_string(),
+    );
+    assert_eq!(driven.json()["result"]["state"], serde_json::json!("succeeded"), "{}", driven.text());
+    let preview_queued = session_post(
+        port,
+        &cookie,
+        Some(&csrf),
+        "/api",
+        serde_json::json!({"operation":"backup.preview","input":{"directory":backup_dir.display().to_string()}})
+            .to_string(),
+    );
+    assert_eq!(preview_queued.status, 200, "{}", preview_queued.text());
+    let preview_job = preview_queued.json()["result"]["id"].as_str().unwrap().to_string();
+    let preview_done = session_post(
+        port,
+        &cookie,
+        Some(&csrf),
+        "/api",
+        serde_json::json!({"operation":"maintenance.worker.run","input":{"id":preview_job}}).to_string(),
+    );
+    assert_eq!(preview_done.json()["result"]["state"], serde_json::json!("succeeded"), "{}", preview_done.text());
+    let incoming = preview_done.json()["result"]["result"]["incoming"]["clothing"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("备份清单应含衣物计数：{}", preview_done.text()));
+    assert_eq!(incoming, 1, "备份应包含会话创建的单品");
+}
