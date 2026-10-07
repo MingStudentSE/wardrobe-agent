@@ -17,13 +17,18 @@ p.add_argument('prefix',type=pathlib.Path)
 p.add_argument('cli',type=pathlib.Path)
 p.add_argument('output',type=pathlib.Path)
 p.add_argument('--target',required=True)
-p.add_argument('--windows-crt-dir',type=pathlib.Path,help='Licensed MSVC app-local x64 CRT directory')
+p.add_argument('--platform',choices=('windows','linux','macos'),help='Target packaging platform for a cross-built native CLI; defaults to the host')
+crt=p.add_mutually_exclusive_group()
+crt.add_argument('--windows-crt-dir',type=pathlib.Path,help='Licensed MSVC app-local x64 CRT directory')
+crt.add_argument('--windows-static-crt',action='store_true',help='Cross-built Windows executables and decoder DLLs all use static CRT; caller must inspect PE imports')
 args=p.parse_args()
 output=args.output.resolve();output.mkdir(parents=True,exist_ok=True)
 portable=output/'portable';portable.mkdir(exist_ok=True)
 sidecar=output/'sidecar';sidecar.mkdir(exist_ok=True)
-windows=sys.platform=='win32';linux=sys.platform.startswith('linux');macos=sys.platform=='darwin'
+platform=args.platform or ('windows' if sys.platform=='win32' else 'linux' if sys.platform.startswith('linux') else 'macos' if sys.platform=='darwin' else '')
+windows=platform=='windows';linux=platform=='linux';macos=platform=='macos'
 if not windows and not linux and not macos:raise SystemExit('Unsupported native staging platform')
+if (windows and 'windows' not in args.target) or (linux and 'linux' not in args.target) or (macos and 'darwin' not in args.target):raise SystemExit('Target triple does not match packaging platform')
 extension='.exe' if windows else ''
 cli=portable/f'wardrobe-cli{extension}'
 shutil.copy2(args.cli.resolve(strict=True),cli)
@@ -37,11 +42,12 @@ if windows:
     for source in binaries:
         destination=runtime/source.name;shutil.copy2(source.resolve(strict=True),destination)
         resources[str(destination)]=destination.name
-    if args.windows_crt_dir is None:raise SystemExit('Windows app-local MSVC CRT directory is required')
-    crt=list(args.windows_crt_dir.glob('*.dll'))
-    if not any(v.name.lower()=='vcruntime140.dll' for v in crt):raise SystemExit('Missing x64 MSVC runtime')
-    for source in crt:
-        destination=runtime/source.name;shutil.copy2(source,destination);resources[str(destination)]=destination.name
+    if not args.windows_static_crt:
+        if args.windows_crt_dir is None:raise SystemExit('Windows app-local MSVC CRT directory is required unless --windows-static-crt is specified')
+        crt=list(args.windows_crt_dir.glob('*.dll'))
+        if not any(v.name.lower()=='vcruntime140.dll' for v in crt):raise SystemExit('Missing x64 MSVC runtime')
+        for source in crt:
+            destination=runtime/source.name;shutil.copy2(source,destination);resources[str(destination)]=destination.name
     for source in sorted((args.prefix/'share').glob('*/copyright')):
         destination=portable/'licenses'/source.parent.name/'copyright';destination.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,destination)
         resources[str(destination)]=f'licenses/{source.parent.name}/copyright'
@@ -84,7 +90,7 @@ bundle={'externalBin':[str(sidecar/'wardrobe-cli')]}
 if windows:
     bundle.update({'targets':['nsis'],'resources':resources})
 elif macos:
-    bundle.update({'targets':['app'],'macOS':{'minimumSystemVersion':'13.0','frameworks':[str(runtime/name) for name in ('libheif.1.dylib','libde265.0.dylib')]},'resources':resources})
+    bundle.update({'targets':['app','dmg'],'macOS':{'minimumSystemVersion':'13.0','frameworks':[str(runtime/name) for name in ('libheif.1.dylib','libde265.0.dylib')]},'resources':resources})
 else:
     bundle.update({'targets':['deb','appimage'],'linux':{'deb':{'files':files},'appimage':{'files':{k.lstrip('/'):v for k,v in files.items()}}}})
 (output/'tauri-media.json').write_text(json.dumps({'bundle':bundle},indent=2)+'\n')
