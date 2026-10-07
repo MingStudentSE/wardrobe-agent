@@ -12,6 +12,7 @@ const TABLES: &[&str] = &[
     "members",
     "workspace",
     "clothing",
+    "wardrobe_categories",
     "audit",
     "outbox",
     "assets",
@@ -947,7 +948,8 @@ impl Application {
                     .iter()
                     .copied()
                     .filter(|table| {
-                        !(actual_version < 20 && table.starts_with("learning_"))
+                        !(*table == "wardrobe_categories" && actual_version < 21)
+                            && !(actual_version < 20 && table.starts_with("learning_"))
                             && !(actual_version < 21
                                 && matches!(*table, "schedule_plans" | "schedule_executions"))
                     })
