@@ -102,7 +102,50 @@ impl Application {
                 }
                 _ => e.into(),
             })?;
-        let grant = parse_grant(&stored)?;
+        self.execute_as_grant_id(string(&parse_grant(&stored)?, "id")?, operation, input)
+    }
+
+    // Deferred tools retain a grant ID, never the raw bearer token. Resolve it
+    // afresh for each dispatch and reuse the same scope/member/revocation checks.
+    pub(super) fn execute_as_grant_id(
+        &self,
+        grant_id: &str,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, ApiError> {
+        if self.installation_changed()? {
+            return Application::open(std::path::Path::new(self.connection.path().unwrap()))?
+                .execute_as_grant_id(grant_id, operation, input);
+        }
+        if let Some(path) = self.redirected()? {
+            return Application::open(&path)?.execute_as_grant_id(grant_id, operation, input);
+        }
+        self.check_schema()?;
+        if !input.is_object() {
+            return Err(ApiError::new("invalid_input", "输入必须是JSON对象"));
+        }
+        let stored = self
+            .connection
+            .query_row(
+                "SELECT document FROM clients WHERE id=?1",
+                [grant_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    ApiError::new("unauthorized", "原始客户端授权不存在")
+                }
+                _ => error.into(),
+            })?;
+        self.execute_with_grant(parse_grant(&stored)?, operation, input)
+    }
+
+    fn execute_with_grant(
+        &self,
+        grant: Value,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, ApiError> {
         if grant["revoked"] == true {
             return Err(ApiError::new("authorization_revoked", "客户端授权已撤销"));
         }
