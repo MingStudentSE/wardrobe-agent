@@ -133,7 +133,8 @@ impl Application {
         let tx = self.begin_write()?;
         let previous:Option<(String,String)>=tx.query_row("SELECT request,result FROM sync_resolution_receipts WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         if let Some((request, result)) = previous {
-            if request != input.to_string() {
+            let serialized_request = input.to_string();
+            if request != serialized_request {
                 return Err(error("operation_key_conflict"));
             }
             return serde_json::from_str(&result).map_err(|_| error("storage_error"));

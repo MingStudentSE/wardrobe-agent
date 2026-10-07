@@ -157,14 +157,7 @@ fn items(doc: &Value, member: &str, outfit: bool) -> Result<(), ApiError> {
     check(!items.is_empty() && items.len() <= 100)?;
     let mut seen = std::collections::BTreeSet::new();
     for item in items {
-        fields(
-            item,
-            if outfit {
-                &["clothing_id", "role", "layer", "snapshot"]
-            } else {
-                &["clothing_id", "role", "layer", "snapshot"]
-            },
-        )?;
+        fields(item, &["clothing_id", "role", "layer", "snapshot"])?;
         id(item, "clothing_id")?;
         check(seen.insert(string(item, "clothing_id")?.to_owned()))?;
         if outfit || item.get("role").is_some() {

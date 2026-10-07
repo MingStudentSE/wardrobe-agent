@@ -1,3 +1,8 @@
+#[path = "feedback_snapshot.rs"]
+mod snapshot;
+pub(crate) fn validate_snapshot(doc: &Value) -> Result<(), ApiError> {
+    snapshot::validate(doc)
+}
 use crate::{string, ApiError, Application};
 use chrono::{TimeZone, Utc};
 use rusqlite::{params, OptionalExtension, Transaction};
@@ -67,6 +72,7 @@ pub(super) fn validate_stored_document(
     db: &rusqlite::Connection,
     doc: &Value,
 ) -> Result<(), ApiError> {
+    validate_snapshot(doc)?;
     let kind = reaction(&doc["reaction"])?;
     if doc["schema_version"] != 1
         || !doc["revoked"].is_boolean()
@@ -106,37 +112,34 @@ pub(super) fn validate_stored_document(
         chrono::DateTime::parse_from_rfc3339(string(doc, field)?)
             .map_err(|_| invalid("反馈观察时间损坏"))?;
     }
-    let raw: Option<String> = db
+    // Synced feedback carries its immutable snapshot, while private intents stay local.
+    // A UUID present for another member is a mismatch, never an absent-source fallback.
+    let source: Option<(String, String)> = db
         .query_row(
-            "SELECT document FROM recommendation_intents WHERE id=?1 AND member_id=?2",
-            params![string(doc, "intent_id")?, member],
-            |r| r.get(0),
+            "SELECT member_id,document FROM recommendation_intents WHERE id=?1",
+            [string(doc, "intent_id")?],
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
-    let intent = parse(raw.ok_or_else(|| invalid("反馈来源意图不存在"))?)?;
-    let index = doc["proposal_index"]
-        .as_u64()
-        .ok_or_else(|| invalid("反馈方案序号损坏"))? as usize;
-    if intent["proposals"].as_array().and_then(|v| v.get(index)) != Some(&doc["proposal"])
-        || doc["controls"] != intent["controls"]
-    {
-        return Err(invalid("反馈方案与不可变意图不符"));
+    if let Some((source_member, raw)) = source {
+        if source_member != member {
+            return Err(invalid("反馈来源意图成员不符"));
+        }
+        let intent = parse(raw)?;
+        let index = doc["proposal_index"]
+            .as_u64()
+            .ok_or_else(|| invalid("反馈方案序号损坏"))? as usize;
+        if intent["proposals"].as_array().and_then(|v| v.get(index)) != Some(&doc["proposal"])
+            || doc["controls"] != intent["controls"]
+        {
+            return Err(invalid("反馈方案与不可变意图不符"));
+        }
     }
     let items = doc["proposal"]["items"]
         .as_array()
         .ok_or_else(|| invalid("反馈方案损坏"))?;
-    let snapshots = doc["inventory_snapshots"]
-        .as_array()
-        .ok_or_else(|| invalid("反馈观察快照损坏"))?;
-    if snapshots.len() != items.len() {
-        return Err(invalid("反馈观察快照数量不符"));
-    }
-    for (snapshot, item) in snapshots.iter().zip(items) {
-        crate::clothing::validate_stored_document(snapshot)?;
-        if snapshot["id"] != item["clothing_id"] || snapshot["member_id"] != member {
-            return Err(invalid("反馈观察快照身份不符"));
-        }
-    }
+    // Shared intrinsic validation already checks exact snapshot IDs, uniqueness,
+    // cardinality, clothing documents and member ownership without imposing order.
     if kind == "day_exclude" {
         selected(&doc["proposal"], &doc["clothing_ids"])?;
         let scope = &doc["day_scope"];

@@ -354,7 +354,8 @@ impl Application {
             )
             .optional()?;
         if let Some(prior) = prior {
-            if prior != op.to_string() {
+            let serialized_op = op.to_string();
+            if prior != serialized_op {
                 return Err(error("sync_identity_conflict"));
             }
             return Ok(());
