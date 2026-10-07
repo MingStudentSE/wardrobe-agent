@@ -89,3 +89,12 @@
 - **受保护分类删除（Protected Category Delete）**：默认分类不可删除；删除自定义分类先在同一事务把引用它的单品迁入其他并保留审计，再写分类墓碑。对端按序收到迁移与墓碑后分类列表与源端一致。
 - **资产发现预算（Asset Discovery Budget）**：每次同步批对每个 blob 目录最多消费固定页数的列举，位置持久化并在耗尽时回卷；已登记的 blob commit 键不再重复解密。已处理提交事后损坏不阻塞后续同步，未处理提交损坏仍整体失败。
 - **发布标记门槛（Publication Marker Gate）**：只有 `.commit` 标记可见的对象才会被对端发现；对象损坏或被截断时同步整体失败，不应用该对象的部分字节，修复后同一日志继续收敛。
+
+
+## S3-compatible sync backend
+
+- **同步传输适配器（Sync Transport Adapter）**：实现统一 `SyncStorage` 契约（能力声明、分页列举、stat/get/put/delete）的传输后端；本地文件夹与 S3-compatible 对象存储共用同一契约，切换适配器不改变加密协议、包白名单与领域结果。
+- **条件写探测（Conditional Write Probe）**：适配器构造期对真实服务器验证 `If-None-Match:*`（CreateOnly）是否被强制执行；服务器忽略条件头或不支持时以 `storage_unsupported` 明确拒绝，绝不静默改写发布语义。
+- **ETag 版本（ETag Version）**：S3 对象的 ETag 只作为条件写协调（`If-Match`/`If-None-Match`）的版本标识，绝不当内容 hash；完整性始终由同步协议的 sha256 摘要（对象→marker 两步发布与读取校验）承担。
+- **重试预算（Retry Budget）**：网络错误、超时与 5xx（含 503 SlowDown）在首试后最多自动重试 2 次并遵守 Retry-After；预算耗尽映射 `storage_transient`。认证失败（401/403）映射 `storage_auth`，缺失对象映射 `storage_not_found`，不混用。
+- **同步目标凭据（Sync Target Credential）**：S3 目标的访问密钥只保存在 OS 安全存储（keyring），按目标键分账户；配置输出、事实库、日志与同步包字节中不得出现。

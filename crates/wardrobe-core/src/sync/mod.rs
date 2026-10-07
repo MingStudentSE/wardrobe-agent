@@ -12,6 +12,7 @@ mod publication;
 pub(crate) mod schedule;
 mod schema;
 pub mod storage;
+pub mod storage_s3;
 mod worker;
 use crate::{string, ApiError, Application};
 use rusqlite::{params, OptionalExtension, Transaction};
@@ -19,6 +20,67 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Read, path::Path};
 use storage::{LocalFolder, SyncStorage, WriteCondition};
+use storage_s3::{S3Credentials, S3Objects, S3Target};
+
+/// 同步目标访问凭据在 OS 安全存储中的服务名（secret 为 JSON，含两组键）。
+const SYNC_CREDENTIAL_SERVICE: &str = "wardrobe-agent.sync";
+
+/// 从已配置目标文档构造传输适配器；S3 凭据仅从 keyring 读取。
+pub(crate) fn storage_from_target(target: &Value) -> Result<Box<dyn SyncStorage>, ApiError> {
+    match string(target, "provider_kind")? {
+        "local_folder" => Ok(Box::new(LocalFolder::new(Path::new(string(
+            target,
+            "directory",
+        )?))?)),
+        "s3" => {
+            let credentials = sync_credentials(string(target, "target_key")?)?;
+            Ok(Box::new(S3Objects::new(
+                S3Target {
+                    endpoint: string(target, "endpoint")?.to_string(),
+                    region: target["region"].as_str().unwrap_or("us-east-1").to_string(),
+                    bucket: string(target, "bucket")?.to_string(),
+                    prefix: target["prefix"].as_str().unwrap_or_default().to_string(),
+                    path_style: target["path_style"].as_bool().unwrap_or(true),
+                },
+                credentials,
+            )?))
+        }
+        _ => Err(error("storage_unsupported")),
+    }
+}
+
+/// 凭据写入 OS 安全存储（keyring）。事实库与配置输出永不包含 secret。
+fn store_sync_credentials(
+    target_key: &str,
+    access_key_id: &str,
+    secret_access_key: &str,
+) -> Result<(), ApiError> {
+    let entry = keyring::Entry::new(SYNC_CREDENTIAL_SERVICE, target_key)
+        .map_err(|_| error("storage_error"))?;
+    entry
+        .set_password(
+            &json!({"access_key_id":access_key_id,"secret_access_key":secret_access_key})
+                .to_string(),
+        )
+        .map_err(|_| ApiError::new("storage_error", "无法写入系统安全存储"))
+}
+
+/// 从 OS 安全存储读取该目标的 S3 访问凭据。
+fn sync_credentials(target_key: &str) -> Result<S3Credentials, ApiError> {
+    let entry = keyring::Entry::new(SYNC_CREDENTIAL_SERVICE, target_key)
+        .map_err(|_| error("storage_error"))?;
+    let password = entry.get_password().map_err(|_| {
+        ApiError::new(
+            "storage_auth",
+            "未找到该同步目标的访问凭据，请重新执行同步配置",
+        )
+    })?;
+    let value: Value = serde_json::from_str(&password).map_err(|_| error("storage_error"))?;
+    Ok(S3Credentials {
+        access_key_id: string(&value, "access_key_id")?.to_string(),
+        secret_access_key: string(&value, "secret_access_key")?.to_string(),
+    })
+}
 const TABLES: [&str; 12] = [
     "members",
     "clothing",
@@ -604,7 +666,17 @@ impl Application {
     }
     pub(crate) fn sync_operation(&self, op: &str, input: Value) -> Result<Value, ApiError> {
         let allowed: &[&str] = match op {
-            "sync.configure" => &["provider_kind", "directory"],
+            "sync.configure" => &[
+                "provider_kind",
+                "directory",
+                "endpoint",
+                "region",
+                "bucket",
+                "prefix",
+                "path_style",
+                "access_key_id",
+                "secret_access_key",
+            ],
             "sync.run" => &["operation_key"],
             "sync.process" => &["id"],
             "sync.status" => &[],
@@ -653,22 +725,91 @@ impl Application {
                 Ok(json!({"schema_version":1,"items":items}))
             }
             "sync.configure" => {
-                if input["provider_kind"] != "local_folder" {
-                    return Err(error("storage_unsupported"));
-                }
-                let directory = std::fs::canonicalize(string(&input, "directory")?)
-                    .map_err(|_| error("storage_not_found"))?;
-                let local = std::fs::canonicalize(
-                    self.asset_root
-                        .parent()
-                        .ok_or_else(|| error("storage_error"))?,
-                )
-                .map_err(|_| error("storage_error"))?;
-                if directory.starts_with(local) {
-                    return Err(error("invalid_input"));
-                }
                 let identity = self.sync_identity()?;
-                LocalFolder::new(&directory)?;
+                let target = match string(&input, "provider_kind")? {
+                    "local_folder" => {
+                        if [
+                            "endpoint",
+                            "region",
+                            "bucket",
+                            "prefix",
+                            "path_style",
+                            "access_key_id",
+                            "secret_access_key",
+                        ]
+                        .iter()
+                        .any(|k| input.get(*k).is_some())
+                        {
+                            return Err(error("invalid_input"));
+                        }
+                        let directory = std::fs::canonicalize(string(&input, "directory")?)
+                            .map_err(|_| error("storage_not_found"))?;
+                        let local = std::fs::canonicalize(
+                            self.asset_root
+                                .parent()
+                                .ok_or_else(|| error("storage_error"))?,
+                        )
+                        .map_err(|_| error("storage_error"))?;
+                        if directory.starts_with(local) {
+                            return Err(error("invalid_input"));
+                        }
+                        LocalFolder::new(&directory)?;
+                        json!({"id":"primary","target_key":digest(json!({"directory":directory,"space_id":identity["space_id"]}).to_string().as_bytes()),"provider_kind":"local_folder","directory":directory})
+                    }
+                    "s3" => {
+                        if input.get("directory").is_some() {
+                            return Err(error("invalid_input"));
+                        }
+                        let access_key_id = string(&input, "access_key_id")?.to_string();
+                        let secret_access_key = string(&input, "secret_access_key")?.to_string();
+                        if access_key_id.is_empty() || secret_access_key.is_empty() {
+                            return Err(error("invalid_input"));
+                        }
+                        let connection = json!({
+                            "endpoint": string(&input, "endpoint")?,
+                            "region": input["region"].as_str().unwrap_or("us-east-1"),
+                            "bucket": string(&input, "bucket")?,
+                            "prefix": input["prefix"].as_str().unwrap_or_default(),
+                            "path_style": input["path_style"].as_bool().unwrap_or(true),
+                        });
+                        let target_key = digest(
+                            json!({"connection":connection,"space_id":identity["space_id"]})
+                                .to_string()
+                                .as_bytes(),
+                        );
+                        // 配置期即构造适配器：能力探测与认证校验前置，
+                        // 失败则整次配置不生效（不静默半配置）。
+                        let adapter = S3Objects::new(
+                            S3Target {
+                                endpoint: string(&connection, "endpoint")?.to_string(),
+                                region: string(&connection, "region")?.to_string(),
+                                bucket: string(&connection, "bucket")?.to_string(),
+                                prefix: string(&connection, "prefix")?.to_string(),
+                                path_style: connection["path_style"]
+                                    .as_bool()
+                                    .unwrap_or(true),
+                            },
+                            S3Credentials {
+                                access_key_id: access_key_id.clone(),
+                                secret_access_key: secret_access_key.clone(),
+                            },
+                        )?;
+                        drop(adapter);
+                        // 凭据只进 OS 安全存储（keyring），不进事实库与日志。
+                        store_sync_credentials(&target_key, &access_key_id, &secret_access_key)?;
+                        json!({
+                            "id":"primary",
+                            "target_key":target_key,
+                            "provider_kind":"s3",
+                            "endpoint":connection["endpoint"],
+                            "region":connection["region"],
+                            "bucket":connection["bucket"],
+                            "prefix":connection["prefix"],
+                            "path_style":connection["path_style"],
+                        })
+                    }
+                    _ => return Err(error("storage_unsupported")),
+                };
                 let tx = self.begin_write()?;
                 for table in TABLES {
                     tx.execute(
@@ -677,7 +818,6 @@ impl Application {
                     )?;
                 }
 
-                let target = json!({"id":"primary","target_key":digest(json!({"directory":directory,"space_id":identity["space_id"]}).to_string().as_bytes()),"provider_kind":"local_folder","directory":directory});
                 tx.execute("INSERT INTO sync_targets VALUES('primary',?1) ON CONFLICT(id) DO UPDATE SET document=excluded.document",[target.to_string()])?;
                 tx.commit()?;
                 Ok(json!({"schema_version":1,"target":target}))
@@ -748,7 +888,7 @@ impl Application {
             )
             .map_err(|_| error("sync_not_configured"))?;
         let target: Value = serde_json::from_str(&target).map_err(|_| error("storage_error"))?;
-        let storage = LocalFolder::new(Path::new(string(&target, "directory")?))?;
+        let storage = storage_from_target(&target)?;
         let target_key = target["target_key"]
             .as_str()
             .map(str::to_owned)
@@ -802,8 +942,8 @@ impl Application {
             tx.execute("INSERT INTO sync_bootstrap_ids VALUES(?1)", [op_id])?;
         }
         tx.commit()?;
-        self.sync_publish_assets(&storage, &identity)?;
-        self.sync_discover_assets(&storage, &identity)?;
+        self.sync_publish_assets(storage.as_ref(), &identity)?;
+        self.sync_discover_assets(storage.as_ref(), &identity)?;
         let mut stmt=self.connection.prepare("SELECT id,op_id,device,entity_type,entity_id,before_doc,after_doc,base,clock,EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0 ORDER BY id LIMIT 256")?;
         let rows = stmt
             .query_map([&target_key], |r| {
@@ -852,7 +992,7 @@ impl Application {
             self.connection
                 .execute("UPDATE sync_journal SET registered=1 WHERE id=?1", [row])?;
             if !published {
-                self.sync_publish_operation(&storage, &prefix, &target_key, &op)?;
+                self.sync_publish_operation(storage.as_ref(), &prefix, &target_key, &op)?;
                 sent += 1;
             }
         }
@@ -863,12 +1003,12 @@ impl Application {
         drop(forwarded);
         for document in original_ops {
             let op: Value = serde_json::from_str(&document).map_err(|_| error("sync_invalid"))?;
-            self.sync_publish_operation(&storage, &prefix, &target_key, &op)?;
+            self.sync_publish_operation(storage.as_ref(), &prefix, &target_key, &op)?;
             sent += 1;
         }
-        self.sync_publish_index(&storage, &identity, &target_key, &prefix)?;
+        self.sync_publish_index(storage.as_ref(), &identity, &target_key, &prefix)?;
         let (indexed_objects, indexed_more) =
-            self.sync_index_objects(&storage, &identity, &target_key, &prefix)?;
+            self.sync_index_objects(storage.as_ref(), &identity, &target_key, &prefix)?;
         let mut received = 0;
         let mut quarantined = 0;
         let mut incoming_count = 0usize;
@@ -883,7 +1023,7 @@ impl Application {
                         cursor: None,
                     }
                 } else {
-                    storage.list(&prefix, cursor.as_deref(), 64)?
+                    storage.as_ref().list(&prefix, cursor.as_deref(), 64)?
                 };
                 for object in page.items {
                     if !object.key.ends_with(".commit") {
@@ -901,10 +1041,10 @@ impl Application {
                         break 'incoming;
                     }
                     incoming_count += 1;
-                    let marker: Value = serde_json::from_slice(&bounded(&storage, &object.key)?)
+                    let marker: Value = serde_json::from_slice(&bounded(storage.as_ref(), &object.key)?)
                         .map_err(|_| error("storage_corrupt"))?;
                     let marker = self.sync_decrypt("changes", &marker)?;
-                    let bytes = bounded(&storage, string(&marker, "key")?)?;
+                    let bytes = bounded(storage.as_ref(), string(&marker, "key")?)?;
                     if marker["sha256"] != digest(&bytes) || marker["bytes"] != bytes.len() {
                         return Err(error("storage_corrupt"));
                     }
@@ -974,7 +1114,7 @@ impl Application {
         )?;
         received += replayed;
         quarantined += replay_quarantined;
-        let missing_assets = self.sync_fetch_assets(&storage)?;
+        let missing_assets = self.sync_fetch_assets(storage.as_ref())?;
         let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0) OR EXISTS(SELECT 1 FROM sync_inbox i WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=i.op_id)) OR EXISTS(SELECT 1 FROM sync_publications p JOIN sync_inbox i ON i.op_id=p.op_id WHERE p.target_id=?1 AND p.locally_published=1 AND NOT EXISTS(SELECT 1 FROM sync_index_entries e WHERE e.target_id=?1 AND e.epoch=?2 AND e.op_id=p.op_id))", params![target_key,identity["epoch"].as_u64().ok_or_else(||error("sync_invalid"))?],|r|r.get(0))?;
         Ok(
             json!({"schema_version":1,"sent":sent,"received":received,"pending":pending + missing_markers,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":bootstrap_more || has_more || incoming_more || (pending > 0 && (incoming_count == 256 || replayed + replay_quarantined > 0))}),
@@ -987,7 +1127,7 @@ pub(crate) fn descriptors() -> Vec<Value> {
         let mut properties=json!({});let mut required=vec![];
         if op=="run" {properties=json!({"operation_key":{"type":"string","minLength":1}});}
         if op=="process" {properties=json!({"id":{"type":"string","minLength":1}});required.push("id");}
-        if op=="configure" {properties=json!({"provider_kind":{"const":"local_folder"},"directory":{"type":"string","minLength":1}});required.extend(["provider_kind","directory"]);}
+        if op=="configure" {properties=json!({"provider_kind":{"enum":["local_folder","s3"]},"directory":{"type":"string","minLength":1},"endpoint":{"type":"string","minLength":1},"region":{"type":"string"},"bucket":{"type":"string","minLength":1},"prefix":{"type":"string"},"path_style":{"type":"boolean"},"access_key_id":{"type":"string","minLength":1},"secret_access_key":{"type":"string","minLength":1,"description":"仅经标准输入传输，写入系统安全存储"}});required.push("provider_kind");}
         if ["history","conflicts","resolve"].contains(&op) {properties["member_id"]=json!({"type":"string"});required.push("member_id");}
         if ["history","resolve"].contains(&op) {for key in ["entity_type","entity_id"] {properties[key]=json!({"type":"string"});required.push(key);}}
         if op=="resolve" {for key in ["field","expected_token","operation_key"] {properties[key]=json!({"type":"string","minLength":1});required.push(key);}properties["value"]=json!({});properties["branch_id"]=json!({"type":"string"});}

@@ -26,7 +26,7 @@ pub struct StorageCapabilities {
     pub conditional_write: bool,
     pub atomic_publication: bool,
 }
-pub trait SyncStorage {
+pub trait SyncStorage: Send {
     fn capabilities(&self) -> StorageCapabilities;
     fn list(&self, prefix: &str, cursor: Option<&str>, limit: usize) -> Result<Page, ApiError>;
     fn stat(&self, key: &str) -> Result<ObjectMeta, ApiError>;
@@ -41,6 +41,20 @@ pub trait SyncStorage {
 }
 fn err(code: &str) -> ApiError {
     ApiError::new(code, "同步存储操作失败，保留本地数据后重试")
+}
+/// 适配器共享的对象键契约：跨后端（本地文件夹/S3）一致地拒绝驱动器名、
+/// 绝对路径、非 Normal 分量与任何无法跨平台移植的分隔符，保证切换
+/// adapter 不改变哪些键合法。
+pub(super) fn valid_object_key(key: &str) -> bool {
+    !key.is_empty()
+        && !key.contains(':')
+        && !key.chars().any(char::is_control)
+        && Path::new(key)
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+        && key
+            .split('/')
+            .all(|p| !p.is_empty() && p != ".." && p != "." && !p.contains('\\'))
 }
 pub struct LocalFolder {
     root: PathBuf,
@@ -84,16 +98,7 @@ impl LocalFolder {
         Ok(file)
     }
     fn path(&self, key: &str) -> Result<PathBuf, ApiError> {
-        if key.is_empty()
-            || key.contains(':')
-            || key.chars().any(char::is_control)
-            || Path::new(key)
-                .components()
-                .any(|part| !matches!(part, std::path::Component::Normal(_)))
-            || key
-                .split('/')
-                .any(|p| p.is_empty() || p == ".." || p == "." || p.contains('\\'))
-        {
+        if !valid_object_key(key) {
             return Err(err("invalid_object_key"));
         }
         let mut p = self.root.clone();
