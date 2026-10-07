@@ -265,6 +265,38 @@ fn immutable(table: &str) -> bool {
 fn error(code: &str) -> ApiError {
     ApiError::new(code, "同步未完成，保留本地事实后重试")
 }
+/// Portable restore resets local transport progress along with local device trust.
+/// Business events and receipts are restored separately; old journals must never
+/// republish facts that were deliberately discarded by the restored snapshot.
+pub(crate) fn reset_after_restore(tx: &Transaction<'_>) -> Result<(), ApiError> {
+    for table in [
+        "sync_bootstrap",
+        "sync_index_read",
+        "sync_index_batches",
+        "sync_index_entries",
+        "sync_bootstrap_ids",
+        "sync_publications",
+        "sync_pending",
+        "sync_quarantine",
+        "sync_reassert",
+        "sync_resolution_receipts",
+        "sync_asset_queue",
+        "sync_immutable",
+        "sync_clock",
+        "sync_targets",
+        "sync_journal",
+        "sync_inbox",
+        "sync_fields",
+        "sync_cursors",
+        "sync_index_errors",
+        "sync_missing",
+    ] {
+        tx.execute_batch(&format!("DELETE FROM {table}"))?;
+    }
+    tx.execute("UPDATE sync_control SET applying=0 WHERE id=1", [])?;
+    Ok(())
+}
+
 pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     repair_immutable(tx)?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_bootstrap(space_id TEXT NOT NULL,table_name TEXT NOT NULL,last_row INTEGER NOT NULL DEFAULT 0,done INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(space_id,table_name))")?;
