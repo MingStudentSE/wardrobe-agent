@@ -38,3 +38,15 @@ test('确认记忆修改后的再次推荐使用新意图，未知响应重试�
  await page.getByRole('link',{name:'推荐',exact:true}).click();await rec.getByRole('button',{name:'生成离线搭配',exact:true}).click();await expect(rec.locator('.recommendation-proposal')).toContainText('后创建蓝上衣');expect((await call('wear.list')).items).toEqual([]);
  }finally{await expect(choice).toBeEnabled();await choice.selectOption({label:'我'});}
 });
+test('学习重算立即显示持久任务，重开可查询并明确取消而不发布画像',async({page})=>{
+ await page.goto('/');await page.getByText('管理成员档案',{exact:true}).click();const name=`异步学习-${Date.now()}`;await page.getByLabel('新成员名称').fill(name);await page.getByRole('button',{name:'创建成员',exact:true}).click();const choice=page.getByRole('combobox',{name:'当前成员',exact:true});await expect(choice.getByRole('option',{name,exact:true})).toBeAttached();const member=await choice.getByRole('option',{name,exact:true}).getAttribute('value');await expect(choice).toHaveValue(member!);
+ let release!:()=>void;const gate=new Promise<void>(resolve=>release=resolve);let workers=0;
+ await page.route('**/__wardrobe_dev_api',async route=>{if(route.request().postDataJSON().operation==='learning.worker.run'){workers++;await gate;}await route.continue();});
+ try{
+ await page.getByRole('link',{name:'记忆',exact:true}).click();const panel=page.locator('#learning');await panel.getByRole('button',{name:'查看偏好与记忆',exact:true}).click();
+ const receipt=page.waitForResponse(r=>r.request().postDataJSON()?.operation==='learning.recompute');await panel.getByRole('button',{name:'按当前边界重算',exact:true}).click();const body=await(await receipt).json();const id=body.result.job_id;expect(id).toBeTruthy();expect(body.result.state).toBe('queued');await expect(panel.getByRole('status')).toContainText(id);await expect.poll(()=>workers).toBe(1);
+ await page.reload();await page.getByRole('link',{name:'记忆',exact:true}).click();await panel.getByRole('button',{name:'查询或继续重算任务',exact:true}).click();await expect(panel.getByRole('region',{name:'学习重算任务'})).toContainText(id);await panel.getByRole('button',{name:'取消重算',exact:true}).click();await expect(panel.getByRole('status')).toContainText('已取消');release();
+ const call=async(operation:string,input:object={})=>(await(await page.request.post('/__wardrobe_dev_api',{data:{operation,input:{member_id:member,...input}}})).json()).result;
+ expect((await call('jobs.get',{id})).state).toBe('cancelled');expect((await call('learning.get')).inferred).toEqual([]);expect((await call('wear.list')).items).toEqual([]);
+ }finally{release();await expect(choice).toBeEnabled();await choice.selectOption({label:'我'});}
+});

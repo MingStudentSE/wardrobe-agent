@@ -1,0 +1,9 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 1.11s
+     Running tests/encrypted_package.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/encrypted_package-045f42afeeda4e33)
+
+running 1 test
+test paired_installation_reads_application_generated_ciphertext_package_without_original_or_local_secrets ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 3.38s
+

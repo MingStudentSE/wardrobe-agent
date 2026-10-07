@@ -11,3 +11,11 @@
 删除特征持久化suppression并立即移除当前影响；重置推断写入UTC记录时间边界，普通重算只读取边界之后记录的新有效事件。重置全部还追加显式偏好删除修订。事实事件永不删除。用户明确include_prior=true完整重建才清除suppression/边界并重新纳入此前历史，UI明确解释与确认，不由后台自动发生。管理历史保留修改审计，不让旧偏好重新生效。
 
 迁移实际创建learning_memories、learning_profiles、learning_state、learning_history、learning_receipts，无条件修复缺表，数据库max20。成员与客户端scope由共同Application入口执行；GUI/CLI/MCP同一descriptor。业务同步/备份白名单需包含管理边界与历史及来源，禁止携带providers/jobs/credentials；协同后续模块统一serializer，不另写catchall导出。
+
+### 持久重算任务与本机来源守卫
+
+`learning.recompute` 只在短事务中保存不可变请求及用户记忆边界，立即返回 `job_id`。GUI、CLI 与 MCP 使用同一个 `learning.worker.run`；GUI 另提供查询、继续及取消。worker 用 DEFERRED 快照读取事实，在写锁外计算、序列化，最后短 IMMEDIATE 事务同时验证租约、取消、记忆边界和来源版本，并原子发布画像、终态回执、审计与 outbox。排队或运行期间的重置、删除、事实修订不会被迟到结果覆盖。客户端执行或控制此类任务还须具有原 `learning.recompute` 操作及成员授权。
+
+五张学习业务表可移植；额外 `learning_source_versions` 是本机派生元数据，反馈与穿着事实的 SQLite 事务触发器维护 O(1) 来源版本，独立安装 generation 防止两机计数碰巧相等。该表、generation、租约、jobs 均不导出。备份仅移除画像顶层两个本机守卫字段，保留嵌套不可变证据；外来画像和来源变化后的旧画像可查看，但标记过期并不参与排序，须显式重算后启用。导入仍保留明确偏好、重置/删除边界与管理历史。
+
+DB19 已验收的 23 表备份继续受原严格白名单验证，学习默认空；DB20 必须完整包含新增五张表。学习领域校验验证算法、显式权重/维度、修订链、状态边界、成员、事实来源特征与可复算权重，以及收据请求和结果引用。加密文件包也采用明确的反馈、推荐意图和学习投影，只有历史已授权展示资产可携带；这是配对安装的文件包读取边界，不承担事实合并、调度或远程同步。

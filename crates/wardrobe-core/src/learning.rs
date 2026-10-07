@@ -6,6 +6,23 @@ const ALGORITHM: &str = "explicit-and-events-v1";
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS learning_state(member_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS learning_history(id TEXT PRIMARY KEY,member_id TEXT NOT NULL,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS learning_profiles(id TEXT PRIMARY KEY,member_id TEXT NOT NULL,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS learning_memories(id TEXT PRIMARY KEY,member_id TEXT NOT NULL,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS learning_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key));")?;
     tx.execute_batch("CREATE INDEX IF NOT EXISTS learning_memory_root ON learning_memories(member_id,json_extract(document,'$.root_id'),json_extract(document,'$.revision')); CREATE INDEX IF NOT EXISTS learning_profile_member ON learning_profiles(member_id,id); CREATE INDEX IF NOT EXISTS learning_history_member ON learning_history(member_id,id);")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS learning_source_versions(member_id TEXT PRIMARY KEY,version INTEGER NOT NULL);")?;
+    let has_generation = tx
+        .prepare("PRAGMA table_info(learning_source_versions)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|c| c == "generation");
+    if !has_generation {
+        tx.execute_batch("ALTER TABLE learning_source_versions ADD COLUMN generation TEXT;")?;
+    }
+    tx.execute("INSERT OR IGNORE INTO learning_source_versions(member_id,version,generation) VALUES('',0,?1)", [uuid::Uuid::now_v7().to_string()])?;
+    for table in ["feedback_events", "wear_events"] {
+        for action in ["INSERT", "UPDATE", "DELETE"] {
+            let row = if action == "DELETE" { "OLD" } else { "NEW" };
+            tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS learning_{table}_{action} AFTER {action} ON {table} BEGIN INSERT INTO learning_source_versions(member_id,version) VALUES({row}.member_id,1) ON CONFLICT(member_id) DO UPDATE SET version=version+1; END;"))?;
+        }
+    }
     Ok(())
 }
 fn parse(s: String) -> Result<Value, ApiError> {
@@ -203,7 +220,12 @@ impl Application {
     ) -> Result<(Value, LearningWeights), ApiError> {
         let profile = self.learning_execute("learning.get", json!({"member_id":member}))?;
         let mut weights = std::collections::BTreeMap::new();
-        for signal in profile["inferred"].as_array().into_iter().flatten() {
+        for signal in profile["inferred"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|_| profile["source_stale"] != true)
+        {
             weights.insert(
                 (
                     signal["dimension"].as_str().unwrap().to_owned(),
@@ -222,10 +244,134 @@ impl Application {
                 signal["weight"].as_i64().unwrap(),
             );
         }
-        let context = json!({"algorithm_version":ALGORITHM,"profile_id":profile["id"],"explicit_count":profile["explicit"].as_array().map(Vec::len).unwrap_or(0),"inferred_count":profile["inferred"].as_array().map(Vec::len).unwrap_or(0),"source":"managed_member_memory","hard_constraints_override":true});
+        let context = json!({"algorithm_version":ALGORITHM,"profile_id":profile["id"],"explicit_count":profile["explicit"].as_array().map(Vec::len).unwrap_or(0),"inferred_count":profile["inferred"].as_array().map(Vec::len).unwrap_or(0),"source":"managed_member_memory","hard_constraints_override":true,"inferred_source_stale":profile["source_stale"]});
         Ok((context, weights))
     }
-    fn learning_recompute(&self, input: Value) -> Result<Value, ApiError> {
+    fn learning_enqueue(&self, input: Value) -> Result<Value, ApiError> {
+        let member = self.member(&input)?;
+        let key = string(&input, "operation_key")?;
+        if key.trim().is_empty() || key.len() > 200 {
+            return Err(invalid("操作标识须为1–200字节"));
+        }
+        if input
+            .as_object()
+            .ok_or_else(|| invalid("须为对象"))?
+            .keys()
+            .any(|k| !["member_id", "operation_key", "include_prior"].contains(&k.as_str()))
+            || input.get("include_prior").is_some_and(|v| !v.is_boolean())
+        {
+            return Err(invalid("重算包含未知字段或无效完整重建选择"));
+        }
+        let tx = self.begin_write()?;
+        let existing:Option<String>=tx.query_row("SELECT document FROM jobs WHERE member_id=?1 AND kind='learning_recompute' AND operation_key=?2",params![member,key],|r|r.get(0)).optional()?;
+        let job = if let Some(stored) = existing {
+            let job = parse(stored)?;
+            if job["payload"]["request"] != input {
+                return Err(ApiError::new(
+                    "idempotency_conflict",
+                    "重算标识不能改变输入",
+                ));
+            }
+            job
+        } else {
+            super::jobs::insert(
+                &tx,
+                &member,
+                "learning_recompute",
+                key,
+                json!({"request":input,"expected_state":self.learning_state(&member)?}),
+            )?
+        };
+        tx.commit()?;
+        Ok(
+            json!({"schema_version":1,"member_id":member,"job_id":job["id"],"state":job["state"],"result":job["result"]}),
+        )
+    }
+    fn learning_worker(&self, input: Value) -> Result<Value, ApiError> {
+        if input
+            .as_object()
+            .ok_or_else(|| invalid("须为对象"))?
+            .keys()
+            .any(|k| !["member_id", "job_id"].contains(&k.as_str()))
+        {
+            return Err(invalid("worker包含未知字段"));
+        }
+        let member = self.member(&input)?;
+        let id = string(&input, "job_id")?;
+        let existing = self.job_get(json!({"member_id":member,"id":id}))?;
+        if existing["kind"] != "learning_recompute" {
+            return Err(invalid("不是画像重算任务"));
+        }
+        if ["succeeded", "failed", "cancelled", "waiting_input"]
+            .contains(&existing["state"].as_str().unwrap_or(""))
+        {
+            return Ok(existing);
+        }
+        let claimed = self.job_claim(&member, id, 300)?;
+        let lease = claimed["lease_token"].as_str().unwrap();
+        let result = self.learning_recompute(
+            claimed["payload"]["request"].clone(),
+            id,
+            lease,
+            &claimed["payload"]["expected_state"],
+        );
+        match result {
+            Ok(profile) => {
+                let job = self.job_get(json!({"member_id":member,"id":id}))?;
+                if job["state"] == "succeeded" {
+                    Ok(job)
+                } else {
+                    self.job_finish(
+                        &member,
+                        id,
+                        lease,
+                        "succeeded",
+                        json!({"profile_id":profile["id"]}),
+                        Value::Null,
+                    )
+                }
+            }
+            Err(error) => {
+                let job = self.job_get(json!({"member_id":member,"id":id}))?;
+                if error.code == "lease_lost" {
+                    return Ok(job);
+                }
+                self.job_finish(
+                    &member,
+                    id,
+                    lease,
+                    "failed",
+                    Value::Null,
+                    json!({"code":error.code,"message":error.message,"retryable":false}),
+                )
+            }
+        }
+    }
+    fn learning_generation(&self) -> Result<String, ApiError> {
+        Ok(self.connection.query_row(
+            "SELECT generation FROM learning_source_versions WHERE member_id=''",
+            [],
+            |r| r.get(0),
+        )?)
+    }
+    fn learning_source_version(&self, member: &str) -> Result<i64, ApiError> {
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT version FROM learning_source_versions WHERE member_id=?1",
+                [member],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(0))
+    }
+    fn learning_recompute(
+        &self,
+        input: Value,
+        job_id: &str,
+        lease: &str,
+        expected_state: &Value,
+    ) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
         let key = string(&input, "operation_key")?;
         if key.is_empty() || key.len() > 200 {
@@ -241,14 +387,29 @@ impl Application {
         }
         let tx = rusqlite::Transaction::new_unchecked(
             &self.connection,
-            rusqlite::TransactionBehavior::Immediate,
+            rusqlite::TransactionBehavior::Deferred,
         )?;
         let old:Option<(String,String)>=tx.query_row("SELECT request,result FROM learning_receipts WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         if let Some((request, result)) = old {
             if parse(request)? != input {
                 return Err(ApiError::new("idempotency_conflict", "操作标识已使用"));
             }
-            return parse(result);
+            let cached = parse(result)?;
+            if let Some(id) = cached["profile_id"].as_str() {
+                let saved: Option<String> = tx
+                    .query_row(
+                        "SELECT document FROM learning_profiles WHERE member_id=?1 AND id=?2",
+                        params![member, id],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                return parse(
+                    saved.ok_or_else(|| {
+                        ApiError::new("storage_error", "重算收据引用的画像不可用")
+                    })?,
+                );
+            }
+            return Ok(cached);
         }
         let include_prior = input
             .get("include_prior")
@@ -258,10 +419,17 @@ impl Application {
             })
             .transpose()?
             .unwrap_or(false);
-        let mut state = self.learning_state(&member)?;
+        let observed_state = self.learning_state(&member)?;
+        if observed_state != *expected_state {
+            return Err(ApiError::new(
+                "memory_changed",
+                "记忆边界已更新，请明确发起新的重算",
+            ));
+        }
+        let source_version = self.learning_source_version(&member)?;
+        let mut state = observed_state.clone();
         if include_prior {
             state = json!({"cutoff":null,"suppressed":[]});
-            tx.execute("INSERT INTO learning_state VALUES(?1,?2) ON CONFLICT(member_id) DO UPDATE SET document=excluded.document",params![member,state.to_string()])?;
         }
         let cutoff = state["cutoff"].as_str();
         type Signal = (
@@ -355,33 +523,70 @@ impl Application {
         }
         let inferred:Vec<Value>=signals.into_iter().filter(|((dimension,value),_)|!state["suppressed"].as_array().into_iter().flatten().any(|v|v["dimension"]==*dimension&&v["value"]==*value)).map(|((dimension,value),(weight,feedback_ids,wear_ids))|json!({"dimension":dimension,"value":value,"weight":weight.clamp(-5,5),"source":{"kind":"inferred_events","feedback_ids":feedback_ids,"wear_ids":wear_ids},"algorithm_version":ALGORITHM})).collect();
         let id = uuid::Uuid::now_v7().to_string();
-        let doc = json!({"schema_version":1,"id":id,"member_id":member,"algorithm_version":ALGORITHM,"inferred":inferred,"reset_boundary":state["cutoff"],"include_prior":include_prior,"created_at":chrono::Utc::now().to_rfc3339()});
+        let doc = json!({"schema_version":1,"id":id,"member_id":member,"algorithm_version":ALGORITHM,"inferred":inferred,"reset_boundary":state["cutoff"],"include_prior":include_prior,"local_source_version":source_version,"local_installation_generation":self.learning_generation()?,"created_at":chrono::Utc::now().to_rfc3339()});
+        let serialized = doc.to_string();
+        tx.commit()?;
+        let tx = self.begin_write()?;
+        let mut job = self.job_get(json!({"member_id":member,"id":job_id}))?;
+        if job["state"] != "running"
+            || job["lease_token"] != lease
+            || job["lease_expires"].as_i64().unwrap_or(0) <= chrono::Utc::now().timestamp_millis()
+        {
+            return Err(ApiError::new("lease_lost", "画像任务已取消或lease失效"));
+        }
+        if self.learning_state(&member)? != observed_state
+            || self.learning_source_version(&member)? != source_version
+        {
+            return Err(ApiError::new(
+                "memory_changed",
+                "事件或记忆边界已变化，未发布迟到画像，请明确重新计算",
+            ));
+        }
+        if include_prior {
+            tx.execute("INSERT INTO learning_state VALUES(?1,?2) ON CONFLICT(member_id) DO UPDATE SET document=excluded.document",params![member,state.to_string()])?;
+        }
         tx.execute(
             "INSERT INTO learning_profiles VALUES(?1,?2,?3)",
-            params![id, member, doc.to_string()],
+            params![id, member, serialized],
         )?;
         tx.execute(
             "INSERT INTO learning_receipts VALUES(?1,?2,?3,?4)",
-            params![member, key, input.to_string(), doc.to_string()],
+            params![
+                member,
+                key,
+                input.to_string(),
+                json!({"profile_id":id}).to_string()
+            ],
         )?;
         tx.execute(
             "INSERT INTO learning_history VALUES(?1,?2,?3)",
-            params![id, member, doc.to_string()],
+            params![id, member, json!({"schema_version":1,"id":id,"member_id":member,"operation":"learning.recompute","profile_id":id,"algorithm_version":ALGORITHM,"created_at":doc["created_at"]}).to_string()],
         )?;
         tx.execute(
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'learning.recompute',?2)",
-            params![id, doc.to_string()],
+            params![id, json!({"schema_version":1,"id":id,"member_id":member,"profile_id":id,"algorithm_version":ALGORITHM,"created_at":doc["created_at"]}).to_string()],
         )?;
         tx.execute(
             "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![id, doc.to_string()],
+            params![id, serialized],
         )?;
+        job["state"] = json!("succeeded");
+        job["progress"] = json!(100);
+        job["result"] = json!({"profile_id":id});
+        job["error"] = Value::Null;
+        job["lease_token"] = Value::Null;
+        job["lease_expires"] = json!(0);
+        job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
+        super::jobs::save(&tx, &job)?;
         tx.commit()?;
         Ok(doc)
     }
     pub(super) fn learning_execute(&self, op: &str, mut input: Value) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
         input["member_id"] = json!(member);
+        if op == "learning.worker.run" {
+            return self.learning_worker(input);
+        }
         if op == "learning.history" {
             if input
                 .as_object()
@@ -436,7 +641,7 @@ impl Application {
             return self.learning_manage(op, input);
         }
         if op == "learning.recompute" {
-            return self.learning_recompute(input);
+            return self.learning_enqueue(input);
         }
         if op == "learning.get" {
             if input
@@ -457,6 +662,13 @@ impl Application {
             let saved:Option<String>=self.connection.query_row("SELECT document FROM learning_profiles WHERE member_id=?1 ORDER BY id DESC LIMIT 1",[&member],|r|r.get(0)).optional()?;
             let mut profile=saved.map(parse).transpose()?.unwrap_or_else(||json!({"schema_version":1,"member_id":member,"inferred":[],"algorithm_version":ALGORITHM}));
             profile["explicit"] = json!(explicit);
+            profile["source_stale"] = json!(
+                profile.get("id").is_some()
+                    && (profile["local_installation_generation"].as_str()
+                        != Some(self.learning_generation()?.as_str())
+                        || profile["local_source_version"].as_i64()
+                            != Some(self.learning_source_version(&member)?))
+            );
             return Ok(profile);
         }
         if op != "learning.set" {
@@ -558,15 +770,249 @@ impl Application {
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
-    ["get","set","edit","delete","reset","recompute","history"].into_iter().map(|op|{
+    ["get","set","edit","delete","reset","recompute","history","worker.run"].into_iter().map(|op|{
  let mut props=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
- if !["get","history"].contains(&op){props["operation_key"]=json!({"type":"string","minLength":1,"maxLength":200});required.push("operation_key");}
+ if !["get","history","worker.run"].contains(&op){props["operation_key"]=json!({"type":"string","minLength":1,"maxLength":200});required.push("operation_key");}
  if ["set","delete"].contains(&op){props["dimension"]=json!({"enum":["color","style","material","pattern","category","occasion"]});props["value"]=json!({"type":"string","minLength":1,"maxLength":100});required.extend(["dimension","value"]);}
  if ["set","edit"].contains(&op){props["weight"]=json!({"type":"integer","minimum":-5,"maximum":5});props["note"]=json!({"type":"string","maxLength":2000});required.push("weight");}
  if op=="edit"{props["root_id"]=json!({"type":"string"});props["expected_revision"]=json!({"type":"integer","minimum":1});required.extend(["root_id","expected_revision"]);}
  if op=="reset"{props["scope"]=json!({"enum":["inferred","all"]});required.push("scope");}
  if op=="recompute"{props["include_prior"]=json!({"type":"boolean","description":"明确重新纳入删除/重置前全部事实；否则保留删除和重置边界"});}
+ if op=="worker.run"{props["job_id"]=json!({"type":"string"});required.push("job_id");}
  if op=="history"{props["cursor"]=json!({"type":"string"});props["limit"]=json!({"type":"integer","minimum":1,"maximum":100});}
  json!({"name":format!("learning.{op}"),"description":"成员偏好与推断记忆管理，不改变事实","inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"]}})
  }).collect()
+}
+
+pub(super) fn validate_portable_document(
+    db: &rusqlite::Connection,
+    table: &str,
+    member: &str,
+    doc: &Value,
+) -> Result<(), ApiError> {
+    fn bad() -> ApiError {
+        ApiError::new("backup_invalid", "学习领域数据或来源引用损坏")
+    }
+    fn feature(v: &Value) -> bool {
+        matches!(
+            v["dimension"].as_str(),
+            Some("color" | "style" | "material" | "pattern" | "category" | "occasion")
+        ) && v["value"]
+            .as_str()
+            .is_some_and(|s| !s.trim().is_empty() && s.chars().count() <= 100)
+    }
+    fn state(v: &Value) -> bool {
+        (v["cutoff"].is_null()
+            || v["cutoff"]
+                .as_str()
+                .is_some_and(|s| chrono::DateTime::parse_from_rfc3339(s).is_ok()))
+            && v["suppressed"]
+                .as_array()
+                .is_some_and(|a| a.iter().all(feature))
+    }
+    let member_exists: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM members WHERE id=?1)",
+        [member],
+        |r| r.get(0),
+    )?;
+    if !member_exists {
+        return Err(bad());
+    }
+    if table == "learning_state" {
+        return if state(doc) { Ok(()) } else { Err(bad()) };
+    }
+    if !doc["created_at"]
+        .as_str()
+        .is_some_and(|v| chrono::DateTime::parse_from_rfc3339(v).is_ok())
+    {
+        return Err(bad());
+    }
+    if doc["member_id"] != member || doc["schema_version"] != 1 {
+        return Err(bad());
+    }
+    if table == "learning_memories" {
+        let revision = doc["revision"]
+            .as_u64()
+            .filter(|v| *v > 0)
+            .ok_or_else(bad)?;
+        if !feature(doc)
+            || !doc["weight"]
+                .as_i64()
+                .is_some_and(|v| (-5..=5).contains(&v))
+            || !doc["deleted"].is_boolean()
+            || doc["source"]["kind"] != "explicit_user"
+            || doc["algorithm_version"] != ALGORITHM
+            || !doc["note"]
+                .as_str()
+                .is_some_and(|s| s.chars().count() <= 2000)
+        {
+            return Err(bad());
+        }
+        let root = doc["root_id"].as_str().ok_or_else(bad)?;
+        let root_doc: Option<String> = db
+            .query_row(
+                "SELECT document FROM learning_memories WHERE member_id=?1 AND id=?2",
+                params![member, root],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let root_doc = parse(root_doc.ok_or_else(bad)?)?;
+        if root_doc["revision"] != 1
+            || root_doc["root_id"] != root
+            || root_doc["dimension"] != doc["dimension"]
+            || root_doc["value"] != doc["value"]
+        {
+            return Err(bad());
+        }
+        let current_count:i64=db.query_row("SELECT COUNT(*) FROM learning_memories WHERE member_id=?1 AND json_extract(document,'$.root_id')=?2 AND json_extract(document,'$.revision')=?3",params![member,root,revision],|r|r.get(0))?;
+        if current_count != 1 {
+            return Err(bad());
+        }
+        if revision == 1 && doc["id"] != root {
+            return Err(bad());
+        }
+        if revision > 1 {
+            let count:i64=db.query_row("SELECT COUNT(*) FROM learning_memories WHERE member_id=?1 AND json_extract(document,'$.root_id')=?2 AND json_extract(document,'$.revision')=?3",params![member,root,revision-1],|r|r.get(0))?;
+            if count != 1 {
+                return Err(bad());
+            }
+        }
+    }
+    if table == "learning_profiles" {
+        if doc["algorithm_version"] != ALGORITHM
+            || (!doc["reset_boundary"].is_null()
+                && !doc["reset_boundary"]
+                    .as_str()
+                    .is_some_and(|s| chrono::DateTime::parse_from_rfc3339(s).is_ok()))
+            || doc.get("include_prior").is_some_and(|v| !v.is_boolean())
+        {
+            return Err(bad());
+        }
+        let signals = doc["inferred"].as_array().ok_or_else(bad)?;
+        for signal in signals {
+            if signal["source"]["kind"] != "inferred_events"
+                || signal["algorithm_version"] != ALGORITHM
+            {
+                return Err(bad());
+            }
+            let mut total = 0i64;
+            if !feature(signal)
+                || !signal["weight"]
+                    .as_i64()
+                    .is_some_and(|v| (-5..=5).contains(&v))
+            {
+                return Err(bad());
+            }
+            for (key, source_table) in [
+                ("feedback_ids", "feedback_events"),
+                ("wear_ids", "wear_events"),
+            ] {
+                let ids = signal["source"][key].as_array().ok_or_else(bad)?;
+                let mut seen = std::collections::HashSet::new();
+                for id in ids {
+                    let id = id.as_str().ok_or_else(bad)?;
+                    if !seen.insert(id) {
+                        return Err(bad());
+                    }
+                    let exists: i64 = db.query_row(
+                        &format!(
+                            "SELECT COUNT(*) FROM {source_table} WHERE member_id=?1 AND id=?2"
+                        ),
+                        params![member, id],
+                        |r| r.get(0),
+                    )?;
+                    if exists != 1 {
+                        return Err(bad());
+                    }
+                    let raw: String = db.query_row(
+                        &format!(
+                            "SELECT document FROM {source_table} WHERE member_id=?1 AND id=?2"
+                        ),
+                        params![member, id],
+                        |r| r.get(0),
+                    )?;
+                    let event = parse(raw)?;
+                    let snapshots: Vec<Value> = if key == "wear_ids" {
+                        event["items"]
+                            .as_array()
+                            .ok_or_else(bad)?
+                            .iter()
+                            .map(|v| v["snapshot"].clone())
+                            .collect()
+                    } else {
+                        event["inventory_snapshots"]
+                            .as_array()
+                            .ok_or_else(bad)?
+                            .clone()
+                    };
+                    let dimension = signal["dimension"].as_str().ok_or_else(bad)?;
+                    if !snapshots.iter().any(|v| {
+                        v[dimension] == signal["value"]
+                            || v[dimension]
+                                .as_array()
+                                .is_some_and(|a| a.contains(&signal["value"]))
+                    }) {
+                        return Err(bad());
+                    }
+                    let scores = &event["scores"];
+                    let base = if key == "wear_ids" {
+                        1
+                    } else {
+                        match event["reaction"].as_str() {
+                            Some("like") => 2,
+                            Some("dislike") => -2,
+                            _ => 0,
+                        }
+                    };
+                    let mut weight = base + scores["overall"].as_i64().map(|v| v - 3).unwrap_or(0);
+                    if dimension == "material" {
+                        weight += scores["comfort"].as_i64().map(|v| v - 3).unwrap_or(0);
+                    }
+                    if ["color", "pattern", "style"].contains(&dimension) {
+                        weight += scores["style"].as_i64().map(|v| v - 3).unwrap_or(0);
+                    }
+                    if weight == 0 {
+                        return Err(bad());
+                    }
+                    total += weight;
+                }
+            }
+            if signal["weight"].as_i64() != Some(total.clamp(-5, 5)) {
+                return Err(bad());
+            }
+        }
+    }
+    if table == "learning_history" && doc.get("state").is_some() && !state(&doc["state"]) {
+        return Err(bad());
+    }
+    Ok(())
+}
+
+pub(super) fn validate_portable_receipts(db: &rusqlite::Connection) -> Result<(), ApiError> {
+    let mut st =
+        db.prepare("SELECT member_id,operation_key,request,result FROM learning_receipts")?;
+    let mut rows = st.query([])?;
+    while let Some(row) = rows.next()? {
+        let member: String = row.get(0)?;
+        let key: String = row.get(1)?;
+        let request = parse(row.get(2)?)?;
+        let result = parse(row.get(3)?)?;
+        let input = if request.get("operation").is_some() {
+            &request["input"]
+        } else {
+            &request
+        };
+        if input["member_id"] != member || input["operation_key"] != key || key.is_empty() {
+            return Err(ApiError::new("backup_invalid", "学习收据身份损坏"));
+        }
+        let id = result["profile_id"]
+            .as_str()
+            .or_else(|| result["id"].as_str())
+            .ok_or_else(|| ApiError::new("backup_invalid", "学习收据缺少结果身份"))?;
+        let exists:i64=db.query_row("SELECT (SELECT COUNT(*) FROM learning_profiles WHERE member_id=?1 AND id=?2)+(SELECT COUNT(*) FROM learning_memories WHERE member_id=?1 AND id=?2)+(SELECT COUNT(*) FROM learning_history WHERE member_id=?1 AND id=?2)",params![member,id],|r|r.get(0))?;
+        if exists < 1 || result.get("member_id").is_some_and(|v| v != &json!(member)) {
+            return Err(ApiError::new("backup_invalid", "学习收据来源不属成员"));
+        }
+    }
+    Ok(())
 }

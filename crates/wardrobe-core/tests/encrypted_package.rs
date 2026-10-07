@@ -76,6 +76,23 @@ fn paired_installation_reads_application_generated_ciphertext_package_without_or
     let care=owner.execute("care.record",json!({"member_id":"default","clothing_id":clothing["id"],"action":"wash","local_date":"2026-10-01","timezone":"Asia/Shanghai","operation_key":"export wash"})).unwrap();
     let care=owner.execute("care.correct",json!({"member_id":"default","root_event_id":care["root_event_id"],"expected_revision":1,"action":"dry_clean","local_date":"2026-10-01","timezone":"Asia/Shanghai","operation_key":"export correction"})).unwrap();
     owner.execute("care.revoke",json!({"member_id":"default","root_event_id":care["root_event_id"],"expected_revision":2,"reason":"historical correction","operation_key":"export revoke"})).unwrap();
+    let recommendation=owner.execute("recommendation.generate",json!({"member_id":"default","operation_key":"portable-feedback-intent","timezone":"UTC","limit":1})).unwrap();
+    let feedback=owner.execute("feedback.record",json!({"member_id":"default","operation_key":"portable-feedback","intent_id":recommendation["id"],"proposal_index":0,"reaction":"like","scores":{"overall":5}})).unwrap();
+    let memory=owner.execute("learning.set",json!({"member_id":"default","operation_key":"portable-explicit","dimension":"color","value":"blue","weight":3,"note":"Private preference note"})).unwrap();
+    let learning = owner
+        .execute(
+            "learning.recompute",
+            json!({"member_id":"default","operation_key":"portable-learning"}),
+        )
+        .unwrap();
+    let completed = owner
+        .execute(
+            "learning.worker.run",
+            json!({"member_id":"default","job_id":learning["job_id"]}),
+        )
+        .unwrap();
+    assert_eq!(completed["state"], "succeeded");
+    owner.execute("learning.delete",json!({"member_id":"default","operation_key":"portable-delete-boundary","dimension":"style","value":"unused"})).unwrap();
     owner
         .execute(
             "assets.detach",
@@ -103,6 +120,7 @@ fn paired_installation_reads_application_generated_ciphertext_package_without_or
         for private in [
             b"Private export sweater fact".as_slice(),
             b"Private export purchase note".as_slice(),
+            b"Private preference note".as_slice(),
             owner_dir.path().to_str().unwrap().as_bytes(),
             original.as_slice(),
         ] {
@@ -116,6 +134,91 @@ fn paired_installation_reads_application_generated_ciphertext_package_without_or
     let result = peer
         .execute("encryption.package.read", json!({"path":path}))
         .unwrap();
+    let snapshot = &result["snapshot"];
+    assert_eq!(snapshot["feedback_events"][0]["id"], feedback["id"]);
+    let event = &snapshot["feedback_events"][0];
+    let intent = snapshot["recommendation_intents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["id"] == event["intent_id"])
+        .unwrap();
+    assert_eq!(
+        event["proposal"],
+        intent["proposals"][event["proposal_index"].as_u64().unwrap() as usize]
+    );
+    assert_eq!(event["controls"], intent["controls"]);
+    assert_eq!(
+        event["proposal"]["items"][0]["name"],
+        feedback["proposal"]["items"][0]["name"]
+    );
+    assert_eq!(
+        snapshot["feedback_receipts"][0]["result"]["id"],
+        event["id"]
+    );
+    assert_eq!(
+        snapshot["feedback_receipts"][0]["result"]["proposal"],
+        event["proposal"]
+    );
+    assert_eq!(
+        snapshot["feedback_receipts"][0]["request"]["intent_id"],
+        intent["id"]
+    );
+
+    assert_eq!(
+        snapshot["feedback_events"][0]["inventory_snapshots"][0]["display_asset_id"],
+        asset["id"]
+    );
+    assert_eq!(
+        snapshot["feedback_asset_refs"][0]["event_id"],
+        feedback["id"]
+    );
+    assert_eq!(snapshot["learning_memories"][0]["id"], memory["id"]);
+    assert_eq!(
+        snapshot["learning_state"][0]["member_id"],
+        memory["member_id"]
+    );
+    assert_eq!(
+        snapshot["learning_state"][0]["suppressed"][0]["value"],
+        "unused"
+    );
+    let profile = &snapshot["learning_profiles"][0];
+    assert!(profile.get("local_source_version").is_none());
+    assert!(profile.get("local_installation_generation").is_none());
+    assert!(profile["inferred"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v["source"]["feedback_ids"]
+            .as_array()
+            .unwrap()
+            .contains(&feedback["id"])));
+    assert!(snapshot["learning_receipts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v["result"]["profile_id"] == completed["result"]["profile_id"]));
+    assert!(snapshot["learning_history"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v["operation"] == "learning.recompute"));
+    for private in [
+        "local_source_versions",
+        "jobs",
+        "providers",
+        "clients",
+        "wallet",
+        "generation",
+    ] {
+        assert!(snapshot.get(private).is_none());
+    }
+    assert!(peer
+        .execute("learning.get", json!({"member_id":"default"}))
+        .unwrap()["explicit"]
+        .as_array()
+        .unwrap()
+        .is_empty());
     assert_eq!(
         result["snapshot"]["insights_preferences"][0]["stale_days"],
         89
