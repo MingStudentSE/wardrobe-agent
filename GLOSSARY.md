@@ -111,3 +111,10 @@
 - **ETag 版本（ETag Version）**：S3 对象的 ETag 只作为条件写协调（`If-Match`/`If-None-Match`）的版本标识，绝不当内容 hash；完整性始终由同步协议的 sha256 摘要（对象→marker 两步发布与读取校验）承担。
 - **重试预算（Retry Budget）**：网络错误、超时与 5xx（含 503 SlowDown）在首试后最多自动重试 2 次并遵守 Retry-After；预算耗尽映射 `storage_transient`。认证失败（401/403）映射 `storage_auth`，缺失对象映射 `storage_not_found`，不混用。
 - **同步目标凭据（Sync Target Credential）**：S3 目标的访问密钥只保存在 OS 安全存储（keyring），按目标键分账户；配置输出、事实库、日志与同步包字节中不得出现。
+
+## Purchase candidate domain（购买候选域）
+
+- **购买候选（Purchase Candidate）**：用户想买的商品草稿，存放在独立候选域（`domain=purchase_candidate`，独立 UUIDv7 身份），与真实衣物严格区分；不计入库存、穿着、洞察或推荐，不进入 outbox（不同步、不入便携备份），恢复时与识别建议一样按本机草稿清除。价格与尺码等未知事实保持 null，不编造。
+- **候选属性建议（Candidate Suggestion）**：候选商品图经视觉供应商的未核实描述与保守规范化候选；写入候选 provenance 供人工对照，绝不自动覆盖人工事实；提交前须明确确认发送图片，提交结果未知时持久化待核实，不盲重发。
+- **候选纠错（Candidate Correction）**：人工逐项核对后显式写入候选事实的动作（confirm_confirmation）；人工值优先，建议值保留在 provenance 供对照。
+- **购买适配分析（Purchase Fit Analysis）**：对候选的一次确定性只读分析——搭配潜力（候选固定占据其角色、覆盖角色只来自当前可用的真实库存，组合总数为各覆盖槽位库存数的精确乘积）、重复购买风险（同类别库存逐项按颜色/风格/场合/季节 Jaccard 加权，千分制权重 400/250/200/150，≥700 且≥2 维度可比记高度重合）与缺口分析（内置类别与四场景的可用库存计数，数量为 0 即空洞；候选填补声明只在精确相等时作出）。结果版本化保留，缺失事实如实列为不确定性；creates_wear=false、counts_toward_inventory=false、不自动购买。

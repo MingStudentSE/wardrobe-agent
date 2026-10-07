@@ -1216,7 +1216,7 @@ impl Application {
                 )?;
                 let result = (|| {
                     crate::jobs::retain_submission_guards(&tx)?;
-                    tx.execute_batch("PRAGMA defer_foreign_keys=ON;DELETE FROM schedule_notifications;DELETE FROM recognition_suggestions;DELETE FROM import_drafts;DELETE FROM import_batches;DELETE FROM jobs;DELETE FROM encryption_pairings;DELETE FROM encryption_state;DELETE FROM clients;")?;
+                    tx.execute_batch("PRAGMA defer_foreign_keys=ON;DELETE FROM schedule_notifications;DELETE FROM purchase_analyses;DELETE FROM purchase_candidates;DELETE FROM recognition_suggestions;DELETE FROM import_drafts;DELETE FROM import_batches;DELETE FROM jobs;DELETE FROM encryption_pairings;DELETE FROM encryption_state;DELETE FROM clients;")?;
                     crate::sync::reset_after_restore(&tx)?;
                     for table in TABLES.iter().rev() {
                         tx.execute_batch(&format!("DELETE FROM \"{table}\""))?;

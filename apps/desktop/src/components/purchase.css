@@ -1,0 +1,30 @@
+/* 购买候选工作区：沿用穿搭工作室的紧凑蓝视觉语言与既有卡片排版。 */
+.purchase-studio{display:flex;flex-direction:column;gap:1.25rem;}
+.purchase-studio>header h2{margin:0 0 .25rem;}
+.purchase-studio>header p{margin:0;color:var(--text-muted,#5b6472);}
+.purchase-create fieldset,.purchase-correct fieldset,.purchase-create legend{border:none;margin:0;padding:0;}
+.purchase-create fieldset{display:flex;flex-wrap:wrap;gap:.75rem;align-items:end;border:1px solid var(--border,#d8dde5);border-radius:12px;padding:1rem;}
+.purchase-create legend{font-weight:700;padding:0 .25rem;}
+.purchase-create label{display:flex;flex-direction:column;gap:.3rem;font-weight:600;min-width:min(280px,100%);}
+.purchase-create label:has(textarea){min-width:min(100%,480px);}
+.purchase-create input,.purchase-create select,.purchase-create textarea{min-height:44px;padding:.4rem .6rem;}
+.purchase-colors{display:flex;flex-wrap:wrap;gap:.35rem .9rem;font-weight:400;}
+.check-label{display:flex;align-items:center;gap:.4rem;font-weight:400;}
+.purchase-candidate{border:1px solid var(--border,#d8dde5);border-radius:12px;padding:1rem;display:flex;flex-direction:column;gap:.9rem;background:var(--surface,#fff);}
+.purchase-candidate-head{display:flex;justify-content:space-between;gap:.75rem;align-items:start;flex-wrap:wrap;}
+.purchase-candidate-head h3{margin:0;}
+.purchase-candidate-head p{margin:.2rem 0 0;color:var(--text-muted,#5b6472);}
+.purchase-images{display:flex;flex-wrap:wrap;gap:.6rem;align-items:start;}
+.purchase-image{display:flex;flex-direction:column;gap:.3rem;max-width:140px;}
+.purchase-recognition,.purchase-analysis,.purchase-correct{display:flex;flex-direction:column;gap:.55rem;border-top:1px solid var(--border,#e3e7ee);padding-top:.75rem;}
+.purchase-recognition h4,.purchase-analysis h4{margin:0;}
+.purchase-recognition label,.purchase-correct label{display:flex;flex-direction:column;gap:.3rem;font-weight:600;max-width:420px;}
+.purchase-recognition select{min-height:44px;padding:.4rem .6rem;}
+.purchase-analysis-actions{display:flex;gap:.6rem;flex-wrap:wrap;}
+.purchase-analysis-result{display:flex;flex-direction:column;gap:.9rem;border:1px solid var(--border,#e3e7ee);border-radius:10px;padding:.9rem;}
+.purchase-analysis-result h5{margin:0 0 .25rem;}
+.purchase-analysis-result section>p{margin:.2rem 0;}
+.purchase-combos,.purchase-duplicates,.purchase-uncertainties{margin:0;padding-left:1.2rem;display:flex;flex-direction:column;gap:.25rem;}
+.purchase-suggestion{border:1px dashed var(--border,#c9d2de);border-radius:10px;padding:.6rem .8rem;}
+.purchase-suggestion summary{font-weight:700;cursor:pointer;}
+@media (max-width:480px){.purchase-create fieldset{align-items:stretch;flex-direction:column;}.purchase-candidate-head{flex-direction:column;}}
