@@ -4,6 +4,7 @@ mod authorization;
 mod backup;
 mod care;
 mod clothing;
+mod categories;
 mod cutout;
 mod data_directory;
 mod encryption;
@@ -17,10 +18,13 @@ mod learning;
 mod maintenance;
 mod members;
 mod outfits;
+mod pairing;
+pub mod profiles;
 mod product;
 mod providers;
 mod recognition;
 mod recommendations;
+mod pair_search;
 mod stylist;
 mod tryon;
 mod wears;
@@ -32,7 +36,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 20;
+pub const DATABASE_SCHEMA_VERSION: u32 = 21;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -85,6 +89,7 @@ impl Application {
             ));
         }
         tx.execute_batch("CREATE TABLE IF NOT EXISTS members (id TEXT PRIMARY KEY, name TEXT NOT NULL); CREATE TABLE IF NOT EXISTS clothing (id TEXT PRIMARY KEY, member_id TEXT NOT NULL REFERENCES members(id), document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, entity_id TEXT NOT NULL, operation TEXT NOT NULL, document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, entity_id TEXT NOT NULL, document TEXT NOT NULL);")?;
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS wardrobe_categories(member_id TEXT NOT NULL REFERENCES members(id),id TEXT NOT NULL,name TEXT NOT NULL,deleted INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(member_id,id));")?;
         if version < 2 {
             for table in ["clothing", "audit", "outbox"] {
                 let entries = {
@@ -260,6 +265,7 @@ impl Application {
             }
         }
         match operation {
+            "category.list" | "category.create" | "category.delete" => self.category_operation(operation,input),
             name if matches!(name,"backup.create"|"backup.preview"|"backup.restore"|"data_directory.move") => self.maintenance_enqueue(name,input),
             name if name.starts_with("maintenance.") => self.maintenance_operation(name,input),
             name if name.starts_with("data_directory.") => self.directory_operation(name, input),
@@ -317,6 +323,7 @@ impl Application {
             op if op.starts_with("feedback.") => self.feedback_execute(op, input),
             op if op.starts_with("weather.") => self.weather_execute(op, input),
             op if op.starts_with("recommendation.") => self.recommendation_execute(op, input),
+            op if op.starts_with("pairing.") => self.pairing_execute(op, input),
             "insights.summary" => self.insights_summary(input),
             "insights.configure" => self.insights_configure(input),
             op if op.starts_with("care.") => self.care_execute(op, input),
@@ -365,6 +372,7 @@ pub fn operations() -> Value {
     descriptors.extend(data_directory::descriptors());
     descriptors.extend(encryption::descriptors());
     descriptors.extend(clothing::descriptors());
+    descriptors.extend(categories::descriptors());
     descriptors.extend(providers::descriptors());
     descriptors.extend(recognition::descriptors());
     descriptors.extend(product::descriptors());
@@ -377,6 +385,7 @@ pub fn operations() -> Value {
     descriptors.extend(insights::descriptors());
     descriptors.extend(care::descriptors());
     descriptors.extend(recommendations::descriptors());
+    descriptors.extend(pairing::descriptors());
     descriptors.extend(weather::descriptors());
     descriptors.extend(feedback::descriptors());
     descriptors.extend(learning::descriptors());
@@ -387,8 +396,17 @@ pub fn operations() -> Value {
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );
-    capabilities["outputSchema"] = json!({"type":"object","required":["schema_version","operations","categories"],"properties":{"schema_version":{"type":"integer","const":1},"operations":{"type":"array","items":{"type":"object","required":["name","description","inputSchema","outputSchema"]}},"categories":{"type":"array","items":{"type":"string"}}}});
+    capabilities["outputSchema"] = json!({"type":"object","required":["schema_version","operations","categories","taxonomy"],"properties":{"schema_version":{"type":"integer","const":1},"operations":{"type":"array","items":{"type":"object","required":["name","description","inputSchema","outputSchema"]}},"categories":{"type":"array","items":{"type":"string"}},"taxonomy":{"type":"object","required":["version","sub_categories","colors"],"properties":{"version":{"type":"integer"},"sub_categories":{"type":"array"},"colors":{"type":"array"}}}}});
+    capabilities["effect"] = json!({"kind":"query","network":"none","local_files":false,"async":null});
+    capabilities["examples"] = json!([{"request":{},"prerequisites":["免授权发现全部公开操作契约（名称/描述/输入输出schema）","限定scope客户端仅见其授权范围内操作；本示例只读不执行业务"]}]);
     descriptors.push(capabilities);
+    // scope 元数据由授权规则同源派生（authorization::scope_metadata），不是第二套命令表
+    for descriptor in descriptors.iter_mut() {
+        descriptor["scope"] = authorization::scope_metadata(
+            descriptor["name"].as_str().unwrap(),
+            &descriptor["inputSchema"],
+        );
+    }
     Value::Array(descriptors)
 }
 

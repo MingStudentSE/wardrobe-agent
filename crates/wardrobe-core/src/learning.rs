@@ -3,6 +3,7 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 type LearningWeights = std::collections::BTreeMap<(String, String), i64>;
 const ALGORITHM: &str = "explicit-and-events-v1";
+const PAIR_ALGORITHM: &str = "effective-pairs-v1";
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS learning_state(member_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS learning_history(id TEXT PRIMARY KEY,member_id TEXT NOT NULL,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS learning_profiles(id TEXT PRIMARY KEY,member_id TEXT NOT NULL,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS learning_memories(id TEXT PRIMARY KEY,member_id TEXT NOT NULL,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS learning_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key));")?;
     tx.execute_batch("CREATE INDEX IF NOT EXISTS learning_memory_root ON learning_memories(member_id,json_extract(document,'$.root_id'),json_extract(document,'$.revision')); CREATE INDEX IF NOT EXISTS learning_profile_member ON learning_profiles(member_id,id); CREATE INDEX IF NOT EXISTS learning_history_member ON learning_history(member_id,id);")?;
@@ -30,6 +31,100 @@ fn parse(s: String) -> Result<Value, ApiError> {
 }
 fn invalid(s: &str) -> ApiError {
     ApiError::new("invalid_input", s)
+}
+fn pair_event_weight(event: &Value, wear: bool) -> i64 {
+    if wear {
+        return 1;
+    }
+    (match event["reaction"].as_str() {
+        Some("like") => 2,
+        Some("dislike") => -2,
+        _ => 0,
+    }) + event["scores"]["overall"]
+        .as_i64()
+        .map(|n| n - 3)
+        .unwrap_or(0)
+}
+// Pure deterministic projection from supplied effective events. Shared verbatim
+// by recompute and portable archive validation so the two cannot diverge.
+fn pair_projection_from_events(feedback: &[Value], wears: &[Value]) -> Value {
+    let mut edges: std::collections::BTreeMap<(String, String), i64> = Default::default();
+    let mut feedback_ids = std::collections::BTreeSet::new();
+    let mut wear_ids = std::collections::BTreeSet::new();
+    let mut teach = |members: &[String], weight: i64, anchor: Option<&str>| {
+        match anchor {
+            // Anchored feedback teaches only anchor-to-member edges; an anchor
+            // outside the selected facts teaches nothing rather than inventing
+            // unrelated pairs.
+            Some(anchor) => {
+                if members.iter().any(|member| member == anchor) {
+                    for member in members {
+                        if member.as_str() != anchor {
+                            let key = if anchor < member.as_str() {
+                                (anchor.to_owned(), member.clone())
+                            } else {
+                                (member.clone(), anchor.to_owned())
+                            };
+                            *edges.entry(key).or_default() += weight;
+                        }
+                    }
+                }
+            }
+            // Ordinary feedback and wear teach every unordered distinct pair.
+            None => {
+                for (index, member) in members.iter().enumerate() {
+                    for other in &members[index + 1..] {
+                        *edges.entry((member.clone(), other.clone())).or_default() += weight;
+                    }
+                }
+            }
+        }
+    };
+    for event in feedback {
+        feedback_ids.insert(event["id"].as_str().unwrap_or_default().to_owned());
+        let mut members: Vec<String> = event["inventory_snapshots"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|snapshot| snapshot["id"].as_str())
+            .map(str::to_owned)
+            .collect();
+        members.sort();
+        members.dedup();
+        teach(
+            &members,
+            pair_event_weight(event, false),
+            event["controls"]["pairing_anchor_id"].as_str(),
+        );
+    }
+    for event in wears {
+        wear_ids.insert(event["id"].as_str().unwrap_or_default().to_owned());
+        let mut members: Vec<String> = event["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item["clothing_id"].as_str())
+            .map(str::to_owned)
+            .collect();
+        members.sort();
+        members.dedup();
+        teach(&members, pair_event_weight(event, true), None);
+    }
+    // Source lists stay shared and occur once per profile regardless of entry
+    // count; entries are sorted, unique and omit zero-weight pairs.
+    json!({
+        "schema_version": 1,
+        "algorithm_version": PAIR_ALGORITHM,
+        "entries": edges
+            .into_iter()
+            .filter(|(_, weight)| *weight != 0)
+            .map(|((a, b), weight)| json!({"clothing_ids":[a,b],"weight":weight.clamp(-5,5)}))
+            .collect::<Vec<_>>(),
+        "source": {
+            "feedback_ids": feedback_ids.into_iter().collect::<Vec<_>>(),
+            "wear_ids": wear_ids.into_iter().collect::<Vec<_>>(),
+        },
+    })
 }
 impl Application {
     fn learning_state(&self, member: &str) -> Result<Value, ApiError> {
@@ -189,6 +284,14 @@ impl Application {
                     .cloned()
                     .collect::<Vec<_>>());
             }
+            // A managed publication rewrites created_at, so a stored pair
+            // projection could no longer re-derive exactly as of that instant.
+            // Reset must additionally forget learned pairs; deletion publishes
+            // without pairs until the next explicit recompute restores them.
+            profile
+                .as_object_mut()
+                .ok_or_else(|| ApiError::new("storage_error", "画像数据损坏"))?
+                .remove("pair_projection");
             tx.execute(
                 "INSERT INTO learning_profiles VALUES(?1,?2,?3)",
                 params![id, member, profile.to_string()],
@@ -246,6 +349,45 @@ impl Application {
         }
         let context = json!({"algorithm_version":ALGORITHM,"profile_id":profile["id"],"explicit_count":profile["explicit"].as_array().map(Vec::len).unwrap_or(0),"inferred_count":profile["inferred"].as_array().map(Vec::len).unwrap_or(0),"source":"managed_member_memory","hard_constraints_override":true,"inferred_source_stale":profile["source_stale"]});
         Ok((context, weights))
+    }
+    // Pair rewards keyed (lexicographically smaller clothing ID, larger ID).
+    // Empty unless a fresh profile carries a well-formed projection: stale
+    // sources or an absent field must rank nothing rather than linger.
+    pub(super) fn learning_pair_weights(&self, member: &str) -> Result<LearningWeights, ApiError> {
+        let profile = self.learning_execute("learning.get", json!({"member_id":member}))?;
+        let mut weights = std::collections::BTreeMap::new();
+        if profile["source_stale"] == true {
+            return Ok(weights);
+        }
+        let projection = match profile.get("pair_projection") {
+            None | Some(Value::Null) => return Ok(weights),
+            Some(projection) => projection,
+        };
+        let damaged = || ApiError::new("storage_error", "学习配对投影损坏");
+        if projection["schema_version"] != 1
+            || projection["algorithm_version"] != PAIR_ALGORITHM
+            || !projection["entries"].is_array()
+            || !projection["source"].is_object()
+        {
+            return Err(damaged());
+        }
+        for entry in projection["entries"].as_array().unwrap() {
+            let ids = entry["clothing_ids"].as_array().ok_or_else(damaged)?;
+            if ids.len() != 2 {
+                return Err(damaged());
+            }
+            let a = ids[0].as_str().ok_or_else(damaged)?;
+            let b = ids[1].as_str().ok_or_else(damaged)?;
+            if a.is_empty() || a >= b {
+                return Err(damaged());
+            }
+            let weight = entry["weight"]
+                .as_i64()
+                .filter(|weight| (-5..=5).contains(weight))
+                .ok_or_else(damaged)?;
+            weights.insert((a.to_owned(), b.to_owned()), weight);
+        }
+        Ok(weights)
     }
     fn learning_enqueue(&self, input: Value) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
@@ -495,6 +637,7 @@ impl Application {
                     }
                 }
             };
+        let mut pair_feedback = Vec::new();
         {
             let mut st=tx.prepare("SELECT e.document FROM feedback_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM feedback_events WHERE root_id=e.root_id) AND json_extract(document,'$.revoked')=0 ORDER BY root_id")?;
             for row in st.query_map([&member], |r| r.get::<_, String>(0))? {
@@ -502,6 +645,7 @@ impl Application {
                 if predates_reset(&event)? {
                     continue;
                 }
+                pair_feedback.push(event.clone());
                 let weight = match event["reaction"].as_str() {
                     Some("like") => 2,
                     Some("dislike") => -2,
@@ -519,10 +663,12 @@ impl Application {
                 );
             }
         }
+        let mut pair_wears = Vec::new();
         for event in self.effective_wears(&member)? {
             if predates_reset(&event)? {
                 continue;
             }
+            pair_wears.push(event.clone());
             absorb(
                 event["items"]
                     .as_array()
@@ -536,9 +682,10 @@ impl Application {
                 &Value::Null,
             );
         }
+        let pair_projection = pair_projection_from_events(&pair_feedback, &pair_wears);
         let inferred:Vec<Value>=signals.into_iter().filter(|((dimension,value),_)|!state["suppressed"].as_array().into_iter().flatten().any(|v|v["dimension"]==*dimension&&v["value"]==*value)).map(|((dimension,value),(weight,feedback_ids,wear_ids))|json!({"dimension":dimension,"value":value,"weight":weight.clamp(-5,5),"source":{"kind":"inferred_events","feedback_ids":feedback_ids,"wear_ids":wear_ids},"algorithm_version":ALGORITHM})).collect();
         let id = uuid::Uuid::now_v7().to_string();
-        let doc = json!({"schema_version":1,"id":id,"member_id":member,"algorithm_version":ALGORITHM,"inferred":inferred,"reset_boundary":state["cutoff"],"include_prior":include_prior,"local_source_version":source_version,"local_installation_generation":self.learning_generation()?,"created_at":chrono::Utc::now().to_rfc3339()});
+        let doc = json!({"schema_version":1,"id":id,"member_id":member,"algorithm_version":ALGORITHM,"inferred":inferred,"pair_projection":pair_projection,"reset_boundary":state["cutoff"],"include_prior":include_prior,"local_source_version":source_version,"local_installation_generation":self.learning_generation()?,"created_at":chrono::Utc::now().to_rfc3339()});
         let serialized = doc.to_string();
         tx.commit()?;
         let tx = self.begin_write()?;
@@ -785,6 +932,13 @@ impl Application {
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
+    let memory=json!({"type":"object","required":["schema_version","id","member_id","dimension","value","weight","note","source","algorithm_version","root_id","deleted","revision","created_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"dimension":{"enum":["color","style","material","pattern","category","occasion"]},"value":{"type":"string"},"weight":{"type":"integer","minimum":-5,"maximum":5},"note":{"type":"string"},"source":{"type":"object","required":["kind"],"properties":{"kind":{"enum":["explicit_user"]}}},"algorithm_version":{"type":"string"},"root_id":{"type":"string"},"deleted":{"type":"boolean"},"revision":{"type":"integer","minimum":1},"created_at":{"type":"string"}}});
+    // delete/reset发布收据：同一形状，operation标识具体管理动作
+    let manage_receipt=json!({"type":"object","required":["schema_version","id","member_id","operation","state","created_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"operation":{"enum":["learning.edit","learning.delete","learning.reset"]},"state":{"type":"object","required":["cutoff","suppressed"],"properties":{"cutoff":{"type":["string","null"]},"suppressed":{"type":"array","items":{"type":"object","required":["dimension","value"],"properties":{"dimension":{"enum":["color","style","material","pattern","category","occasion"]},"value":{"type":"string"}}}}}},"created_at":{"type":"string"}}});
+    let profile=json!({"type":"object","required":["schema_version","member_id","inferred","algorithm_version","explicit","source_stale"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"inferred":{"type":"array"},"algorithm_version":{"type":"string"},"explicit":{"type":"array","items":memory},"source_stale":{"type":"boolean"},"id":{"type":"string"},"created_at":{"type":"string"},"local_installation_generation":{"type":["string","null"]},"local_source_version":{"type":["integer","null"]},"reset_boundary":{"type":["string","null"]},"pair_projection":{"type":["object","null"]}}});
+    let receipt=json!({"type":"object","required":["schema_version","member_id","job_id","state","result"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"job_id":{"type":"string"},"state":{"type":"string"},"result":{"type":["object","null"]}}});
+    // worker.run返回完整持久化任务文档（kind固定learning_recompute）
+    let job_doc=json!({"type":"object","required":["schema_version","id","member_id","kind","operation_key","state","progress","attempts","next_due","lease_token","lease_expires","payload","result","error","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"kind":{"const":"learning_recompute"},"operation_key":{"type":"string"},"state":{"type":"string"},"progress":{"type":"integer"},"attempts":{"type":"integer"},"next_due":{"type":"integer"},"lease_token":{"type":["string","null"]},"lease_expires":{"type":"integer"},"payload":{"type":"object"},"result":{"type":["object","null"]},"error":{"type":["object","null"]},"created_at":{"type":"string"},"updated_at":{"type":"string"},"submitted_at":{"type":["string","null"]},"last_outcome":{"type":["string","null"]}}});
     ["get","set","edit","delete","reset","recompute","history","worker.run"].into_iter().map(|op|{
  let mut props=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
  if !["get","history","worker.run"].contains(&op){props["operation_key"]=json!({"type":"string","minLength":1,"maxLength":200});required.push("operation_key");}
@@ -795,7 +949,50 @@ pub(super) fn descriptors() -> Vec<Value> {
  if op=="recompute"{props["include_prior"]=json!({"type":"boolean","description":"明确重新纳入删除/重置前全部事实；否则保留删除和重置边界"});}
  if op=="worker.run"{props["job_id"]=json!({"type":"string"});required.push("job_id");}
  if op=="history"{props["cursor"]=json!({"type":"string"});props["limit"]=json!({"type":"integer","minimum":1,"maximum":100});}
- json!({"name":format!("learning.{op}"),"description":"成员偏好与推断记忆管理，不改变事实","inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"]}})
+ let output=match op {
+            "get"=>profile.clone(),
+            "set"|"edit"=>memory.clone(),
+            "delete"|"reset"=>manage_receipt.clone(),
+            "recompute"=>receipt.clone(),
+            "worker.run"=>job_doc.clone(),
+            "history"=>json!({"type":"object","required":["schema_version","member_id","items","next_cursor"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"items":{"type":"array"},"next_cursor":{"type":["string","null"]}}}),
+            _=>profile.clone(),
+        };
+        let (effect,examples)=match op {
+            "get"=>(
+                json!({"kind":"query","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["读取画像与显式偏好；无保存画像时返回空推断","source_stale表示画像落后于本机事实，落后时不参与推荐"]}]),
+            ),
+            "set" => (
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","dimension":"color","value":"藏青","weight":3},"prerequisites":["显式偏好覆盖同特征推断权重","同特征同值已存在时报preference_exists，请edit现有修订","不改变衣物事实"]}]),
+            ),
+            "edit"=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","root_id":"<偏好root_id>","expected_revision":1,"weight":-2},"prerequisites":["乐观并发：expected_revision不符报stale_revision","修订追加不覆盖历史；已删除偏好不可编辑"]}]),
+            ),
+            "delete"=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","dimension":"color","value":"藏青"},"prerequisites":["抑制该特征并墓碑化现有显式偏好；立即发布画像使推荐遗忘","历史保留，可用recompute(include_prior=true)恢复"]}]),
+            ),
+            "reset"=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","scope":"inferred"},"prerequisites":["scope=inferred仅清推断；all同时墓碑化全部显式偏好","设置重置边界并立即发布空推断；历史保留"]}]),
+            ),
+            "recompute"=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":{"job_kind":"learning_recompute","process":"learning.worker.run","terminal_states":["succeeded","failed","cancelled","waiting_input"]}}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>"},"prerequisites":["异步入队画像重算任务，立即返回任务收据而非画像","由learning.worker.run本地重算，不联网不消耗额度","同operation_key重复调用返回同一任务，不能改变输入"]}]),
+            ),
+            "history"=>(
+                json!({"kind":"query","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按ID升序返回学习操作历史（含set/edit/delete/reset发布收据）","游标为最后一条条目ID字符串，不属于当前成员时拒绝"]}]),
+            ),
+            _=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","job_id":"<learning_recompute任务ID>"},"prerequisites":["同步处理已入队画像重算任务；纯本地计算不消耗额度","终态succeeded/failed/cancelled/waiting_input时幂等返回任务文档","本示例不自动执行"]}]),
+            ),
+        };
+ json!({"name":format!("learning.{op}"),"description":"成员偏好与推断记忆管理，不改变事实","effect":effect,"examples":examples,"inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"outputSchema":output})
  }).collect()
 }
 
@@ -993,6 +1190,67 @@ pub(super) fn validate_portable_document(
                 }
             }
             if signal["weight"].as_i64() != Some(total.clamp(-5, 5)) {
+                return Err(bad());
+            }
+        }
+        // A stored pair projection is a derived fact over its own recorded
+        // source events: absence stays valid (pre-pair exporters and managed
+        // reset publications), and a present projection must re-derive exactly
+        // from those same events inside this archive. This is the pair
+        // analogue of the inferred-signal checks above, so a tampered weight,
+        // edge set or source list cannot pass backup validation.
+        if let Some(projection) = doc.get("pair_projection").filter(|v| !v.is_null()) {
+            let ordered_unique = |ids: &Value| -> Option<Vec<String>> {
+                let mut previous: Option<&str> = None;
+                let mut result = Vec::new();
+                for value in ids.as_array()? {
+                    let id = value.as_str()?;
+                    if id.is_empty() || previous.is_some_and(|previous| previous >= id) {
+                        return None;
+                    }
+                    previous = Some(id);
+                    result.push(id.to_owned());
+                }
+                Some(result)
+            };
+            let feedback_ids =
+                ordered_unique(&projection["source"]["feedback_ids"]).ok_or_else(bad)?;
+            let wear_ids = ordered_unique(&projection["source"]["wear_ids"]).ok_or_else(bad)?;
+            if projection["schema_version"] != 1
+                || projection["algorithm_version"] != PAIR_ALGORITHM
+                || !projection["entries"].is_array()
+            {
+                return Err(bad());
+            }
+            let cutoff = doc["reset_boundary"]
+                .as_str()
+                .map(|value| chrono::DateTime::parse_from_rfc3339(value).map_err(|_| bad()))
+                .transpose()?;
+            let events = |ids: &[String], table: &str| -> Result<Vec<Value>, ApiError> {
+                let mut events = Vec::with_capacity(ids.len());
+                for id in ids {
+                    let raw: Option<String> = db
+                        .query_row(
+                            &format!("SELECT document FROM {table} WHERE member_id=?1 AND id=?2"),
+                            params![member, id],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    let event = parse(raw.ok_or_else(bad)?)?;
+                    let created = chrono::DateTime::parse_from_rfc3339(
+                        event["created_at"].as_str().ok_or_else(bad)?,
+                    )
+                    .map_err(|_| bad())?;
+                    if cutoff.is_some_and(|cutoff| created <= cutoff) {
+                        return Err(bad());
+                    }
+                    events.push(event);
+                }
+                Ok(events)
+            };
+            let feedback = events(&feedback_ids, "feedback_events")?;
+            let wears = events(&wear_ids, "wear_events")?;
+            if *projection != pair_projection_from_events(&feedback, &wears) {
                 return Err(bad());
             }
         }

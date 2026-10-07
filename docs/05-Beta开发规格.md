@@ -5,7 +5,7 @@
 ## 1. 用户确认的交付范围
 
 - Beta 交付需求清单中的全部 F01–F30，覆盖 GUI、CLI、MCP 所列能力。内部按阶段开发，所有阶段完成后才算 Beta 交付，不将部分功能标为未来版本来缩减范围。
-- 同时提供 Windows EXE、macOS DMG、Linux DEB，完成各平台安装、升级、数据保留与恢复验证。
+- 本轮提供 macOS DMG，完成 macOS 安装、升级、数据保留与恢复验证；Windows EXE、Linux DEB 及对应平台实测延后，保留跨平台架构。
 - Android 后续交付；Beta 已包含共享协议、视觉语义、窄屏和触摸适配基础，不要求 Android 安装包。iOS 不列本次承诺。
 - 产品开源；不设收费功能、付费生成入口、订阅、充值、项目代收费用或会员权限。模型通过用户自行配置的 API 或本地模型调用，消耗其供应商账户额度；产品开源不意味着供应商 API 免费。
 - 所有业务操作能力都提供，不以会员/付费层级限制 GUI、CLI 或 MCP。保留成员范围、类型校验、设备配对和本机客户端授权，防止误操作和跨成员写入。
@@ -36,7 +36,7 @@
 
 单品必填：id、member_id、name、category、status；name 去首尾空白，1–120 字符，缺名称的草稿默认“未命名单品”。无照片可保存，展示占位图。必填不代表必须手工输入 ID。category 未知可选 other，status 默认 active。
 
-- category 固定为 top、bottom、outerwear、dress、one_piece、shoes、bag、accessory、underwear、sportswear、other。sub_category 为版本化分类表中的可选 ID；用户自定义标签不改变核心 category 枚举。
+- category 使用成员自己的分类注册表；默认提供 top、bottom、outerwear、dress、one_piece、shoes、bag、accessory、underwear、sportswear、other，允许通过 category.create / category.delete 新增和删除。新增分类使用稳定 custom_UUID ID；删除分类将已有单品转入 other，保留历史穿搭快照；other 不可删除。sub_category 为可选自由文本。参见 docs/api/categories.md。
 - seasons 固定 spring/summer/autumn/winter 多选，空数组表示未知或未设；“四季”展开为四项。
 - color、pattern、material、style、occasion、tags 为可编辑多值；颜色使用稳定 ID + 可选用户描述。数组按规范化键去重，保留展示文本。
 - brand、size_label、fit、description、notes 为可选文本；notes 上限 10000 字符。尺寸数值使用独立 measurement + unit，不让 LLM 从图片推断真实尺寸。
@@ -76,7 +76,7 @@
 
 ## 5. 三平台工程支持基线
 
-初始验收基线：Windows 11 x64、macOS 13+ Apple Silicon/x64、Ubuntu 22.04/24.04 x64 DEB；最低版本属于工程默认值，须用实际构建与依赖验证，发现不支持则修正文档并记录原因。三个桌面平台同时进入 Beta 发布门槛。
+初始验收基线：Windows 11 x64、macOS 13+ Apple Silicon/x64、Ubuntu 22.04/24.04 x64 DEB；最低版本属于工程默认值，须用实际构建与依赖验证，发现不支持则修正文档并记录原因。当前仅 macOS 进入 Beta 发布门槛；Windows/Linux 基线保留为后续工程目标，构建、安装与发行实测延后，不阻塞本轮。macOS 各声明支持架构必须有实际验证记录，未验证架构不得宣称已支持。
 
 API 支持：文本/视觉 OpenAI-compatible 可配置端点、模型和安全凭据；图像生成及试穿使用明确 capability 的适配器，覆盖 F05/F07/F09/F15/F16/F17 的真实可用调用。首次实现选择能覆盖上述能力的 provider 做真实集成验证，并记录模型、接口和输入限制；无需每个平台都调用全部供应商。不承诺任意自称兼容的 API 可支持全部图片能力。
 
@@ -111,7 +111,7 @@ API 支持：文本/视觉 OpenAI-compatible 可配置端点、模型和安全�
 | F21 | 三后端各过同一同步契约；两设备乱序/重复/断网/同字段/删改冲突收敛，不传原图或凭据 |
 | F22 | 一致性备份导出、恢复预览、实际恢复和格式版本检查通过；明确原图是否包含 |
 | F23 | 模型能力、密钥、地点、计划、模板、同步、备份和数据目录设置持久化，密钥不明文泄漏 |
-| F24 | 三平台干净安装、升级、卸载数据保留、恢复通过；签名/公证及依赖状态有发行记录 |
+| F24 | macOS 干净安装、升级、卸载数据保留、恢复通过；签名/公证及依赖状态有发行记录；跨平台架构审查通过，Windows/Linux 发行延后 |
 | F25 | 阈值/手动待洗、清洗、更正、提醒和推荐排除通过；补记后重算正确 |
 | F26 | 多图添加/旋转/抠图/恢复/主图替换/排序通过，原图只在导入设备存在 |
 | F27 | 创建/克隆/编辑 Lookbook、模板今天穿与改穿可用；改模板不改变历史 |
@@ -125,6 +125,10 @@ API 支持：文本/视觉 OpenAI-compatible 可配置端点、模型和安全�
 - 隐私：扫描本地普通配置、日志、导出和同步包，无 API key、密码或被禁止同步的资产/EXIF/GPS；模型上传对象与用户操作一致。
 - 性能：每平台记录测试机器；在 4 核 CPU、8 GB RAM、SSD 基线及 10000 单品/100000 穿着事件 fixture 下，冷启动到衣橱可交互 ≤5秒，本地搜索/筛选首屏 p95 ≤500ms，普通实体保存 p95 ≤300ms（不含图片/网络）。各采样至少 30 次，记录实测与环境，不把云模型响应纳入本地性能保证。
 - 图片：固定至少 20 张含白衣、细纹、印花、旋转和大图的样本；压缩前后并排人工检查，不损坏可辨细节；遵循架构的软体积阈值，原图字节不变。
-- UI：Hallmark 审查及 04 文档全部视口、键盘、触摸等价入口、空/加载/失败状态验收；不只检查静态首页。
+- UI：`ui-ux-pro-max` 审查及 04 文档全部视口、键盘、触摸等价入口、空/加载/失败状态验收；不只检查静态首页。
 - 平台：各目标系统真实安装/升级/恢复，GUI/CLI/MCP 可独立运行；Android 仅验证适配基础，不计为真机完成。
-- 发布：F01–F30 全通过、有可下载三平台产物、许可与依赖清单、已知限制、迁移说明和测试报告后才能标记 Beta 完成。凭据不可用的 UI 提示不替代云 AI 的真实成功验证。
+- 发布：F01–F30 全通过、有可下载 macOS 产物、许可与依赖清单、已知限制、迁移说明和测试报告后才能标记 Beta 完成。凭据不可用的 UI 提示不替代云 AI 的真实成功验证。
+
+## 发行范围调整（2026-10-07）
+
+2026-10-07 用户范围调整：当前完整 Beta 仅发行和验收 macOS；Windows/Linux 安装包、真实客户端运行与发行验收延后，不阻塞本轮 Beta。F01–F30 功能范围保持；共享 Rust Core/Application API、GUI/CLI/MCP 协议与版本化数据模型保持跨平台，路径、凭据、通知和系统集成封装在平台适配边界，不向业务核心引入 macOS 专属依赖。跨平台架构审查不等于 Windows/Linux 已构建或验收。
