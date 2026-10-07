@@ -723,3 +723,149 @@ fn disabling_notifications_between_claims_preserves_the_next_pending_notice() {
         1
     );
 }
+
+#[test]
+fn restoring_same_space_does_not_silently_lose_a_queued_unsent_care_execution() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let app = Application::open(&path).unwrap();
+    let device = app.execute("schedule.device", json!({})).unwrap();
+    let now = chrono::Utc::now();
+    app.execute("schedule.create",json!({"member_id":"default","name":"未执行护理","kind":"care","local_time":now.format("%H:%M").to_string(),"timezone":"UTC","weekdays":[1,2,3,4,5,6,7],"execution_device_id":device["id"],"occasion":"daily","target_day_offset":0,"enabled":true})).unwrap();
+    set_eligible(&path, &(now - chrono::Duration::minutes(1)).to_rfc3339());
+    let archive = dir.path().join("before");
+    maintenance(
+        &app,
+        "backup.create",
+        json!({"directory":archive,"include_originals":false}),
+    );
+    let queued = app.schedule_tick_at(now).unwrap();
+    assert_eq!(queued["queued"].as_array().unwrap().len(), 1);
+    maintenance(
+        &app,
+        "backup.restore",
+        json!({"directory":archive,"confirm_overwrite":true}),
+    );
+    drop(app);
+    let app = Application::open(&path).unwrap();
+    app.schedule_tick_at(now).unwrap();
+    let pending = app
+        .execute("schedule.pending", json!({"member_id":"default"}))
+        .unwrap();
+    assert_eq!(pending["items"].as_array().unwrap().len(), 1, "{pending}");
+}
+
+#[test]
+fn submitted_scheduled_ai_restored_during_real_http_wait_is_not_resubmitted() {
+    use std::io::{Read, Write};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let app = Application::open(&path).unwrap();
+    let device = app.execute("schedule.device", json!({})).unwrap();
+    let now = chrono::Utc::now();
+    let mut items = vec![];
+    for (category, role, layer) in [
+        ("top", "top", 0),
+        ("bottom", "bottom", 0),
+        ("shoes", "shoes", 0),
+    ] {
+        let c = app
+            .execute(
+                "clothing.create",
+                json!({"member_id":"default","name":category,"category":category}),
+            )
+            .unwrap();
+        items.push(json!({"clothing_id":c["id"],"role":role,"layer":layer}));
+    }
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let provider=app.execute("provider.save",json!({"name":"controlled TCP","endpoint":format!("http://{}/v1",listener.local_addr().unwrap()),"model":"fixture-text","capabilities":["text"],"authentication":"none"})).unwrap();
+    app.execute("schedule.create",json!({"member_id":"default","name":"AI前夜","kind":"recommendation","local_time":now.format("%H:%M").to_string(),"timezone":"UTC","weekdays":[1,2,3,4,5,6,7],"execution_device_id":device["id"],"occasion":"daily","target_day_offset":1,"enabled":true,"strategy":"ai","provider_id":provider["id"],"weather":{"mode":"off"}})).unwrap();
+    set_eligible(&path, &(now - chrono::Duration::minutes(1)).to_rfc3339());
+    let archive = dir.path().join("before-http");
+    maintenance(
+        &app,
+        "backup.create",
+        json!({"directory":archive,"include_originals":false}),
+    );
+    let queued = app.schedule_tick_at(now).unwrap();
+    let id = queued["queued"][0]["job_id"].clone();
+    let (seen_tx, seen_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        socket
+            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .unwrap();
+        let mut data = vec![];
+        let mut b = [0; 4096];
+        loop {
+            let n = socket.read(&mut b).unwrap();
+            assert!(n > 0);
+            data.extend_from_slice(&b[..n]);
+            if let Some(end) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&data[..end]);
+                let len = head
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap_or(0);
+                if data.len() >= end + 4 + len {
+                    break;
+                }
+            }
+        }
+        seen_tx.send(()).unwrap();
+        release_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        let body=json!({"choices":[{"message":{"content":json!({"proposals":[{"items":items}]}).to_string()}}]}).to_string();
+        write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+    });
+    let worker_path = path.clone();
+    let worker_id = id.clone();
+    let worker = std::thread::spawn(move || {
+        Application::open(&worker_path).unwrap().execute(
+            "schedule.worker.run",
+            json!({"member_id":"default","id":worker_id}),
+        )
+    });
+    seen_rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap();
+    maintenance(
+        &app,
+        "backup.restore",
+        json!({"directory":archive,"confirm_overwrite":true}),
+    );
+    release_tx.send(()).unwrap();
+    let old_result = worker.join().unwrap();
+    server.join().unwrap();
+    assert!(
+        old_result.is_err(),
+        "old worker must not publish across restore: {old_result:?}"
+    );
+    drop(app);
+    let app = Application::open(&path).unwrap();
+    assert_eq!(app.schedule_tick_at(now).unwrap()["queued"], json!([]));
+    assert_eq!(
+        app.execute("schedule.pending", json!({"member_id":"default"}))
+            .unwrap()["items"],
+        json!([])
+    );
+    let plans = app
+        .execute("schedule.list", json!({"member_id":"default"}))
+        .unwrap();
+    let history = app
+        .execute(
+            "schedule.history",
+            json!({"member_id":"default","id":plans["plans"][0]["id"]}),
+        )
+        .unwrap();
+    assert_eq!(
+        history["executions"][0]["status"], "waiting_input",
+        "{history}"
+    );
+}

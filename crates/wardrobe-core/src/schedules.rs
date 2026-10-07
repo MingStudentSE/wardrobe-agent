@@ -378,6 +378,77 @@ impl Application {
             if doc["enabled"] != true || doc["execution_device_id"] != device {
                 continue;
             }
+            // Portable restore clears jobs, while local execution receipts survive.
+            // Recover only an uncompleted occurrence on its original device/revision;
+            // provider submission guards still veto every previously submitted intent.
+            let lost: Vec<String> = {
+                let mut stmt=tx.prepare("SELECT r.document FROM schedule_local_receipts r WHERE r.space_id=?1 AND r.member_id=?2 AND json_extract(r.document,'$.plan_id')=?3 AND json_extract(r.document,'$.status')='queued' AND NOT EXISTS(SELECT 1 FROM jobs j WHERE j.id=json_extract(r.document,'$.job_id'))")?;
+                let rows = stmt.query_map(
+                    params![space, doc["member_id"].as_str(), doc["id"].as_str()],
+                    |r| r.get(0),
+                )?;
+                rows.collect::<Result<_, _>>()?
+            };
+            for raw in lost {
+                let mut execution: Value = serde_json::from_str(&raw)
+                    .map_err(|_| ApiError::new("storage_error", "本机计划收据损坏"))?;
+                if execution["plan_revision"] != doc["revision"] {
+                    continue;
+                }
+                let due = chrono::DateTime::parse_from_rfc3339(
+                    execution["due_at"]
+                        .as_str()
+                        .ok_or_else(|| bad("执行时间缺失"))?,
+                )
+                .map_err(|_| bad("执行时间无效"))?;
+                if due > now {
+                    continue;
+                }
+                let id = execution["id"]
+                    .as_str()
+                    .ok_or_else(|| bad("执行标识缺失"))?
+                    .to_owned();
+                if now.signed_duration_since(due)
+                    > chrono::Duration::minutes(doc["catchup_minutes"].as_i64().unwrap())
+                {
+                    execution["status"] = json!("missed");
+                    execution["reason"] = json!("恢复时已超过补跑窗口");
+                } else {
+                    let (kind, payload) =
+                        if doc["kind"] == "recommendation" && doc["strategy"] == "ai" {
+                            (
+                                "text_recommendation",
+                                recommendation_input(&doc, &execution),
+                            )
+                        } else {
+                            ("schedule", execution.clone())
+                        };
+                    match crate::jobs::insert(
+                        &tx,
+                        doc["member_id"].as_str().unwrap(),
+                        kind,
+                        &id,
+                        payload,
+                    ) {
+                        Ok(job) => {
+                            execution["job_id"] = job["id"].clone();
+                            queued.push(execution.clone());
+                        }
+                        Err(error)
+                            if matches!(
+                                error.code.as_str(),
+                                "submission_already_sent" | "idempotency_conflict"
+                            ) =>
+                        {
+                            execution["status"] = json!("waiting_input");
+                            execution["error"] = json!({"code":error.code,"message":error.message});
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                tx.execute("INSERT INTO schedule_executions VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,doc["id"].as_str(),doc["member_id"].as_str(),execution["due_at"].as_str(),execution.to_string()])?;
+                tx.execute("UPDATE schedule_local_receipts SET document=?1 WHERE space_id=?2 AND member_id=?3 AND execution_id=?4",params![execution.to_string(),space,doc["member_id"].as_str(),id])?;
+            }
             let zone: chrono_tz::Tz = doc["timezone"].as_str().unwrap().parse().unwrap();
             let today = now.with_timezone(&zone).date_naive();
             let time =

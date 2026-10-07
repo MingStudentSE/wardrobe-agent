@@ -51,3 +51,7 @@ WARDROBE_TEST_PORT=5325 npm --prefix apps/desktop run test:e2e -- schedules.spec
 - 通用AI worker：61918真实limited worker-only调用未拒绝的red；66396 exit0 15/15，关联计划任务必须有recommendation.generate原业务授权（不预复制未验收18通用worker改动）。
 - 通知开关batch：42344真实首claim后关闭仍claim下一通知的red；35446 exit0 16/16，同IMMEDIATE内恢复旧unknown并检查当前开关，pending保持；native每次通知前检查foreground/background。此最新native变更还需重新check。
 - 当前CLI67312 terminal0，GUI26969 terminal0 1/1，同源至跨IANA合同（后续授权/通知修复发生后不作为最终同源证明）。
+
+- queued restore：89558首attempt用了错误pending.jobs字段为夹具错误；99893正确items公开合同仍失败（任务丢失），64466 exit0 17/17。按本机space/member/revision/device恢复未完成任务，超窗口missed，provider本机提交guard仍禁止重发。
+- 95612 exit0 1/1：受控真实TCP请求等待中恢复旧备份，原worker不能跨generation发布；恢复后无queued/pending，执行历史waiting_input。受控HTTP线程合同，不冒充SIGKILL进程或付费服务证明。
+- 95020原生check exit0 3.17s，33734前端build exit0，均在queued恢复修复之前，最终同源还需复验。
