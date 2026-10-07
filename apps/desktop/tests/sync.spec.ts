@@ -58,6 +58,23 @@ test('实际双安装GUI配置、断网名称冲突人工选择与缺图重试',
  await conflict.getByRole('button',{name:'选择候选 1',exact:true}).click();await panel.getByRole('button',{name:'确认采用选择',exact:true}).click();await expect(panel.getByRole('status')).toContainText('选择已保存');
  await panel.getByRole('button',{name:'立即同步',exact:true}).click();await expect(panel.getByRole('status')).toContainText('本次发布');peer('sync.run');
  expect(peer('clothing.get',{member_id:member,id:garment.id}).name).toBe((await owner('clothing.get',{member_id:member,id:garment.id})).name);
+ // 搭配结构冲突：并发编辑搭配单品后在同步设置面板可见，候选可读（不出现 [object Object]）。
+ const outer=await owner('clothing.create',{member_id:member,name:'GUI 外套',category:'outerwear'});
+ const look=await owner('outfit.create',{member_id:member,name:'GUI 出差套装',items:[{clothing_id:garment.id,role:'top',layer:0}]});
+ await owner('sync.run');while(peer('sync.run').has_more){};
+ await owner('outfit.update',{member_id:member,id:look.id,expected_version:1,name:'GUI 出差套装',items:[{clothing_id:outer.id,role:'outerwear',layer:0}]});
+ peer('outfit.update',{member_id:member,id:look.id,expected_version:1,name:'GUI 出差套装',items:[{clothing_id:garment.id,role:'top',layer:0},{clothing_id:outer.id,role:'outerwear',layer:1}]});
+ await owner('sync.run');peer('sync.run');await owner('sync.run');
+ await page.reload();await openSyncPanel(page);
+ const structure=panel.locator('.sync-conflicts>li').filter({hasText:'搭配 · 搭配单品'});
+ await expect(structure).toBeVisible();await expect(structure).toContainText('GUI 外套');
+ await expect(structure).toContainText('选择候选 2');await expect(structure).not.toContainText('[object Object]');
+ // 人工处理：显式发布新结构后冲突清除并向对端收敛。
+ await owner('outfit.update',{member_id:member,id:look.id,expected_version:2,name:'GUI 出差套装',items:[{clothing_id:garment.id,role:'top',layer:0}]});
+ await panel.getByRole('button',{name:'立即同步',exact:true}).click();await expect(panel.getByRole('status')).toContainText('本次发布');peer('sync.run');
+ await page.reload();await openSyncPanel(page);
+ await expect(panel.locator('.sync-conflicts>li').filter({hasText:'搭配 · 搭配单品'})).toHaveCount(0);
+ expect(peer('outfit.get',{member_id:member,id:look.id}).items).toHaveLength(1);
  const source=join(peerDir,'private-peer-original.png');const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=64;c.height=64;const ctx=c.getContext('2d')!;ctx.fillStyle='#21445c';ctx.fillRect(0,0,64,64);return c.toDataURL('image/png').split(',')[1];});writeFileSync(source,Buffer.from(png,'base64'));
  const image=peer('assets.import',{member_id:member,path:source});peer('assets.adopt',{member_id:member,clothing_id:garment.id,asset_id:image.id});peer('sync.run');
  function findChunk(folder:string):string|undefined{for(const name of readdirSync(folder,{withFileTypes:true})){const p=join(folder,name.name);if(name.isDirectory()){const found=findChunk(p);if(found)return found;}else if(folder.endsWith('/blobs')&&name.name.endsWith('.object'))return p;}return undefined;}

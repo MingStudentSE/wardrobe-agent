@@ -111,3 +111,13 @@
 - **ETag 版本（ETag Version）**：S3 对象的 ETag 只作为条件写协调（`If-Match`/`If-None-Match`）的版本标识，绝不当内容 hash；完整性始终由同步协议的 sha256 摘要（对象→marker 两步发布与读取校验）承担。
 - **重试预算（Retry Budget）**：网络错误、超时与 5xx（含 503 SlowDown）在首试后最多自动重试 2 次并遵守 Retry-After；预算耗尽映射 `storage_transient`。认证失败（401/403）映射 `storage_auth`，缺失对象映射 `storage_not_found`，不混用。
 - **同步目标凭据（Sync Target Credential）**：S3 目标的访问密钥只保存在 OS 安全存储（keyring），按目标键分账户；配置输出、事实库、日志与同步包字节中不得出现。
+
+## Sync conflict and event consistency
+
+- **因果支配（Causal Dominance）**：并发事实用每操作因果向量钟（base/clock）判定支配关系；被支配的旧候选自动收敛，互不支配的并发候选全部保留。本地墙钟、到达顺序与操作号顺序（随机 op_id 的稳定排序）都不裁决事实；未解决时的暂定显示只是稳定一致的预览，须显式解决或等因果更新覆盖。
+- **字段变体冲突副本（Field Variant Conflict Copy）**：同字段并发不同值在 `sync_fields` 以变体（值+因果钟+操作号）双方保留；`sync.conflicts` 对外可见（含预期令牌），`sync.resolve` 以 `expected_token` 乐观并发与幂等操作键显式选择，旧历史保留。
+- **集合操作语义（Set Operation Semantics）**：颜色、标签等集合字段按元素存在性（present/label）登记，不做整值覆盖；并发的两个添加都不丢，同元素并发添加只计一次，同元素并发一增一删按“添加可见”合并。
+- **删改冲突副本（Delete–Edit Conflict Copy）**：删除与离线编辑并发时，删除在裁决中优先（迟到编辑不复活已删事实），编辑值保留为 lifecycle 冲突副本；`sync.resolve` 的 lifecycle 显式恢复（value=active）保留并发编辑，恢复永远不会自动发生。
+- **搭配结构冲突（Outfit Structure Conflict）**：并发修改搭配 items 以变体双方保留并在同步设置面板可见；解决方式是显式重新发布搭配版本，并发版本历史继续经 `sync.history` 可查。
+- **事件乱序挂起（Out-of-order Staging）**：因果前序（依赖实体或因果钟）未到达的事件进入 pending 挂起重放，不静默丢弃也不阻塞独立事实流；重复投递（同 op_id 重复标记）按 inbox 幂等只应用一次，穿着次数按有效事件、天数按当地日期去重的既有口径不变。
+- **同步不回声（No Sync Echo）**：对端事实经 inbox 收据与发布标记只应用并转发一次；冲突解决、恢复与画像重算写入 outbox/审计但不生成同逻辑同步日志。收敛后重复同步 sent=received=0，两空间画像重算结果一致。
