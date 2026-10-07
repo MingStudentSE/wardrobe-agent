@@ -130,7 +130,8 @@ fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
 }
 // Conservative, model-independent taxonomy normalization of visible-description words.
 // These are editable candidates, never facts or calibrated confidence estimates.
-fn normalized_candidates(text: &str) -> Value {
+// 购买候选识别（purchase.rs）复用同一规范化，保证建议语义一致。
+pub(super) fn normalized_candidates(text: &str) -> Value {
     let lower = text.to_lowercase();
     let words: HashSet<&str> = lower
         .split(|c: char| !c.is_ascii_alphabetic())

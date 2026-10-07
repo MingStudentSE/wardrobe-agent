@@ -102,3 +102,10 @@
 - **发布标记门槛（Publication Marker Gate）**：只有 `.commit` 标记可见的对象才会被对端发现；对象损坏或被截断时同步整体失败，不应用该对象的部分字节，修复后同一日志继续收敛。
 - **条件写入能力探针（Conditional-Write Capability Probe）**：WebDAV 等外部传输在连接与配置期用真实条件写入握手验证服务器确实执行防覆盖判定；未执行的服务器被明确以 storage_unsupported 拒绝，不静默降级。
 - **传输条件令牌（Transport Conditional Token）**：WebDAV 适配器用服务器 ETag（If-None-Match/RFC 4918 If 头）做条件写的唯一依据；ETag 只是透明令牌，绝不当作内容摘要，内容完整性始终由 sha256 发布标记判定。
+
+## Purchase candidate domain（购买候选域）
+
+- **购买候选（Purchase Candidate）**：用户想买的商品草稿，存放在独立候选域（`domain=purchase_candidate`，独立 UUIDv7 身份），与真实衣物严格区分；不计入库存、穿着、洞察或推荐，不进入 outbox（不同步、不入便携备份），恢复时与识别建议一样按本机草稿清除。价格与尺码等未知事实保持 null，不编造。
+- **候选属性建议（Candidate Suggestion）**：候选商品图经视觉供应商的未核实描述与保守规范化候选；写入候选 provenance 供人工对照，绝不自动覆盖人工事实；提交前须明确确认发送图片，提交结果未知时持久化待核实，不盲重发。
+- **候选纠错（Candidate Correction）**：人工逐项核对后显式写入候选事实的动作（confirm_confirmation）；人工值优先，建议值保留在 provenance 供对照。
+- **购买适配分析（Purchase Fit Analysis）**：对候选的一次确定性只读分析——搭配潜力（候选固定占据其角色、覆盖角色只来自当前可用的真实库存，组合总数为各覆盖槽位库存数的精确乘积）、重复购买风险（同类别库存逐项按颜色/风格/场合/季节 Jaccard 加权，千分制权重 400/250/200/150，≥700 且≥2 维度可比记高度重合）与缺口分析（内置类别与四场景的可用库存计数，数量为 0 即空洞；候选填补声明只在精确相等时作出）。结果版本化保留，缺失事实如实列为不确定性；creates_wear=false、counts_toward_inventory=false、不自动购买。

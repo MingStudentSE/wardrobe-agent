@@ -11,7 +11,7 @@ pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
 }
 fn submission_hash(mut payload: Value, kind: &str) -> String {
     use sha2::{Digest, Sha256};
-    if kind == "recognition" {
+    if kind == "recognition" || kind == "purchase_recognition" {
         if let Some(object) = payload.as_object_mut() {
             object.remove("submission");
             object.remove("transferred_images");
@@ -25,7 +25,7 @@ fn submission_hash(mut payload: Value, kind: &str) -> String {
 /// Installation-local metadata only; never copied into portable facts.
 pub(super) fn retain_submission_guards(tx: &Transaction<'_>) -> Result<(), ApiError> {
     let space: String = tx.query_row("SELECT id FROM workspace", [], |row| row.get(0))?;
-    let mut statement=tx.prepare("SELECT document FROM jobs WHERE json_type(document,'$.submitted_at')='text' OR (kind='recognition' AND json_extract(document,'$.payload.submission') IN ('submitted','received','unknown'))")?;
+    let mut statement=tx.prepare("SELECT document FROM jobs WHERE json_type(document,'$.submitted_at')='text' OR (kind IN ('recognition','purchase_recognition') AND json_extract(document,'$.payload.submission') IN ('submitted','received','unknown'))")?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         let raw: String = row.get(0)?;
@@ -217,7 +217,10 @@ impl Application {
             ]
             .contains(&doc["kind"].as_str().unwrap_or(""))
                 && doc["submitted_at"].is_string())
-                || (doc["kind"] == "recognition" && doc["payload"]["submission"] != "not_submitted")
+                || (matches!(
+                    doc["kind"].as_str(),
+                    Some("recognition") | Some("purchase_recognition")
+                ) && doc["payload"]["submission"] != "not_submitted")
             {
                 return Err(ApiError::new(
                     "submission_already_sent",

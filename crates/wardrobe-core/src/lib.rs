@@ -23,11 +23,12 @@ mod pairing;
 mod product;
 pub mod profiles;
 mod providers;
+mod purchase;
 mod recognition;
 mod recommendations;
 mod schedules;
-pub mod sync;
 mod stylist;
+pub mod sync;
 mod tryon;
 mod wears;
 mod weather;
@@ -155,6 +156,7 @@ impl Application {
         imports::migrate(&tx)?;
         cutout::migrate(&tx)?;
         recognition::migrate(&tx)?;
+        purchase::migrate(&tx)?;
         encryption::migrate(&tx)?;
         sync::migrate(&tx)?;
         // Sync repairs immutable event tables before learning attaches source triggers.
@@ -334,6 +336,7 @@ impl Application {
             op if op.starts_with("wear.") => self.wear_execute(op, input),
             op if op.starts_with("learning.") => self.learning_execute(op, input),
             op if op.starts_with("stylist.") => self.stylist_execute(op, input),
+            op if op.starts_with("purchase.") => self.purchase_execute(op, input),
             op if op.starts_with("feedback.") => self.feedback_execute(op, input),
             op if op.starts_with("weather.") => self.weather_execute(op, input),
             op if op.starts_with("schedule.") => self.schedule_execute(op, input),
@@ -479,6 +482,7 @@ pub fn operations() -> Value {
     descriptors.extend(categories::descriptors());
     descriptors.extend(providers::descriptors());
     descriptors.extend(recognition::descriptors());
+    descriptors.extend(purchase::descriptors());
     descriptors.extend(product::descriptors());
     descriptors.extend(flatlay::descriptors());
     descriptors.extend(tryon::descriptors());
