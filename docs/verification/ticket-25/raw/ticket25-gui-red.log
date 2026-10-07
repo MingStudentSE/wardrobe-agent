@@ -1,0 +1,43 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test schedules.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5325 --strictPort
+[WebServer] (node:26052) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:26056) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/schedules.spec.ts:2:1 › 成员计划创建、重启、暂停与恢复默认本机后台关闭 (5.4s)
+
+
+  1) tests/schedules.spec.ts:2:1 › 成员计划创建、重启、暂停与恢复默认本机后台关闭 ─────────────────────────────────────────
+
+    Error: expect(locator).toBeEnabled() failed
+
+    Locator: getByLabel('当前成员', { exact: true })
+    Expected: enabled
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeEnabled" getByLabel('当前成员', { exact: true }) with timeout 5000ms
+      - waiting for getByLabel('当前成员', { exact: true })
+        - locator resolved to <select disabled></select>
+        - unexpected value "disabled"
+
+
+      1 | import {test,expect} from '@playwright/test';
+      2 | test('成员计划创建、重启、暂停与恢复默认本机后台关闭',async({page})=>{
+    > 3 |  await page.goto('/');await expect(page.getByLabel('当前成员',{exact:true})).toBeEnabled();
+        |                                                                          ^
+      4 |  await page.getByText('定时计划与通知',{exact:true}).click();
+      5 |  await page.getByLabel('计划名称',{exact:true}).fill('公开GUI护理计划');await page.getByLabel('计划内容',{exact:true}).selectOption('care');await page.getByLabel('本地执行时间',{exact:true}).fill('09:30');await page.getByLabel('计划时区',{exact:true}).fill('Asia/Shanghai');
+      6 |  await page.getByRole('button',{name:'创建定时计划',exact:true}).click();await expect(page.getByRole('status').filter({hasText:'计划已创建'})).toBeVisible();
+        at /private/tmp/wardrobe-ticket-25/apps/desktop/tests/schedules.spec.ts:3:74
+
+    Error Context: test-results/schedules-成员计划创建、重启、暂停与恢复默认本机后台关闭/error-context.md
+
+  1 failed
+    tests/schedules.spec.ts:2:1 › 成员计划创建、重启、暂停与恢复默认本机后台关闭 ──────────────────────────────────────────

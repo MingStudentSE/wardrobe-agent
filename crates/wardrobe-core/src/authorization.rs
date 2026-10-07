@@ -10,7 +10,8 @@ fn hash(token: &str) -> String {
         .collect()
 }
 fn privileged(operation: &str) -> bool {
-    operation.starts_with("client.")
+    operation == "schedule.runtime.configure"
+        || operation.starts_with("client.")
         || operation.starts_with("provider.credential.")
         || operation.starts_with("encryption.")
 }
@@ -431,6 +432,21 @@ impl Application {
                 {
                     return false;
                 }
+                if matches!(
+                    o["name"].as_str(),
+                    Some(
+                        "schedule.create"
+                            | "schedule.update"
+                            | "schedule.worker.run"
+                            | "schedule.tick"
+                    )
+                ) && grant["mode"] != "full"
+                    && !["care.reminders", "recommendation.generate"]
+                        .iter()
+                        .any(|op| grant["operations"].as_array().unwrap().contains(&json!(op)))
+                {
+                    return false;
+                }
                 !privileged(o["name"].as_str().unwrap())
                     && (grant["member_ids"].is_null()
                         || !["sync.configure", "sync.run", "sync.process", "sync.status"]
@@ -451,6 +467,50 @@ impl Application {
         }
         if operation == "provider.save" {
             return self.provider_save_from_client(input);
+        }
+        if matches!(
+            operation,
+            "schedule.create" | "schedule.update" | "schedule.worker.run"
+        ) && grant["mode"] != "full"
+        {
+            let required = self.schedule_required_operation(operation, &input)?;
+            if !grant["operations"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(required))
+            {
+                return Err(ApiError::new(
+                    "scope_denied",
+                    "定时计划执行还需要原业务操作授权",
+                ));
+            }
+        }
+        if operation == "recommendation.worker.run" && grant["mode"] != "full" {
+            let member = self.member(&input)?;
+            let scheduled: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM schedule_executions WHERE member_id=?1 AND json_extract(document,'$.job_id')=?2)",rusqlite::params![member,input["id"].as_str()],|r|r.get(0))?;
+            if scheduled
+                && !grant["operations"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("recommendation.generate"))
+            {
+                return Err(ApiError::new(
+                    "scope_denied",
+                    "定时推荐任务还需要recommendation.generate原业务授权",
+                ));
+            }
+        }
+        if operation == "schedule.tick"
+            && grant["mode"] != "full"
+            && self
+                .schedule_tick_required_operations(&input)?
+                .iter()
+                .any(|op| !grant["operations"].as_array().unwrap().contains(&json!(op)))
+        {
+            return Err(ApiError::new(
+                "scope_denied",
+                "到期登记还需要计划原业务授权",
+            ));
         }
         let mut result = self.execute_current(operation, input)?;
         if operation == "maintenance.list" && grant["mode"] != "full" {

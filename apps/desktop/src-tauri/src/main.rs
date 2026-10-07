@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod scheduler;
 #[tauri::command]
 async fn application(
     operation: String,
@@ -32,7 +33,20 @@ async fn search_weather_city(name: String) -> Result<serde_json::Value, String> 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![application, search_weather_city])
+        .setup(scheduler::setup)
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if scheduler::background_enabled() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            application,
+            search_weather_city,
+            scheduler::native_schedule
+        ])
         .run(tauri::generate_context!())
         .expect("无法启动衣橱应用");
 }

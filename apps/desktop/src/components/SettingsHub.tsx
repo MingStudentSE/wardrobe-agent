@@ -3,6 +3,7 @@ import './journal-settings.css';
 export const settingsEntries=[
  {id:'preferences',group:'穿衣习惯',title:'穿衣偏好',description:'告诉衣橱你喜欢什么，让推荐更贴近你。',icon:'heart'},
  {id:'model',group:'智能与连接',title:'模型与连接',description:'管理用于推荐、识别和图片生成的模型。',icon:'spark'},
+ {id:'schedules',group:'智能与连接',title:'定时计划与通知',description:'安排前夜推荐与洗护提醒，管理此设备的执行方式。',icon:'layers'},
  {id:'tasks',group:'智能与连接',title:'任务中心',description:'查看识别、生成与导入的处理进度。',icon:'layers'},
  {id:'backup',group:'数据与设备',title:'备份与恢复',description:'为衣橱留一份备份，管理本机数据位置。',icon:'archive'},
  {id:'encryption',group:'数据与设备',title:'加密与设备',description:'保护衣橱资料，管理配对设备和恢复材料。',icon:'lock'},

@@ -1,0 +1,27 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-25/crates/wardrobe-core)
+error[E0599]: no method named `schedule_tick_at` found for struct `Application` in the current scope
+  --> crates/wardrobe-core/tests/schedules.rs:31:20
+   |
+31 |     let result=app.schedule_tick_at(now).unwrap();
+   |                    ^^^^^^^^^^^^^^^^ method not found in `Application`
+
+error[E0599]: no method named `schedule_tick_at` found for struct `Application` in the current scope
+  --> crates/wardrobe-core/tests/schedules.rs:36:20
+   |
+36 |     assert_eq!(app.schedule_tick_at(now).unwrap()["queued"],json!([]));
+   |                    ^^^^^^^^^^^^^^^^ method not found in `Application`
+
+error[E0599]: no method named `schedule_tick_at` found for struct `Application` in the current scope
+  --> crates/wardrobe-core/tests/schedules.rs:38:20
+   |
+38 |     assert_eq!(app.schedule_tick_at(old).unwrap()["queued"],json!([]));
+   |                    ^^^^^^^^^^^^^^^^ method not found in `Application`
+
+error[E0599]: no method named `schedule_tick_at` found for struct `Application` in the current scope
+  --> crates/wardrobe-core/tests/schedules.rs:42:20
+   |
+42 |     assert_eq!(app.schedule_tick_at(now+chrono::Duration::days(2)).unwrap()["queued"],json!([]));
+   |                    ^^^^^^^^^^^^^^^^ method not found in `Application`
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `wardrobe-core` (test "schedules") due to 4 previous errors

@@ -40,6 +40,10 @@ pub enum Parsed {
         db: Option<PathBuf>,
         profile: Option<String>,
     },
+    Scheduler {
+        db: Option<PathBuf>,
+        once: bool,
+    },
     Execute(Execution),
     Profile(ProfileCommand),
 }
@@ -61,6 +65,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
     let mut positionals: Vec<&str> = Vec::new();
     let mut help_flag = false;
     let mut version_flag = false;
+    let mut once = false;
     let mut literal = false;
     let mut i = 0;
     while i < args.len() {
@@ -87,6 +92,14 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                         }
                         None => return Err(invalid_arguments("--db 缺少路径参数")),
                     }
+                }
+                "--once" => {
+                    if once {
+                        return Err(invalid_arguments("--once 只能出现一次"));
+                    }
+                    once = true;
+                    i += 1;
+                    continue;
                 }
                 "--profile" => {
                     if profile.is_some() {
@@ -153,6 +166,9 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
         positionals.push(arg);
         i += 1;
     }
+    if once && positionals.first().copied() != Some("scheduler") {
+        return Err(invalid_arguments("--once 仅用于 scheduler"));
+    }
     // 先解析完整 argv，再判定元数据命令：--help/--version 必须独立使用，仅可携带 --db 全局参数
     if help_flag || version_flag {
         if !positionals.is_empty() || trusted_local || input.is_some() {
@@ -188,6 +204,25 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                 )),
                 _ => Err(invalid_arguments("schema 最多接受一个操作名称")),
             }
+        }
+        Some("scheduler") => {
+            if !trusted_local {
+                return Err(ApiError {
+                    code: "scope_denied".into(),
+                    message:
+                        "本机调度服务须显式--trusted-local；外部客户端使用成员限定schedule API"
+                            .into(),
+                });
+            }
+            if profile.is_some() {
+                return Err(invalid_arguments(
+                    "scheduler 不支持 --profile 连接选择；请使用 --db 明确指定数据库",
+                ));
+            }
+            if positionals.len() != 1 || input.is_some() {
+                return Err(invalid_arguments("scheduler 不接受输入参数"));
+            }
+            Ok(Parsed::Scheduler { db, once })
         }
         Some("mcp") => {
             if positionals.len() > 1 {

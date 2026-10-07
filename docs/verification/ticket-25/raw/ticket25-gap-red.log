@@ -1,0 +1,28 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-25/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.91s
+     Running tests/schedules.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/schedules-efb0ba118c835291)
+
+running 6 tests
+test creation_and_edits_are_not_retroactive_and_paused_queue_cannot_execute ... ok
+test member_plan_survives_restart_and_revision_protects_edit_pause ... ok
+test durable_care_worker_publishes_one_notification_and_cancelled_job_cannot_publish ... ok
+test long_sleep_records_the_missed_interval_and_only_latest_within_configured_window ... FAILED
+test resume_runs_only_latest_due_once_marks_old_missed_and_never_runs_other_device ... ok
+test external_worker_scope_does_not_grant_care_business_or_another_member ... ok
+
+failures:
+
+---- long_sleep_records_the_missed_interval_and_only_latest_within_configured_window stdout ----
+
+thread 'long_sleep_records_the_missed_interval_and_only_latest_within_configured_window' (3983357) panicked at crates/wardrobe-core/tests/schedules.rs:106:2:
+assertion failed: history["executions"].as_array().unwrap().iter().any(|v|
+        v["missed_interval"]["from"] == "2026-09-01T00:00:00+00:00")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    long_sleep_records_the_missed_interval_and_only_latest_within_configured_window
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p wardrobe-core --test schedules`

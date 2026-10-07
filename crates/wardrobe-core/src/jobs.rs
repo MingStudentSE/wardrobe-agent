@@ -136,6 +136,7 @@ impl Application {
         }
         let tx = self.begin_write()?;
         let mut doc = self.job_get(json!({"member_id":member,"id":id}))?;
+        crate::schedules::validate_related_job(&tx, &doc)?;
         let now = chrono::Utc::now().timestamp_millis();
         let eligible = doc["state"] == "queued"
             || (doc["state"] == "running" && doc["lease_expires"].as_i64().unwrap_or(0) <= now);

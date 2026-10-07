@@ -1,5 +1,5 @@
 //! Portable facts: credentials and device trust are deliberately installation-local.
-use crate::{string, ApiError, Application, DATABASE_SCHEMA_VERSION};
+use crate::{string, unique_index_signatures, ApiError, Application, DATABASE_SCHEMA_VERSION};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -38,7 +38,120 @@ const TABLES: &[&str] = &[
     "learning_state",
     "learning_history",
     "learning_receipts",
+    "schedule_plans",
+    "schedule_executions",
 ];
+const BASE_TABLES: &[&str] = &[
+    "members",
+    "workspace",
+    "clothing",
+    "wardrobe_categories",
+    "audit",
+    "outbox",
+    "assets",
+    "outfits",
+    "outfit_items",
+    "outfit_versions",
+    "wear_events",
+    "wear_receipts",
+    "wear_asset_refs",
+    "care_config",
+    "care_events",
+    "care_receipts",
+    "care_asset_refs",
+    "insights_preferences",
+    "recommendation_intents",
+    "recommendation_saves",
+    "weather_preferences",
+    "feedback_events",
+    "feedback_receipts",
+    "feedback_asset_refs",
+];
+const LEARNING_TABLES: &[&str] = &[
+    "learning_memories",
+    "learning_profiles",
+    "learning_state",
+    "learning_history",
+    "learning_receipts",
+];
+const SCHEDULE_TABLES: &[&str] = &["schedule_plans", "schedule_executions"];
+
+// Explicit historical portable archive shapes. Every supported database
+// version admits exactly the known table sets below; anything else (unknown
+// tables, arbitrary subsets, or mixed variants) is rejected rather than
+// inferred from the version number alone.
+//  - pre-20 legacy: base without categories/learning/schedules, or with the
+//    schedule families alone (dual-device line evidence)
+//  - 20: base plus learning without categories, with or without schedules
+//  - 21: category-only (published), schedule-only (unreleased), or both
+//  - 22: sync historical baseline (28) or post-category (29)
+//  - 23: combined category+schedules
+fn known_archive_table_sets(version: u32) -> Option<Vec<std::collections::HashSet<&'static str>>> {
+    let base: std::collections::HashSet<&str> = BASE_TABLES.iter().copied().collect();
+    let learning: std::collections::HashSet<&str> = LEARNING_TABLES.iter().copied().collect();
+    let schedule: std::collections::HashSet<&str> = SCHEDULE_TABLES.iter().copied().collect();
+    let without_categories: std::collections::HashSet<&str> = base
+        .iter()
+        .copied()
+        .filter(|table| *table != "wardrobe_categories")
+        .collect();
+    let core: std::collections::HashSet<&str> = base.union(&learning).copied().collect();
+    let core_without_categories: std::collections::HashSet<&str> =
+        without_categories.union(&learning).copied().collect();
+    let combined: std::collections::HashSet<&str> = core.union(&schedule).copied().collect();
+    let schedule_only: std::collections::HashSet<&str> =
+        core_without_categories.union(&schedule).copied().collect();
+    let schedule_without_categories: std::collections::HashSet<&str> =
+        without_categories.union(&schedule).copied().collect();
+    match version {
+        v if v < 20 => Some(vec![without_categories, schedule_without_categories]),
+        20 => Some(vec![
+            core_without_categories.clone(),
+            core_without_categories.union(&schedule).copied().collect(),
+        ]),
+        21 => Some(vec![core, schedule_only, combined.clone()]),
+        22 => Some(vec![core_without_categories, core]),
+        23 => Some(vec![combined]),
+        _ => None,
+    }
+}
+
+// The strict legacy versioned shapes carried a composite outfit_versions key
+// and per-root revision uniqueness; schema22+ relaxed them so lawful branch
+// records survive. Historical archives (<=21) may therefore carry EITHER the
+// strict legacy signatures OR the relaxed live ones (relaxed builds stamped
+// by the dual-device line), and feedback_receipts may carry the former
+// two-column primary key. Any of those variants is accepted; anything else
+// is rejected.
+fn acceptable_unique_signature_sets(
+    live: &std::collections::HashSet<String>,
+    actual_version: u32,
+    table: &str,
+    schedule_lineage: bool,
+) -> Vec<std::collections::HashSet<String>> {
+    let mut acceptable = vec![live.clone()];
+    if actual_version <= 21 {
+        if matches!(
+            table,
+            "outfit_versions" | "wear_events" | "care_events" | "feedback_events"
+        ) {
+            let mut legacy = live.clone();
+            legacy.insert(crate::legacy_branch_signature(table).to_string());
+            acceptable.push(legacy);
+            if !schedule_lineage {
+                // 非同步谱系的 <=21 档案只承认历史严格形状：schema21 当时
+                // 要求版本化事件表带每根修订唯一约束，放宽形状按篡改拒绝。
+                acceptable
+                    .retain(|set| set.contains(&crate::legacy_branch_signature(table).to_string()));
+            }
+        }
+        if table == "feedback_receipts" && schedule_lineage {
+            acceptable.push(std::iter::once("member_id|operation_key".to_string()).collect());
+        }
+    }
+    acceptable
+}
+
 pub(super) fn migrate(tx: &rusqlite::Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS backup_preferences(id INTEGER PRIMARY KEY CHECK(id=1),document TEXT NOT NULL);CREATE TABLE IF NOT EXISTS local_installation_state(id INTEGER PRIMARY KEY CHECK(id=1),generation INTEGER NOT NULL);INSERT OR IGNORE INTO local_installation_state VALUES(1,0);CREATE TABLE IF NOT EXISTS local_submission_guards(space_id TEXT NOT NULL,member_id TEXT NOT NULL,kind TEXT NOT NULL,operation_key TEXT NOT NULL,payload_hash TEXT NOT NULL,submitted_at TEXT NOT NULL,submission_count INTEGER NOT NULL,last_outcome TEXT NOT NULL,PRIMARY KEY(space_id,member_id,kind,operation_key));")?;
     Ok(())
@@ -274,6 +387,8 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
             | "care_events"
             | "recommendation_intents"
             | "feedback_events"
+            | "schedule_plans"
+            | "schedule_executions"
             | "learning_memories"
             | "learning_profiles"
             | "learning_history" => Some(("id", "id")),
@@ -374,8 +489,21 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
                 }
             }
             if *table == "feedback_events" {
-                crate::feedback::validate_stored_document(db, &document)
-                    .map_err(|_| ApiError::new("backup_invalid", "反馈领域格式或事实引用不支持"))?;
+                crate::feedback::validate_stored_document(db, &document).map_err(|e| {
+                    eprintln!(
+                        "PROBE feedback validate: {} | {} DOC={}",
+                        e.code, e.message, document
+                    );
+                    ApiError::new("backup_invalid", "反馈领域格式或事实引用不支持")
+                })?;
+            }
+            if *table == "schedule_plans" {
+                crate::schedules::validate_portable_plan(&document)
+                    .map_err(|_| ApiError::new("backup_invalid", "定时计划领域格式不支持"))?;
+            }
+            if *table == "schedule_executions" {
+                crate::schedules::validate_portable_execution(db, &document)
+                    .map_err(|_| ApiError::new("backup_invalid", "定时执行历史或引用不支持"))?;
             }
             if table.starts_with("learning_") {
                 crate::learning::validate_portable_document(
@@ -931,22 +1059,15 @@ impl Application {
                 {
                     return Err(ApiError::new("backup_invalid", "备份数据库版本不匹配"));
                 }
-                let names=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")?.query_map([],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
-                let expected_tables: Vec<&str> = TABLES
+                let names: std::collections::HashSet<String> = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")?.query_map([],|r|r.get::<_,String>(0))?.collect::<Result<std::collections::HashSet<_>,_>>()?;
+                let known = known_archive_table_sets(actual_version)
+                    .ok_or_else(|| ApiError::new("backup_invalid", "备份格式或版本不支持"))?;
+                let matched = known
                     .iter()
-                    .copied()
-                    .filter(|table| {
-                        (*table != "wardrobe_categories" || actual_version >= 21)
-                            && (actual_version >= 20 || !table.starts_with("learning_"))
+                    .find(|set| {
+                        set.len() == names.len() && set.iter().all(|table| names.contains(*table))
                     })
-                    .collect();
-                if names.len() != expected_tables.len()
-                    || names
-                        .iter()
-                        .any(|name| !expected_tables.contains(&name.as_str()))
-                {
-                    return Err(ApiError::new("backup_invalid", "备份包含非法表结构"));
-                }
+                    .ok_or_else(|| ApiError::new("backup_invalid", "备份包含非法表结构"))?;
                 let dangerous: bool = db.query_row(
                     "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type IN ('trigger','view'))",
                     [],
@@ -955,9 +1076,37 @@ impl Application {
                 if dangerous {
                     return Err(ApiError::new("backup_invalid", "备份包含非法执行结构"));
                 }
+                let mut expected_tables: Vec<&str> = matched.iter().copied().collect();
+                expected_tables.sort_unstable();
+                // 双设备谱系（<=21 档案仍带 schedule 家族）允许现代放宽形状；
+                // 纯历史谱系按当时的严格形状校验。
+                let schedule_lineage = matched.contains("schedule_plans");
                 for table in expected_tables {
+                    let live_columns = columns(&self.connection, table)?;
+                    let mut acceptable_columns = vec![live_columns.clone()];
+                    if actual_version <= 21 && table == "outfit_versions" && !schedule_lineage {
+                        let mut legacy_columns = live_columns.clone();
+                        for (name, _, pk) in legacy_columns.iter_mut() {
+                            if name == "outfit_id" {
+                                *pk = 1;
+                            } else if name == "version" {
+                                *pk = 2;
+                            }
+                        }
+                        acceptable_columns = vec![legacy_columns];
+                    } else if actual_version <= 21 && table == "outfit_versions" {
+                        let mut legacy_columns = live_columns.clone();
+                        for (name, _, pk) in legacy_columns.iter_mut() {
+                            if name == "outfit_id" {
+                                *pk = 1;
+                            } else if name == "version" {
+                                *pk = 2;
+                            }
+                        }
+                        acceptable_columns.push(legacy_columns);
+                    }
                     let incoming_columns = columns(&db, table)?;
-                    let current_columns = columns(&self.connection, table)?;
+                    let incoming_unique = unique_index_signatures(&db, table)?;
                     let legacy_receipt_columns = vec![
                         ("member_id".into(), "TEXT".into(), 1),
                         ("operation_key".into(), "TEXT".into(), 2),
@@ -966,9 +1115,22 @@ impl Application {
                     ];
                     let legacy_receipts = table == "feedback_receipts"
                         && actual_version <= 21
+                        && schedule_lineage
                         && incoming_columns == legacy_receipt_columns;
-                    if (!legacy_receipts && incoming_columns != current_columns)
+                    let acceptable_unique = acceptable_unique_signature_sets(
+                        &unique_index_signatures(&self.connection, table)?,
+                        actual_version,
+                        table,
+                        schedule_lineage,
+                    );
+                    let columns_ok = legacy_receipts
+                        || acceptable_columns
+                            .iter()
+                            .any(|cols| incoming_columns == *cols);
+                    let unique_ok = acceptable_unique.iter().any(|set| *set == incoming_unique);
+                    if !columns_ok
                         || foreign_keys(&db, table)? != foreign_keys(&self.connection, table)?
+                        || !unique_ok
                     {
                         return Err(ApiError::new("backup_invalid", "备份字段结构不支持"));
                     }
@@ -1054,7 +1216,7 @@ impl Application {
                 )?;
                 let result = (|| {
                     crate::jobs::retain_submission_guards(&tx)?;
-                    tx.execute_batch("PRAGMA defer_foreign_keys=ON;DELETE FROM recognition_suggestions;DELETE FROM import_drafts;DELETE FROM import_batches;DELETE FROM jobs;DELETE FROM encryption_pairings;DELETE FROM encryption_state;DELETE FROM clients;")?;
+                    tx.execute_batch("PRAGMA defer_foreign_keys=ON;DELETE FROM schedule_notifications;DELETE FROM recognition_suggestions;DELETE FROM import_drafts;DELETE FROM import_batches;DELETE FROM jobs;DELETE FROM encryption_pairings;DELETE FROM encryption_state;DELETE FROM clients;")?;
                     crate::sync::reset_after_restore(&tx)?;
                     for table in TABLES.iter().rev() {
                         tx.execute_batch(&format!("DELETE FROM \"{table}\""))?;

@@ -93,12 +93,15 @@ fn controls(value: &Value, member: &str) -> Result<(), ApiError> {
             "action_excluded_ids",
             "replacement_category",
             "retained_items",
+            "pairing_anchor_id",
         ],
     )?;
     check(value["member_id"] == member)?;
     text(value, "operation_key", 1, 200)?;
     check(string(value, "timezone")?.parse::<chrono_tz::Tz>().is_ok())?;
-    for key in ["provider_id", "source_intent"] {
+    // Pairing intents carry the translated anchor control alongside the shared
+    // recommendation controls; their feedback documents validate identically.
+    for key in ["provider_id", "source_intent", "pairing_anchor_id"] {
         if value.get(key).is_some() {
             id(value, key)?;
         }
@@ -209,6 +212,7 @@ pub(super) fn validate(doc: &Value) -> Result<(), ApiError> {
             "created_at",
             "supersedes_event_id",
             "reason",
+            "branch",
         ],
     )?;
     id(doc, "id")?;
@@ -220,8 +224,22 @@ pub(super) fn validate(doc: &Value) -> Result<(), ApiError> {
             && doc["revoked"].is_boolean()
             && doc["proposal_index"].as_u64().is_some_and(|n| n < 5),
     )?;
+    // schema22 同步分支记录：同一根与修订的合法分支副本携带 branch 溯源标记，
+    // 身份可以是不同于根的独立事件；非 branch 记录仍须根自identical。
+    let branch = doc.get("branch");
+    if let Some(marker) = branch {
+        check(
+            marker
+                .as_str()
+                .is_some_and(|s| !s.is_empty() && s.chars().count() <= 64)
+                && doc["supersedes_event_id"].is_null(),
+        )?;
+    }
     if doc["revision"] == 1 {
-        check(doc["root_id"] == doc["id"] && doc["supersedes_event_id"].is_null())?;
+        check(
+            doc["root_id"] == doc["id"] && doc["supersedes_event_id"].is_null()
+                || branch.is_some_and(|m| !m.is_null()),
+        )?;
     } else {
         id(doc, "supersedes_event_id")?;
         check(doc["id"] != doc["root_id"] && doc["id"] != doc["supersedes_event_id"])?;

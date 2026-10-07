@@ -36,8 +36,53 @@ fn main() {
             };
             run_mcp(db)
         }
+        args::Parsed::Scheduler { db, once } => run_scheduler(db, once),
         args::Parsed::Profile(command) => run_profile(command),
         args::Parsed::Execute(execution) => execute(execution),
+    }
+}
+fn run_scheduler(db: Option<PathBuf>, once: bool) {
+    let db = db.unwrap_or_else(wardrobe_core::default_database_path);
+    use std::io::Write;
+    println!(
+        "{}",
+        json!({"service":"scheduler","state":"running","notifications":"native_host_required","pid":std::process::id()})
+    );
+    let _ = io::stdout().flush();
+    loop {
+        match Application::open(&db).and_then(|app| {
+            if !app.schedule_host_should_run(false)? {
+                return Ok(json!({"queued":[],"results":[],"paused":true}));
+            }
+            let due = app.schedule_tick_at(chrono::Utc::now())?;
+            let pending = app.schedule_pending_jobs()?;
+            let mut results = vec![];
+            for job in pending {
+                let value = app.execute(
+                    "schedule.worker.run",
+                    json!({"member_id":job["member_id"],"id":job["id"]}),
+                );
+                results.push(match value {
+                    Ok(job) => json!({"id":job["id"],"state":job["state"]}),
+                    Err(error) => json!({"id":job["id"],"error":error}),
+                });
+            }
+            Ok(json!({"queued":due["queued"],"results":results}))
+        }) {
+            Ok(value) => {
+                if !value["queued"].as_array().unwrap().is_empty()
+                    || !value["results"].as_array().unwrap().is_empty()
+                {
+                    println!("{value}");
+                }
+            }
+            Err(error) => println!("{}", json!({"error":error})),
+        }
+        let _ = io::stdout().flush();
+        if once {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(5));
     }
 }
 fn resolve_db(db: Option<PathBuf>, profile: Option<String>) -> Result<PathBuf, ApiError> {
@@ -88,6 +133,7 @@ fn run_mcp(db: PathBuf) {
             std::process::exit(1);
         }
     };
+
     let mut client_token = None;
     for line in io::stdin().lock().lines() {
         match line {

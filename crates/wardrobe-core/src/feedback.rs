@@ -9,7 +9,12 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS feedback_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL,UNIQUE(root_id,revision)); CREATE INDEX IF NOT EXISTS feedback_member_root ON feedback_events(member_id,root_id,revision); CREATE TABLE IF NOT EXISTS feedback_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS feedback_asset_refs(event_id TEXT NOT NULL REFERENCES feedback_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS feedback_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL); CREATE INDEX IF NOT EXISTS feedback_member_root ON feedback_events(member_id,root_id,revision); CREATE TABLE IF NOT EXISTS feedback_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS feedback_asset_refs(event_id TEXT NOT NULL REFERENCES feedback_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
+    // schema22 放宽了 feedback_events 的每根版本唯一约束（归档校验由
+    // expected_unique_index_signatures 承接 legacy 唯一性），既有库保持原样。
+    // 本地接收回执则按 schema22 便携化：旧两列 PK 升级为含 request/result
+    // 的四列 PK，接收同一 operation_key 的不同分支结果不再互相覆盖；
+    // 同步引擎的 INSERT OR IGNORE 与 sync_feedback_receipts 触发器依赖该形状。
     let primary_key: Vec<String> = tx
         .prepare("SELECT name FROM pragma_table_info('feedback_receipts') WHERE pk>0 ORDER BY pk")?
         .query_map([], |row| row.get(0))?
@@ -249,7 +254,11 @@ impl Application {
         }
         Ok(sets)
     }
-    pub(super) fn feedback_day_exclusions(&self, member: &str) -> Result<Vec<String>, ApiError> {
+    pub(super) fn feedback_day_exclusions(
+        &self,
+        member: &str,
+        target_instant: Option<chrono::DateTime<Utc>>,
+    ) -> Result<Vec<String>, ApiError> {
         self.feedback_require_resolved(member)?;
         let mut statement=self.connection.prepare("SELECT e.document FROM feedback_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM feedback_events WHERE root_id=e.root_id) AND json_extract(document,'$.revoked')=0 AND json_extract(document,'$.reaction')='day_exclude'")?;
         let mut ids = vec![];
@@ -259,7 +268,19 @@ impl Application {
                 .as_str()
                 .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
                 .ok_or_else(|| ApiError::new("storage_error", "当天排除期限损坏"))?;
-            if end > Utc::now() {
+            if target_instant.map_or_else(
+                || end > Utc::now(),
+                |instant| {
+                    let zone: chrono_tz::Tz = doc["day_scope"]["timezone"]
+                        .as_str()
+                        .unwrap()
+                        .parse()
+                        .unwrap();
+                    instant < end.with_timezone(&Utc)
+                        && instant.with_timezone(&zone).date_naive().to_string()
+                            == doc["day_scope"]["local_date"]
+                },
+            ) {
                 for id in doc["clothing_ids"]
                     .as_array()
                     .ok_or_else(|| ApiError::new("storage_error", "排除ID损坏"))?

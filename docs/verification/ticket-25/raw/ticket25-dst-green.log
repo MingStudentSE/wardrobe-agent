@@ -1,0 +1,20 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-25/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 6.24s
+     Running tests/schedules.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/schedules-efb0ba118c835291)
+
+running 12 tests
+test creation_and_edits_are_not_retroactive_and_paused_queue_cannot_execute ... ok
+test hidden_host_obeys_runtime_transition_and_reports_sanitized_failure_persistently ... ok
+test member_plan_survives_restart_and_revision_protects_edit_pause ... ok
+test long_sleep_records_the_missed_interval_and_only_latest_within_configured_window ... ok
+test durable_care_worker_publishes_one_notification_and_cancelled_job_cannot_publish ... ok
+test dst_overlap_uses_earlier_instant_once_and_gap_is_explained_as_missed ... ok
+test outbox_claim_survives_restart_and_does_not_blind_resubmit_unknown_native_delivery ... ok
+test ai_schedule_keeps_notification_pending_until_real_http_worker_result_and_records_child ... ok
+test previous_night_recommendation_uses_next_local_day_and_never_records_wear ... ok
+test external_worker_scope_does_not_grant_care_business_or_another_member ... ok
+test resume_runs_only_latest_due_once_marks_old_missed_and_never_runs_other_device ... ok
+test portable_plans_and_history_restore_without_device_permissions_or_repeating_same_space_execution ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
