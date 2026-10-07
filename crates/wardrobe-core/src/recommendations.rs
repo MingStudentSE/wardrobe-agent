@@ -59,6 +59,7 @@ impl Application {
                 "timezone",
                 "limit",
                 "fixed_ids",
+                "pairing_anchor_id",
                 "excluded_ids",
                 "inventory_priority_ids",
                 "avoid_recent",
@@ -610,7 +611,14 @@ impl Application {
         if let Some(object) = public_generation.as_object_mut() {
             object.remove("_lease_token");
         }
-        let doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"created_at":now,"updated_at":now,"controls":input,"learning_context":learning_context,"feedback_context":{"day_excluded_ids":feedback_excluded,"disliked_set_count":disliked_set_count,"source":"explicit_effective_feedback"},"generation":public_generation,"proposals":proposals,"requested_count":limit,"actual_count":proposals.len(),"offline":public_generation["source"]!="text_model","creates_wear":false,"shortage_reasons":shortage_reasons,"weather_context":weather_context,"recent_window":{"from":from.to_string(),"through":today.to_string(),"timezone":zone.name(),"source":"actual_effective_wear"}});
+        let pairing = input
+            .get("pairing_anchor_id")
+            .and_then(Value::as_str)
+            .map(|anchor| json!({"schema_version":1,"anchor_id":anchor}));
+        let mut doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"created_at":now,"updated_at":now,"controls":input,"learning_context":learning_context,"feedback_context":{"day_excluded_ids":feedback_excluded,"disliked_set_count":disliked_set_count,"source":"explicit_effective_feedback"},"generation":public_generation,"proposals":proposals,"requested_count":limit,"actual_count":proposals.len(),"offline":public_generation["source"]!="text_model","creates_wear":false,"shortage_reasons":shortage_reasons,"weather_context":weather_context,"recent_window":{"from":from.to_string(),"through":today.to_string(),"timezone":zone.name(),"source":"actual_effective_wear"}});
+        if let Some(pairing) = pairing {
+            doc["pairing"] = pairing;
+        }
         if !persist {
             return Ok(doc);
         }
@@ -873,7 +881,7 @@ pub(super) fn role(category: &str) -> (&str, i32) {
         _ => ("other", 0),
     }
 }
-fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
+pub(super) fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
     if input
         .as_object()
         .ok_or_else(|| invalid("请求须为对象"))?
@@ -962,7 +970,7 @@ fn entry(c: &Value, role: &str, layer: i32) -> Value {
 pub(super) fn descriptors() -> Vec<Value> {
     ["generate","get","list","replace","change","save","worker.run"].into_iter().map(|op|{
  let mut properties=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
- if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["strategy"]=json!({"enum":["rules","ai"]});properties["provider_id"]=json!({"type":"string"});properties["json_output"]=json!({"type":"boolean"});properties["output_format"]=json!({"enum":["plain","json_object","llama_cpp_schema"]});properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids","retained_ids","action_excluded_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true});}properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["replacement_category"]=json!({"enum":crate::CATEGORIES});properties["retained_items"]=json!({"type":"array","maxItems":100,"items":{"type":"object","required":["clothing_id","role","layer"],"properties":{"clothing_id":{"type":"string"},"role":{"type":"string"},"layer":{"type":"integer"}},"additionalProperties":false}});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual","automatic"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"&&op!="worker.run"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}
+ if op!="list"{if op=="generate"{for field in ["operation_key","timezone"]{properties[field]=json!({"type":"string"});required.push(field);}properties["strategy"]=json!({"enum":["rules","ai"]});properties["provider_id"]=json!({"type":"string"});properties["json_output"]=json!({"type":"boolean"});properties["output_format"]=json!({"enum":["plain","json_object","llama_cpp_schema"]});properties["limit"]=json!({"type":"integer","minimum":1,"maximum":5});for field in ["fixed_ids","excluded_ids","inventory_priority_ids","retained_ids","action_excluded_ids"]{properties[field]=json!({"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true});}properties["pairing_anchor_id"]=json!({"type":"string"});properties["excluded_sets"]=json!({"type":"array","items":{"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true}});properties["source_intent"]=json!({"type":"string"});properties["replacement_category"]=json!({"enum":crate::CATEGORIES});properties["retained_items"]=json!({"type":"array","maxItems":100,"items":{"type":"object","required":["clothing_id","role","layer"],"properties":{"clothing_id":{"type":"string"},"role":{"type":"string"},"layer":{"type":"integer"}},"additionalProperties":false}});properties["avoid_recent"]=json!({"type":"boolean"});properties["target"]=json!({"enum":["balanced","least_worn","favorites"]});properties["occasion"]=json!({"enum":["daily","work","formal","sport"]});properties["weather"]=json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual","automatic"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});}else{properties["id"]=json!({"type":"string"});required.push("id");if op!="get"&&op!="worker.run"{properties["operation_key"]=json!({"type":"string"});properties["proposal_index"]=json!({"type":"integer","minimum":0});required.extend(["operation_key","proposal_index"]);if op=="replace"{properties["clothing_id"]=json!({"type":"string"});required.push("clothing_id");}
 if op=="save"{properties["name"]=json!({"type":"string","minLength":1,"maxLength":120});required.push("name");}}}}
  json!({"name":format!("recommendation.{op}"),"description":format!("本地离线搭配 {op}；仅使用同成员真实可用衣物，生成与保存均不记录穿着"),"inputSchema":{"type":"object","required":required,"properties":properties,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"id":{"type":"string"},"job_id":{"type":"string"},"state":{"type":"string"},"intent_id":{"type":["string","null"]},"next_due":{"type":"integer"},"proposals":{"type":"array"},"items":{"type":"array"}}}})
  }).collect()
@@ -1123,6 +1131,7 @@ pub(super) fn generate_fields(input: &Value) -> Result<(), ApiError> {
             "timezone",
             "limit",
             "fixed_ids",
+            "pairing_anchor_id",
             "excluded_ids",
             "inventory_priority_ids",
             "avoid_recent",
@@ -1153,6 +1162,17 @@ pub(super) fn generate_fields(input: &Value) -> Result<(), ApiError> {
     for field in ["avoid_recent", "json_output"] {
         if input.get(field).is_some_and(|v| !v.is_boolean()) {
             return Err(invalid("布尔选项格式错误"));
+        }
+    }
+    // The pairing provenance control is only honest when the anchor really is
+    // fixed: an ordinary caller cannot mark an unfixed item as a pairing anchor.
+    if let Some(anchor) = input.get("pairing_anchor_id") {
+        let anchor = anchor
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| invalid("配对锚点须为非空文字"))?;
+        if !ids(input, "fixed_ids")?.iter().any(|id| id == anchor) {
+            return Err(invalid("配对锚点必须同时固定在fixed_ids中"));
         }
     }
     for (field, values) in [
