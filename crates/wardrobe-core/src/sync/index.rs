@@ -208,148 +208,167 @@ impl Application {
         {
             let publisher = string(device, "device_id")?;
             let namespace = format!("{space}/epochs/{epoch}/index/{publisher}");
-            let head_key = format!("{namespace}/head.index");
-            let bytes = match bounded(storage, &head_key) {
-                Ok(bytes) => bytes,
-                Err(e) if e.code == "storage_not_found" => {
-                    let mode_key = format!("{namespace}/mode.index");
-                    match bounded(storage, &mode_key) {
-                        Ok(bytes) => {
-                            let envelope: Value = serde_json::from_slice(&bytes)
-                                .map_err(|_| error("storage_corrupt"))?;
-                            let expected = json!({"protocol_version":1,"space_id":space,"epoch":epoch,"publisher":publisher,"mode":"indexed"});
-                            if envelope["identity"]["device_id"] != publisher
-                                || self.sync_decrypt("changes", &envelope)? != expected
-                            {
-                                return Err(error("storage_corrupt"));
+            let result = (|| -> Result<(), ApiError> {
+                let head_key = format!("{namespace}/head.index");
+                let bytes = match bounded(storage, &head_key) {
+                    Ok(bytes) => bytes,
+                    Err(e) if e.code == "storage_not_found" => {
+                        let observed: u64 = self.connection.query_row("SELECT COALESCE(MAX(observed_head),0) FROM sync_index_read WHERE target_id=?1 AND epoch=?2 AND publisher=?3",params![target,epoch,publisher],|r|r.get(0))?;
+                        if observed > 0 {
+                            return Err(e);
+                        }
+                        let mode_key = format!("{namespace}/mode.index");
+                        match bounded(storage, &mode_key) {
+                            Ok(bytes) => {
+                                let envelope: Value = serde_json::from_slice(&bytes)
+                                    .map_err(|_| error("storage_corrupt"))?;
+                                let expected = json!({"protocol_version":1,"space_id":space,"epoch":epoch,"publisher":publisher,"mode":"indexed"});
+                                if envelope["identity"]["device_id"] != publisher
+                                    || self.sync_decrypt("changes", &envelope)? != expected
+                                {
+                                    return Err(error("storage_corrupt"));
+                                }
+                                supported = true;
                             }
-                            supported = true;
+                            Err(e) if e.code == "storage_not_found" => {
+                                legacy.push(publisher.to_owned())
+                            }
+                            Err(e) => return Err(e),
                         }
-                        Err(e) if e.code == "storage_not_found" => {
-                            legacy.push(publisher.to_owned())
-                        }
-                        Err(e) => return Err(e),
+                        return Ok(());
                     }
-                    continue;
-                }
-                Err(e) => return Err(e),
-            };
-            supported = true;
-            let envelope: Value =
-                serde_json::from_slice(&bytes).map_err(|_| error("storage_corrupt"))?;
-            if envelope["identity"]["device_id"] != publisher {
-                return Err(error("storage_corrupt"));
-            }
-            let head = self.sync_decrypt("changes", &envelope)?;
-            let pages = head["pages"]
-                .as_u64()
-                .filter(|n| *n > 0 && *n < i64::MAX as u64)
-                .ok_or_else(|| error("storage_corrupt"))?;
-            if head.as_object().map(|o| o.len()) != Some(6)
-                || head["protocol_version"] != 1
-                || head["space_id"] != space
-                || head["epoch"] != epoch
-                || head["publisher"] != publisher
-            {
-                return Err(error("storage_corrupt"));
-            }
-            let prior: Option<(u64,u64,Option<String>)> = self.connection.query_row("SELECT next_page,observed_head,previous_digest FROM sync_index_read WHERE target_id=?1 AND epoch=?2 AND publisher=?3",params![target,epoch,publisher],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
-            let (mut number, observed, mut previous) = prior.unwrap_or((1, 0, None));
-            if pages < observed {
-                return Err(error("storage_corrupt"));
-            }
-            // Head observation is durable even while a page still has pending facts.
-            // Consumed page position remains independent from the advertised frontier.
-            self.connection.execute("INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET observed_head=excluded.observed_head",params![target,epoch,publisher,number,pages,previous])?;
-            let mut read_pages = 0;
-            let mut consumed_prefix = true;
-            while number <= pages {
-                if objects.len() == 256 || read_pages == 2 {
-                    more = true;
-                    break;
-                }
-                let page_key = format!("{namespace}/{number:020}.page");
-                let bytes = bounded(storage, &page_key)?;
-                if number == pages && head["last_page_digest"] != digest(&bytes) {
-                    return Err(error("storage_corrupt"));
-                }
+                    Err(e) => return Err(e),
+                };
+                supported = true;
                 let envelope: Value =
                     serde_json::from_slice(&bytes).map_err(|_| error("storage_corrupt"))?;
                 if envelope["identity"]["device_id"] != publisher {
                     return Err(error("storage_corrupt"));
                 }
-                let page = self.sync_decrypt("changes", &envelope)?;
-                if page.as_object().map(|o| o.len()) != Some(7)
-                    || page["protocol_version"] != 1
-                    || page["space_id"] != space
-                    || page["epoch"] != epoch
-                    || page["publisher"] != publisher
-                    || page["page"] != number
-                    || page["previous_digest"] != json!(previous)
+                let head = self.sync_decrypt("changes", &envelope)?;
+                let pages = head["pages"]
+                    .as_u64()
+                    .filter(|n| *n > 0 && *n < i64::MAX as u64)
+                    .ok_or_else(|| error("storage_corrupt"))?;
+                if head.as_object().map(|o| o.len()) != Some(6)
+                    || head["protocol_version"] != 1
+                    || head["space_id"] != space
+                    || head["epoch"] != epoch
+                    || head["publisher"] != publisher
                 {
                     return Err(error("storage_corrupt"));
                 }
-                let entries = page["entries"]
-                    .as_array()
-                    .filter(|v| !v.is_empty() && v.len() <= 256)
-                    .ok_or_else(|| error("storage_corrupt"))?;
-                let mut complete = true;
-                for entry in entries {
-                    let id = string(entry, "op_id")?;
-                    let key = string(entry, "key")?;
-                    if entry.as_object().map(|o| o.len()) != Some(4)
-                        || uuid::Uuid::parse_str(id).is_err()
-                        || key != format!("{changes}/{id}.commit")
+                let prior: Option<(u64,u64,Option<String>)> = self.connection.query_row("SELECT next_page,observed_head,previous_digest FROM sync_index_read WHERE target_id=?1 AND epoch=?2 AND publisher=?3",params![target,epoch,publisher],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+                let (mut number, observed, mut previous) = prior.unwrap_or((1, 0, None));
+                if pages < observed {
+                    return Err(error("storage_corrupt"));
+                }
+                // Head observation is durable even while a page still has pending facts.
+                // Consumed page position remains independent from the advertised frontier.
+                self.connection.execute("INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET observed_head=excluded.observed_head",params![target,epoch,publisher,number,pages,previous])?;
+                let mut read_pages = 0;
+                let mut consumed_prefix = true;
+                while number <= pages {
+                    if objects.len() == 256 || read_pages == 2 {
+                        more = true;
+                        break;
+                    }
+                    let page_key = format!("{namespace}/{number:020}.page");
+                    let bytes = bounded(storage, &page_key)?;
+                    if number == pages && head["last_page_digest"] != digest(&bytes) {
+                        return Err(error("storage_corrupt"));
+                    }
+                    let envelope: Value =
+                        serde_json::from_slice(&bytes).map_err(|_| error("storage_corrupt"))?;
+                    if envelope["identity"]["device_id"] != publisher {
+                        return Err(error("storage_corrupt"));
+                    }
+                    let page = self.sync_decrypt("changes", &envelope)?;
+                    if page.as_object().map(|o| o.len()) != Some(7)
+                        || page["protocol_version"] != 1
+                        || page["space_id"] != space
+                        || page["epoch"] != epoch
+                        || page["publisher"] != publisher
+                        || page["page"] != number
+                        || page["previous_digest"] != json!(previous)
                     {
                         return Err(error("storage_corrupt"));
                     }
-                    let consumed: bool = self.connection.query_row(
+                    let entries = page["entries"]
+                        .as_array()
+                        .filter(|v| !v.is_empty() && v.len() <= 256)
+                        .ok_or_else(|| error("storage_corrupt"))?;
+                    let mut complete = true;
+                    for entry in entries {
+                        let id = string(entry, "op_id")?;
+                        let key = string(entry, "key")?;
+                        if entry.as_object().map(|o| o.len()) != Some(4)
+                            || uuid::Uuid::parse_str(id).is_err()
+                            || key != format!("{changes}/{id}.commit")
+                        {
+                            return Err(error("storage_corrupt"));
+                        }
+                        let consumed: bool = self.connection.query_row(
                         "SELECT EXISTS(SELECT 1 FROM sync_cursors WHERE target_id=?1 AND key=?2) OR EXISTS(SELECT 1 FROM sync_missing WHERE target_id=?1 AND epoch=?3 AND key=?2)",
                         params![target, key, epoch],
                         |r| r.get(0),
                     )?;
-                    if consumed {
-                        continue;
-                    }
-                    if objects.len() == 256 {
+                        if consumed {
+                            continue;
+                        }
+                        if objects.len() == 256 {
+                            complete = false;
+                            more = true;
+                            break;
+                        }
+                        let marker = match bounded(storage, key) {
+                            Ok(marker) => marker,
+                            Err(e) => {
+                                let tx = self.begin_write()?;
+                                tx.execute("INSERT OR IGNORE INTO sync_missing(target_id,epoch,publisher,key,document,code) VALUES(?1,?2,?3,?4,?5,?6)",params![target,epoch,publisher,key,entry.to_string(),e.code])?;
+                                tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.transport_pending',?2)",params![id,json!({"publisher":publisher,"epoch":epoch,"key":key,"code":e.code}).to_string()])?;
+                                tx.commit()?;
+                                continue;
+                            }
+                        };
                         complete = false;
-                        more = true;
-                        break;
-                    }
-                    let marker = match bounded(storage, key) {
-                        Ok(marker) => marker,
-                        Err(e) => {
+                        if entry["digest"] != digest(&marker) || entry["bytes"] != marker.len() {
                             let tx = self.begin_write()?;
-                            tx.execute("INSERT OR IGNORE INTO sync_missing(target_id,epoch,publisher,key,document,code) VALUES(?1,?2,?3,?4,?5,?6)",params![target,epoch,publisher,key,entry.to_string(),e.code])?;
-                            tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.transport_pending',?2)",params![id,json!({"publisher":publisher,"epoch":epoch,"key":key,"code":e.code}).to_string()])?;
+                            tx.execute("INSERT OR IGNORE INTO sync_missing(target_id,epoch,publisher,key,document,code) VALUES(?1,?2,?3,?4,?5,'storage_corrupt')",params![target,epoch,publisher,key,entry.to_string()])?;
+                            tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.transport_pending',?2)",params![id,json!({"publisher":publisher,"epoch":epoch,"key":key,"code":"storage_corrupt"}).to_string()])?;
                             tx.commit()?;
                             continue;
                         }
-                    };
-                    complete = false;
-                    if entry["digest"] != digest(&marker) || entry["bytes"] != marker.len() {
-                        let tx = self.begin_write()?;
-                        tx.execute("INSERT OR IGNORE INTO sync_missing(target_id,epoch,publisher,key,document,code) VALUES(?1,?2,?3,?4,?5,'storage_corrupt')",params![target,epoch,publisher,key,entry.to_string()])?;
-                        tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.transport_pending',?2)",params![id,json!({"publisher":publisher,"epoch":epoch,"key":key,"code":"storage_corrupt"}).to_string()])?;
-                        tx.commit()?;
-                        continue;
+                        objects.push(storage::ObjectMeta {
+                            key: key.to_owned(),
+                            version: digest(&marker),
+                            bytes: marker.len() as u64,
+                        });
                     }
-                    objects.push(storage::ObjectMeta {
-                        key: key.to_owned(),
-                        version: digest(&marker),
-                        bytes: marker.len() as u64,
-                    });
+                    read_pages += 1;
+                    consumed_prefix &= complete;
+                    // Read the next authenticated chained page within the same bounded
+                    // budget even when this page has just queued facts for application.
+                    // Persist only the contiguous already-consumed prefix, never the
+                    // optimistic read position of queued or pending facts.
+                    previous = Some(digest(page.to_string().as_bytes()));
+                    number += 1;
+                    if consumed_prefix {
+                        self.connection.execute("INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET next_page=excluded.next_page,observed_head=excluded.observed_head,previous_digest=excluded.previous_digest",params![target,epoch,publisher,number,pages,previous])?;
+                    }
                 }
-                read_pages += 1;
-                consumed_prefix &= complete;
-                // Read the next authenticated chained page within the same bounded
-                // budget even when this page has just queued facts for application.
-                // Persist only the contiguous already-consumed prefix, never the
-                // optimistic read position of queued or pending facts.
-                previous = Some(digest(page.to_string().as_bytes()));
-                number += 1;
-                if consumed_prefix {
-                    self.connection.execute("INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET next_page=excluded.next_page,observed_head=excluded.observed_head,previous_digest=excluded.previous_digest",params![target,epoch,publisher,number,pages,previous])?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => {
+                    self.connection.execute("DELETE FROM sync_index_errors WHERE target_id=?1 AND epoch=?2 AND publisher=?3",params![target,epoch,publisher])?;
+                }
+                Err(e) => {
+                    supported = true;
+                    let tx = self.begin_write()?;
+                    tx.execute("INSERT INTO sync_index_errors(target_id,epoch,publisher,code,attempts) VALUES(?1,?2,?3,?4,1) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET code=excluded.code,attempts=sync_index_errors.attempts+1",params![target,epoch,publisher,e.code])?;
+                    tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.publisher_pending',?2)",params![publisher,json!({"epoch":epoch,"code":e.code}).to_string()])?;
+                    tx.commit()?;
                 }
             }
         }

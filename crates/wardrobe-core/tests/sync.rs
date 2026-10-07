@@ -1795,4 +1795,79 @@ fn corrupt_indexed_marker_is_durable_and_does_not_block_a_healthy_publisher() {
         sink.execute("sync.status", json!({})).unwrap()["pending"],
         0
     );
+    let publisher = peer.execute("encryption.status", json!({})).unwrap()["state"]["device_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let head_path = remote
+        .path()
+        .join(format!("{space}/epochs/1/index/{publisher}/head.index"));
+    assert!(
+        head_path.is_file(),
+        "confirmed peer publisher has an advertised head"
+    );
+    let head_original = std::fs::read(&head_path).unwrap();
+    let mut corrupt_head = head_original.clone();
+    corrupt_head[0] ^= 1;
+    std::fs::write(&head_path, &corrupt_head).unwrap();
+    let another = owner.execute("clothing.create", json!({"member_id":member_a,"name":"healthy publisher past corrupt head","category":"top"})).unwrap();
+    owner
+        .sync_batch()
+        .expect("a corrupt other-publisher head must be isolated from local publication");
+    sink.sync_batch()
+        .expect("a corrupt other-publisher head must not block healthy remote facts");
+    assert_eq!(
+        sink.execute(
+            "clothing.get",
+            json!({"member_id":member_a,"id":another["id"]})
+        )
+        .unwrap()["name"],
+        "healthy publisher past corrupt head"
+    );
+    assert!(
+        sink.execute("sync.status", json!({})).unwrap()["pending"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    drop(sink);
+    let sink = Application::open(&cp).unwrap();
+    assert!(
+        sink.execute("sync.status", json!({})).unwrap()["pending"]
+            .as_u64()
+            .unwrap()
+            > 0,
+        "publisher errors survive restart"
+    );
+    std::fs::write(&head_path, &head_original).unwrap();
+    sink.sync_batch().unwrap();
+    assert_eq!(
+        sink.execute("sync.status", json!({})).unwrap()["pending"],
+        0
+    );
+    std::fs::remove_file(&head_path).unwrap();
+    let last = owner.execute("clothing.create", json!({"member_id":member_a,"name":"healthy past missing observed head","category":"top"})).unwrap();
+    owner.sync_batch().unwrap();
+    sink.sync_batch().unwrap();
+    assert_eq!(
+        sink.execute(
+            "clothing.get",
+            json!({"member_id":member_a,"id":last["id"]})
+        )
+        .unwrap()["name"],
+        "healthy past missing observed head"
+    );
+    assert!(
+        sink.execute("sync.status", json!({})).unwrap()["pending"]
+            .as_u64()
+            .unwrap()
+            > 0,
+        "missing previously authenticated head is durable pending, not an empty publisher"
+    );
+    std::fs::write(&head_path, &head_original).unwrap();
+    sink.sync_batch().unwrap();
+    assert_eq!(
+        sink.execute("sync.status", json!({})).unwrap()["pending"],
+        0
+    );
 }
