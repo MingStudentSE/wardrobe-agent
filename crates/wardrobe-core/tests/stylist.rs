@@ -844,6 +844,379 @@ fn client_without_insights_scope_fails_deferred_tool_dispatch_scope_denied() {
 }
 
 #[test]
+fn explicit_wear_record_writes_once_replays_identical_retry_and_strips_forged_fields() {
+    let d = tempfile::tempdir().unwrap();
+    let app = open_isolated_app(d.path());
+    let member = bootstrap_member(&app);
+    let item = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"羊毛毛衣","category":"top"}),
+        )
+        .unwrap();
+    let item_id = item["id"].as_str().unwrap().to_owned();
+    // The user explicitly says 记一下今天穿了X; the model maps it to a write
+    // tool frame. Forged operation_key/local_date must be stripped: the server
+    // owns the idempotency key, member and calendar date. The identical repeat
+    // frame (a model retry) must replay, never double-count the wear.
+    let write_frame = || {
+        json!({"kind":"tool","operation":"wear.record","arguments":{"member_id":member,"clothing_ids":[item_id],"notes":"今天穿了毛衣","operation_key":"forged-key","local_date":"1999-01-01"}})
+    };
+    let model = ScriptedModel::start(vec![
+        write_frame(),
+        write_frame(),
+        json!({"kind":"answer","facts":[{"call_id":0,"path":"/id"}],"explanation":"已记录今天的穿着"}),
+    ]);
+    let provider = save_fixture_text_provider(&app, &model.endpoint);
+    let receipt = app
+        .execute(
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"write-wear-once","provider_id":provider,"question":"记一下今天穿了羊毛毛衣","timezone":"UTC"}),
+        )
+        .unwrap();
+    let id = receipt["job_id"].as_str().unwrap().to_owned();
+    let job = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(job["state"], "succeeded", "{job}");
+    assert_eq!(model.post_count(), 3, "write, identical retry, then answer");
+    // The identical retry never became a second tool call: one write, one ledger entry.
+    let tool_calls = job["result"]["tool_calls"].as_array().unwrap();
+    assert_eq!(tool_calls.len(), 1, "{}", serde_json::to_string(tool_calls).unwrap());
+    assert_eq!(tool_calls[0]["operation"], "wear.record");
+    let arguments = &tool_calls[0]["arguments"];
+    assert_eq!(arguments["clothing_ids"], json!([item_id]));
+    assert_eq!(arguments["notes"], json!("今天穿了毛衣"));
+    let key = arguments["operation_key"].as_str().unwrap();
+    assert!(
+        key.starts_with("stylist-") && key.contains(&id),
+        "the server must own the idempotency key, not the model: {arguments}"
+    );
+    let today = chrono::Utc::now().date_naive().to_string();
+    assert_eq!(arguments["local_date"], json!(today));
+    assert_eq!(arguments["timezone"], json!("UTC"));
+    // Server-extracted fact cites the real durable wear event id.
+    let stored = app
+        .execute("wear.list", json!({"member_id":member}))
+        .unwrap();
+    let events = stored["items"].as_array().unwrap();
+    assert_eq!(
+        events.len(),
+        1,
+        "the identical retry must not double-count the wear: {stored}"
+    );
+    assert_eq!(events[0]["kind"], json!("record"));
+    assert_eq!(facts_of(&job)[0]["value"], events[0]["id"]);
+    assert_eq!(
+        job["result"]["budget"],
+        json!({"model_turns":3,"tool_calls":1})
+    );
+    // The finished job replays without new writes or POSTs.
+    let replay = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(replay["result"], job["result"]);
+    assert_eq!(model.post_count(), 3);
+}
+
+#[test]
+fn write_tool_for_foreign_member_denied_without_any_side_effect() {
+    let d = tempfile::tempdir().unwrap();
+    let app = open_isolated_app(d.path());
+    let member = bootstrap_member(&app);
+    let foreign = app
+        .execute("member.create", json!({"name":"另一成员"}))
+        .unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let foreign_item = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":foreign,"name":"他人外套","category":"outerwear"}),
+        )
+        .unwrap();
+    // The model tries to edit another member's real item; the server must
+    // refuse before any domain dispatch and the foreign item must survive.
+    let model = ScriptedModel::start(vec![
+        json!({"kind":"tool","operation":"clothing.update","arguments":{"member_id":foreign,"id":foreign_item["id"],"name":"篡改后的名字"}}),
+        json!({"kind":"answer","facts":[],"explanation":"越权写不应到达第二轮"}),
+    ]);
+    let provider = save_fixture_text_provider(&app, &model.endpoint);
+    let receipt = app
+        .execute(
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"write-foreign-member","provider_id":provider,"question":"把那件外套改名","timezone":"UTC"}),
+        )
+        .unwrap();
+    let id = receipt["job_id"].as_str().unwrap().to_owned();
+    let job = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(job["state"], "failed");
+    assert_eq!(job["error"]["code"], "member_denied");
+    assert_eq!(model.post_count(), 1, "denial ends the loop after one POST");
+    assert_eq!(job["stylist"]["tool_calls"], json!([]));
+    let surviving = app
+        .execute(
+            "clothing.get",
+            json!({"member_id":foreign,"id":foreign_item["id"]}),
+        )
+        .unwrap();
+    assert_eq!(
+        surviving["name"], foreign_item["name"],
+        "a denied write must leave the foreign item untouched"
+    );
+    assert_member_has_no_wear(&app, &member);
+    assert_member_has_no_wear(&app, &foreign);
+}
+
+#[test]
+fn client_without_wear_record_scope_fails_write_scope_denied_without_side_effect() {
+    let d = tempfile::tempdir().unwrap();
+    let app = open_isolated_app(d.path());
+    let member = bootstrap_member(&app);
+    let item = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"羊毛毛衣","category":"top"}),
+        )
+        .unwrap();
+    // Second reply exists so a wrongly-allowed second turn fails fast RED.
+    let model = ScriptedModel::start(vec![
+        json!({"kind":"tool","operation":"wear.record","arguments":{"member_id":member,"clothing_ids":[item["id"]],"notes":"今天穿了"}}),
+        json!({"kind":"answer","facts":[],"explanation":"写被拒后不应到达第二轮"}),
+    ]);
+    let provider = save_fixture_text_provider(&app, &model.endpoint);
+    let (token, _grant_id) =
+        authorize_limited_client(&app, &member, &["stylist.ask", "stylist.worker.run"]);
+    let receipt = app
+        .execute_as_client(
+            &token,
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"client-write-denied","provider_id":provider,"question":"记一下今天穿了毛衣","timezone":"UTC"}),
+        )
+        .unwrap();
+    let id = receipt["job_id"].as_str().unwrap().to_owned();
+    let job = app
+        .execute_as_client(
+            &token,
+            "stylist.worker.run",
+            json!({"member_id":member,"id":id}),
+        )
+        .unwrap();
+    assert_eq!(job["state"], "failed");
+    assert_eq!(
+        job["error"]["code"], "scope_denied",
+        "the wear.record write is deferred under the client grant revalidation"
+    );
+    assert_eq!(model.post_count(), 1);
+    assert_eq!(job["stylist"]["tool_calls"], json!([]));
+    assert_member_has_no_wear(&app, &member);
+}
+
+#[test]
+fn implicit_surfaces_never_become_writes_through_the_stylist() {
+    let d = tempfile::tempdir().unwrap();
+    let app = open_isolated_app(d.path());
+    let member = bootstrap_member(&app);
+    // Saving an outfit (or any other implicit surface) is not a whitelisted
+    // tool: the loop must refuse the frame without executing anything.
+    let model = ScriptedModel::start(vec![
+        json!({"kind":"tool","operation":"recommendation.save","arguments":{"member_id":member,"id":"01a116f0-intent","proposal_index":0,"operation_key":"implicit-save","name":"想要这套"}}),
+        json!({"kind":"answer","facts":[],"explanation":"保存工具被拒后不应到达第二轮"}),
+    ]);
+    let provider = save_fixture_text_provider(&app, &model.endpoint);
+    let receipt = app
+        .execute(
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"implicit-no-write","provider_id":provider,"question":"这套不错帮我留着","timezone":"UTC"}),
+        )
+        .unwrap();
+    let id = receipt["job_id"].as_str().unwrap().to_owned();
+    let job = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(job["state"], "failed");
+    assert_eq!(job["error"]["code"], "tool_not_allowed");
+    assert_eq!(model.post_count(), 1);
+    assert_eq!(job["stylist"]["tool_calls"], json!([]));
+    assert_member_has_no_wear(&app, &member);
+}
+
+#[test]
+fn care_record_correct_revoke_chain_grounds_through_care_list() {
+    let d = tempfile::tempdir().unwrap();
+    let app = open_isolated_app(d.path());
+    let member = bootstrap_member(&app);
+    let item = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"羊毛毛衣","category":"top"}),
+        )
+        .unwrap();
+    let item_id = item["id"].as_str().unwrap().to_owned();
+    let first_model = ScriptedModel::start(vec![
+        json!({"kind":"tool","operation":"care.record","arguments":{"member_id":member,"clothing_id":item_id,"action":"wash","notes":"手洗晾干"}}),
+        json!({"kind":"answer","facts":[{"call_id":0,"path":"/root_event_id"}],"explanation":"已记录洗护"}),
+    ]);
+    let provider = save_fixture_text_provider(&app, &first_model.endpoint);
+    // A fresh fixture per job: the scripted replies need the durable root id,
+    // which only exists after the first job finished.
+    let first = app
+        .execute(
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"care-record-explicit","provider_id":provider,"question":"这件毛衣洗过了，记一下","timezone":"UTC"}),
+        )
+        .unwrap();
+    let first_job = first["job_id"].as_str().unwrap().to_owned();
+    let done = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":first_job}))
+        .unwrap();
+    assert_eq!(done["state"], "succeeded", "{done}");
+    let root = done["result"]["tool_calls"][0]["result"]["root_event_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(done["result"]["tool_calls"][0]["result"]["kind"], json!("record"));
+    assert_eq!(done["result"]["tool_calls"][0]["result"]["revision"], json!(1));
+    // Correction reads the durable root from the care.list projection first.
+    let correct_model = ScriptedModel::start(vec![
+        json!({"kind":"tool","operation":"care.list","arguments":{"member_id":member}}),
+        json!({"kind":"tool","operation":"care.correct","arguments":{"member_id":member,"root_event_id":root,"expected_revision":1,"action":"dry_clean"}}),
+        json!({"kind":"answer","facts":[{"call_id":1,"path":"/revision"}],"explanation":"已更正为干洗"}),
+    ]);
+    let correct_provider = save_fixture_text_provider(&app, &correct_model.endpoint);
+    let second = app
+        .execute(
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"care-correct-explicit","provider_id":correct_provider,"question":"记错了，其实是干洗，更正一下","timezone":"UTC"}),
+        )
+        .unwrap();
+    let second_job = second["job_id"].as_str().unwrap().to_owned();
+    let corrected = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":second_job}))
+        .unwrap();
+    assert_eq!(corrected["state"], "succeeded", "{corrected}");
+    assert_eq!(correct_model.post_count(), 3);
+    // The correction was grounded in the care.list projection: the follow-up
+    // prompt carried the real root id and revision from the read.
+    assert!(
+        correct_model.request(1).contains(&root),
+        "the correction turn must carry the real care.list projection"
+    );
+    assert_eq!(
+        corrected["result"]["tool_calls"][1]["result"]["kind"],
+        json!("correction")
+    );
+    assert_eq!(
+        corrected["result"]["tool_calls"][1]["result"]["revision"],
+        json!(2)
+    );
+    // Revocation against the corrected revision 2.
+    let revoke_model = ScriptedModel::start(vec![
+        json!({"kind":"tool","operation":"care.revoke","arguments":{"member_id":member,"root_event_id":root,"expected_revision":2,"reason":"整条记错了"}}),
+        json!({"kind":"answer","facts":[{"call_id":0,"path":"/kind"}],"explanation":"已撤销该洗护记录"}),
+    ]);
+    let revoke_provider = save_fixture_text_provider(&app, &revoke_model.endpoint);
+    let third = app
+        .execute(
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"care-revoke-explicit","provider_id":revoke_provider,"question":"这条洗护记录整条记错了，撤销","timezone":"UTC"}),
+        )
+        .unwrap();
+    let third_job = third["job_id"].as_str().unwrap().to_owned();
+    let revoked = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":third_job}))
+        .unwrap();
+    assert_eq!(revoked["state"], "succeeded", "{revoked}");
+    assert_eq!(revoked["result"]["tool_calls"][0]["result"]["kind"], json!("revocation"));
+    assert_eq!(
+        revoked["result"]["tool_calls"][0]["result"]["revision"],
+        json!(3)
+    );
+    // Durable truth: the public care.history carries the full correction chain
+    // (record -> correction -> revocation); the default care.list hides a fully
+    // revoked root by domain semantics. The wear ledger was never touched.
+    let history = app
+        .execute("care.history", json!({"member_id":member,"root_event_id":root}))
+        .unwrap();
+    let revisions = history["items"].as_array().unwrap();
+    assert_eq!(revisions.len(), 3, "{history}");
+    assert_eq!(revisions[0]["kind"], json!("record"));
+    assert_eq!(revisions[1]["kind"], json!("correction"));
+    assert_eq!(revisions[2]["kind"], json!("revocation"));
+    assert_eq!(revisions[2]["revision"], json!(3));
+    let care = app
+        .execute("care.list", json!({"member_id":member,"include_revoked":true}))
+        .unwrap();
+    let visible = care["items"].as_array().unwrap();
+    assert_eq!(visible.len(), 1, "{care}");
+    assert_eq!(visible[0]["kind"], json!("revocation"));
+    assert_member_has_no_wear(&app, &member);
+}
+
+#[test]
+fn explicit_clothing_edit_and_archive_apply_server_scoped_changes() {
+    let d = tempfile::tempdir().unwrap();
+    let app = open_isolated_app(d.path());
+    let member = bootstrap_member(&app);
+    let item = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"羊毛毛衣","category":"top"}),
+        )
+        .unwrap();
+    let item_id = item["id"].as_str().unwrap().to_owned();
+    // Forged member and unknown fields are stripped by the server; only the
+    // whitelisted fact fields reach the domain update.
+    let model = ScriptedModel::start(vec![
+        json!({"kind":"tool","operation":"clothing.update","arguments":{"member_id":member,"id":item_id,"name":"传家宝毛衣","favorite":true,"purchase_price_minor":1,"status":"deleted"}}),
+        json!({"kind":"tool","operation":"clothing.archive","arguments":{"member_id":member,"id":item_id}}),
+        json!({"kind":"answer","facts":[{"call_id":1,"path":"/status"}],"explanation":"已改名收藏并归档"}),
+    ]);
+    let provider = save_fixture_text_provider(&app, &model.endpoint);
+    let receipt = app
+        .execute(
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"explicit-edit-archive","provider_id":provider,"question":"这件改名传家宝毛衣、标收藏，然后归档","timezone":"UTC"}),
+        )
+        .unwrap();
+    let id = receipt["job_id"].as_str().unwrap().to_owned();
+    let job = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(job["state"], "succeeded", "{job}");
+    let tool_calls = job["result"]["tool_calls"].as_array().unwrap();
+    assert_eq!(tool_calls.len(), 2);
+    assert_eq!(tool_calls[0]["result"]["name"], json!("传家宝毛衣"));
+    assert_eq!(tool_calls[0]["result"]["favorite"], json!(true));
+    assert_eq!(tool_calls[1]["result"]["status"], json!("archived"));
+    assert_eq!(job["result"]["facts"][0]["value"], json!("archived"));
+    // Durable read-back through the public surface: the edits persisted, the
+    // forged fields never reached the document.
+    let stored = app
+        .execute("clothing.get", json!({"member_id":member,"id":item_id}))
+        .unwrap();
+    assert_eq!(stored["name"], json!("传家宝毛衣"));
+    assert_eq!(stored["favorite"], json!(true));
+    assert_eq!(stored["status"], json!("archived"));
+    assert_eq!(
+        stored["purchase_price_minor"], item["purchase_price_minor"],
+        "a forged price must not reach the domain update"
+    );
+    assert_eq!(
+        job["result"]["budget"],
+        json!({"model_turns":3,"tool_calls":2})
+    );
+    assert_member_has_no_wear(&app, &member);
+}
+
+fn facts_of<'a>(job: &'a Value) -> &'a Vec<Value> {
+    job["result"]["facts"].as_array().expect("facts array")
+}
+
+#[test]
 fn answer_citing_unprojected_notes_exhausts_invalid_budget_without_leaking_sentinel() {
     let d = tempfile::tempdir().unwrap();
     let app = open_isolated_app(d.path());
