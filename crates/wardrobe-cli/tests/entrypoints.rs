@@ -1336,6 +1336,659 @@ fn cli_mcp_share_durable_care_threshold_chronology_and_reminder_availability() {
     );
 }
 #[test]
+fn authorized_cli_pairing_generate_equals_fresh_mcp_pairing_list_without_wear() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    // Output contract (GLOSSARY 默认成员别名): inputs may use the "default" alias,
+    // but public outputs carry the canonical UUID from the shared member resolver.
+    let member = cli(&path, "space.default", json!({}))["result"]["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let anchor = cli(
+        &path,
+        "clothing.create",
+        json!({"member_id":member,"name":"锚点上衣","category":"top"}),
+    )["result"]
+        .clone();
+    for (name, category) in [("裤子", "bottom"), ("鞋", "shoes")] {
+        cli(
+            &path,
+            "clothing.create",
+            json!({"member_id":member,"name":name,"category":category}),
+        );
+    }
+    let token = client_token(&path);
+    let input = json!({"member_id":member,"operation_key":"pair-cli-1","anchor_id":anchor["id"],"timezone":"UTC","limit":2});
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args([
+            "--db",
+            path.to_str().unwrap(),
+            "pairing.generate",
+            "--client-stdin",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    write!(
+        child.stdin.take().unwrap(),
+        "{}",
+        json!({"token":token,"input":input})
+    )
+    .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "pairing.generate 子进程失败");
+    let generated: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(generated.get("error").is_none(), "{generated}");
+    let intent = generated["result"].clone();
+    assert_eq!(intent["member_id"], json!(member));
+    assert_eq!(
+        intent["pairing"],
+        json!({"schema_version":1,"anchor_id":anchor["id"]})
+    );
+    assert_eq!(intent["creates_wear"], false);
+    let proposals = intent["proposals"].as_array().unwrap();
+    assert!(!proposals.is_empty(), "{intent}");
+    for proposal in proposals {
+        assert_eq!(
+            proposal["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|i| i["clothing_id"] == anchor["id"])
+                .count(),
+            1,
+            "{proposal}"
+        );
+    }
+    let mut mcp = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":"pairing.list","arguments":{"member_id":member,"anchor_id":anchor["id"]}}});
+    writeln!(mcp.stdin.take().unwrap(), "{request}").unwrap();
+    let output = mcp.wait_with_output().unwrap();
+    assert!(output.status.success(), "mcp 子进程失败");
+    let body = String::from_utf8(output.stdout).unwrap();
+    assert!(!body.contains(&token));
+    let response: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(response["result"]["isError"], false);
+    let listed: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(listed["schema_version"], 1);
+    assert_eq!(listed["member_id"], json!(member));
+    assert_eq!(listed["items"], json!([intent]));
+    assert_eq!(listed["next_cursor"], Value::Null);
+    assert_eq!(
+        cli(&path, "wear.list", json!({"member_id":member}))["result"]["items"],
+        json!([])
+    );
+}
+
+#[test]
+fn pairing_only_member_limited_grant_denies_scope_and_foreign_member_via_cli_and_mcp() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let member = cli(&path, "space.default", json!({}))["result"]["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let foreign = cli(&path, "member.create", json!({"name":"未授权成员"}))["result"]["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let anchor = cli(
+        &path,
+        "clothing.create",
+        json!({"member_id":member,"name":"授权锚点","category":"top"}),
+    )["result"]
+        .clone();
+    for (name, category) in [("授权裤子", "bottom"), ("授权鞋", "shoes")] {
+        cli(
+            &path,
+            "clothing.create",
+            json!({"member_id":member,"name":name,"category":category}),
+        );
+    }
+    let pair_token = cli(
+        &path,
+        "client.authorize",
+        json!({"name":"配对限定客户端","mode":"limited","operations":["pairing.generate","pairing.list"],"member_ids":[member],"expires_at":null}),
+    )["result"]["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let unscoped_token = cli(
+        &path,
+        "client.authorize",
+        json!({"name":"无配对scope客户端","mode":"limited","operations":["clothing.list"],"member_ids":[member],"expires_at":null}),
+    )["result"]["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let cli_client = |token: &str, operation: &str, input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", path.to_str().unwrap(), operation, "--client-stdin"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        write!(
+            child.stdin.take().unwrap(),
+            "{}",
+            json!({"token":token,"input":input})
+        )
+        .unwrap();
+        let output = child.wait_with_output().unwrap();
+        let body: Value = serde_json::from_slice(&output.stdout).unwrap();
+        (output.status, body)
+    };
+    let mcp_call = |token: &str, operation: &str, input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", path.to_str().unwrap(), "mcp"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(
+            child.stdin.take().unwrap(),
+            "{}",
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":operation,"arguments":input}})
+        )
+        .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "mcp 子进程失败");
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        serde_json::from_str::<Value>(response["result"]["content"][0]["text"].as_str().unwrap())
+            .unwrap()
+    };
+    let input = json!({"member_id":member,"operation_key":"pair-grant-1","anchor_id":anchor["id"],"timezone":"UTC"});
+    let (status, generated) = cli_client(&pair_token, "pairing.generate", input.clone());
+    assert_eq!(status.code(), Some(0));
+    assert!(generated.get("error").is_none(), "{generated}");
+    let intent = generated["result"].clone();
+    assert_eq!(intent["pairing"]["anchor_id"], anchor["id"]);
+    let listed = mcp_call(&pair_token, "pairing.list", json!({"member_id":member}));
+    assert_eq!(listed["items"], json!([intent]));
+    let (status, denied) = cli_client(
+        &pair_token,
+        "pairing.generate",
+        json!({"member_id":foreign,"operation_key":"pair-foreign","anchor_id":anchor["id"],"timezone":"UTC"}),
+    );
+    assert_eq!(status.code(), Some(2));
+    assert_eq!(denied["error"]["code"], "member_denied");
+    assert!(!denied.to_string().contains(&pair_token));
+    let denied = mcp_call(&pair_token, "pairing.list", json!({"member_id":foreign}));
+    assert_eq!(denied["error"]["code"], "member_denied");
+    let (status, denied) = cli_client(&unscoped_token, "pairing.generate", input);
+    assert_eq!(status.code(), Some(2));
+    assert_eq!(denied["error"]["code"], "scope_denied");
+    assert!(!denied.to_string().contains(&unscoped_token));
+    let denied = mcp_call(
+        &unscoped_token,
+        "pairing.generate",
+        json!({"member_id":member,"operation_key":"pair-unscoped","anchor_id":anchor["id"],"timezone":"UTC"}),
+    );
+    assert_eq!(denied["error"]["code"], "scope_denied");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(
+        stdin,
+        "{}",
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"authorization_token":unscoped_token}})
+    )
+    .unwrap();
+    writeln!(
+        stdin,
+        "{}",
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}})
+    )
+    .unwrap();
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let body = String::from_utf8(output.stdout).unwrap();
+    assert!(!body.contains(&unscoped_token));
+    let responses: Vec<Value> = body
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let tools = responses[1]["result"]["tools"].as_array().unwrap();
+    assert!(tools.iter().any(|tool| tool["name"] == "clothing.list"));
+    assert!(tools
+        .iter()
+        .all(|tool| tool["name"] != "pairing.generate" && tool["name"] != "pairing.list"));
+}
+
+#[test]
+fn pairing_generate_rejects_foreign_unknown_and_care_unavailable_anchor_via_mcp() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let member = cli(&path, "space.default", json!({}))["result"]["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let foreign = cli(&path, "member.create", json!({"name":"外来锚点成员"}))["result"]
+        ["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let anchor = cli(
+        &path,
+        "clothing.create",
+        json!({"member_id":member,"name":"可用锚点","category":"top"}),
+    )["result"]["id"]
+        .clone();
+    for (name, category) in [("可用裤子", "bottom"), ("可用鞋", "shoes")] {
+        cli(
+            &path,
+            "clothing.create",
+            json!({"member_id":member,"name":name,"category":category}),
+        );
+    }
+    let foreign_anchor = cli(
+        &path,
+        "clothing.create",
+        json!({"member_id":foreign,"name":"别成员上衣","category":"top"}),
+    )["result"]["id"]
+        .clone();
+    let dirty = cli(
+        &path,
+        "clothing.create",
+        json!({"member_id":member,"name":"待洗锚点","category":"top"}),
+    )["result"]["id"]
+        .clone();
+    cli(
+        &path,
+        "care.configure",
+        json!({"member_id":member,"clothing_id":dirty,"wash_after_wears":1,"expected_revision":0,"operation_key":"config-dirty"}),
+    );
+    cli(
+        &path,
+        "wear.record",
+        json!({"member_id":member,"operation_key":"wear-dirty","local_date":"2020-01-01","timezone":"UTC","clothing_ids":[dirty]}),
+    );
+    let token = client_token(&path);
+    let mcp = |operation: &str, input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", path.to_str().unwrap(), "mcp"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(
+            child.stdin.take().unwrap(),
+            "{}",
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":operation,"arguments":input}})
+        )
+        .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "mcp 子进程失败");
+        let body = String::from_utf8(output.stdout).unwrap();
+        assert!(!body.contains(&token));
+        let response: Value = serde_json::from_str(&body).unwrap();
+        serde_json::from_str::<Value>(response["result"]["content"][0]["text"].as_str().unwrap())
+            .unwrap()
+    };
+    let generate = |key: &str, anchor: &Value| {
+        mcp(
+            "pairing.generate",
+            json!({"member_id":member,"operation_key":key,"anchor_id":anchor,"timezone":"UTC"}),
+        )
+    };
+    let ok = generate("pair-ok", &anchor);
+    assert_eq!(ok["pairing"]["anchor_id"], anchor, "{ok}");
+    assert!(!ok["proposals"].as_array().unwrap().is_empty());
+    for (key, bad, code) in [
+        ("pair-foreign", &foreign_anchor, "not_found"),
+        ("pair-unknown", &json!("不存在的锚点ID"), "not_found"),
+        ("pair-dirty", &dirty, "constraint_conflict"),
+    ] {
+        let rejected = generate(key, bad);
+        assert_eq!(rejected["error"]["code"], code, "{rejected}");
+    }
+    // Unfiltered member history proves rejected anchors left no durable intent
+    // at all — not even under a different anchor filter.
+    let listed = mcp("pairing.list", json!({"member_id":member}));
+    assert_eq!(listed["items"], json!([ok]));
+}
+
+#[test]
+fn pairing_history_pages_exact_ids_across_subprocess_restarts() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let member = cli(&path, "space.default", json!({}))["result"]["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let foreign = cli(&path, "member.create", json!({"name":"分页外来成员"}))["result"]
+        ["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let item = |name: &str, category: &str, owner: &str| {
+        cli(
+            &path,
+            "clothing.create",
+            json!({"member_id":owner,"name":name,"category":category}),
+        )["result"]["id"]
+            .clone()
+    };
+    let a1 = item("历史锚点一", "top", &member);
+    let a2 = item("历史锚点二", "top", &member);
+    item("历史裤子", "bottom", &member);
+    item("历史鞋", "shoes", &member);
+    let f_anchor = item("外来锚点", "top", &foreign);
+    item("外来裤子", "bottom", &foreign);
+    item("外来鞋", "shoes", &foreign);
+    let token = client_token(&path);
+    // Every generator is its own subprocess that exits before anything is read;
+    // the reader below is yet another fresh process over the same SQLite file.
+    let generate = |operation: &str, input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", path.to_str().unwrap(), operation, "--client-stdin"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        write!(
+            child.stdin.take().unwrap(),
+            "{}",
+            json!({"token":token,"input":input})
+        )
+        .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "{operation} 子进程失败");
+        let body: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(body.get("error").is_none(), "{body}");
+        body["result"].clone()
+    };
+    let mut anchored = vec![];
+    for key in ["h1", "h2", "h3"] {
+        anchored.push(
+            generate(
+                "pairing.generate",
+                json!({"member_id":member,"operation_key":key,"anchor_id":a1,"timezone":"UTC"}),
+            )["id"]
+                .clone(),
+        );
+    }
+    let other = generate(
+        "pairing.generate",
+        json!({"member_id":member,"operation_key":"h-other","anchor_id":a2,"timezone":"UTC"}),
+    );
+    let foreign_intent = generate(
+        "pairing.generate",
+        json!({"member_id":foreign,"operation_key":"fh","anchor_id":f_anchor,"timezone":"UTC"}),
+    );
+    let unmarked = generate(
+        "recommendation.generate",
+        json!({"member_id":member,"operation_key":"oh","timezone":"UTC"}),
+    );
+    let mcp_list = |input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", path.to_str().unwrap(), "mcp"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(
+            child.stdin.take().unwrap(),
+            "{}",
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":"pairing.list","arguments":input}})
+        )
+        .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "mcp 子进程失败");
+        let body = String::from_utf8(output.stdout).unwrap();
+        assert!(!body.contains(&token));
+        let response: Value = serde_json::from_str(&body).unwrap();
+        serde_json::from_str::<Value>(response["result"]["content"][0]["text"].as_str().unwrap())
+            .unwrap()
+    };
+    let ids = |page: &Value| -> Vec<Value> {
+        page["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["id"].clone())
+            .collect()
+    };
+    let mut expected: Vec<Value> = anchored.clone();
+    expected.push(other["id"].clone());
+    expected.sort_by(|a, b| b.as_str().unwrap().cmp(a.as_str().unwrap()));
+    let page1 = mcp_list(json!({"member_id":member,"limit":2}));
+    assert_eq!(ids(&page1), expected[..2]);
+    assert_eq!(page1["next_cursor"], expected[1]);
+    let page2 = mcp_list(json!({"member_id":member,"limit":2,"cursor":page1["next_cursor"]}));
+    assert_eq!(ids(&page2), expected[2..]);
+    assert_eq!(page2["next_cursor"], Value::Null);
+    let mut a1_expected = anchored.clone();
+    a1_expected.sort_by(|a, b| b.as_str().unwrap().cmp(a.as_str().unwrap()));
+    let p1 = mcp_list(json!({"member_id":member,"anchor_id":a1,"limit":2}));
+    assert_eq!(ids(&p1), a1_expected[..2]);
+    assert_eq!(p1["items"][0]["pairing"]["anchor_id"], json!(a1));
+    let p2 =
+        mcp_list(json!({"member_id":member,"anchor_id":a1,"limit":2,"cursor":p1["next_cursor"]}));
+    assert_eq!(ids(&p2), a1_expected[2..]);
+    assert_eq!(p2["next_cursor"], Value::Null);
+    // Invented or query-mismatched cursors fail identically without leaking why.
+    let bad = mcp_list(json!({"member_id":member,"cursor":foreign_intent["id"]}));
+    assert_eq!(bad["error"]["code"], "invalid_input");
+    let bad = mcp_list(json!({"member_id":member,"anchor_id":a1,"cursor":other["id"]}));
+    assert_eq!(bad["error"]["code"], "invalid_input");
+    assert_ne!(foreign_intent["id"], unmarked["id"]);
+    // Exact per-page equality above already excludes the foreign member's pair
+    // and the unmarked ordinary intent from every page of member history.
+}
+
+#[test]
+fn pairing_save_feedback_and_try_another_retain_anchor_without_wear() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let member = cli(&path, "space.default", json!({}))["result"]["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let anchor = cli(
+        &path,
+        "clothing.create",
+        json!({"member_id":member,"name":"保存锚点","category":"top"}),
+    )["result"]["id"]
+        .clone();
+    for (name, category) in [
+        ("备用上衣", "top"),
+        ("裤子甲", "bottom"),
+        ("裤子乙", "bottom"),
+        ("鞋甲", "shoes"),
+        ("鞋乙", "shoes"),
+    ] {
+        cli(
+            &path,
+            "clothing.create",
+            json!({"member_id":member,"name":name,"category":category}),
+        );
+    }
+    // try_another is a primary scope that additionally requires both composite
+    // components (authorization.rs): the positive token lists all three.
+    let token = cli(
+        &path,
+        "client.authorize",
+        json!({"name":"配对保存客户端","mode":"limited","operations":["pairing.generate","pairing.list","recommendation.save","feedback.record","recommendation.change","feedback.try_another"],"member_ids":[member],"expires_at":null}),
+    )["result"]["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // Composite denials: primary present, exactly one component missing each.
+    let missing_change = cli(
+        &path,
+        "client.authorize",
+        json!({"name":"缺换套组件客户端","mode":"limited","operations":["feedback.try_another","feedback.record"],"member_ids":[member],"expires_at":null}),
+    )["result"]["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let missing_record = cli(
+        &path,
+        "client.authorize",
+        json!({"name":"缺反馈组件客户端","mode":"limited","operations":["feedback.try_another","recommendation.change"],"member_ids":[member],"expires_at":null}),
+    )["result"]["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // Primary denial: both components present, try_another itself unlisted.
+    let no_primary = cli(
+        &path,
+        "client.authorize",
+        json!({"name":"无主scope客户端","mode":"limited","operations":["feedback.record","recommendation.change"],"member_ids":[member],"expires_at":null}),
+    )["result"]["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mcp = |token: &str, operation: &str, input: Value| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", path.to_str().unwrap(), "mcp"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(
+            child.stdin.take().unwrap(),
+            "{}",
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"authorization_token":token,"name":operation,"arguments":input}})
+        )
+        .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "mcp 子进程失败");
+        let body = String::from_utf8(output.stdout).unwrap();
+        assert!(!body.contains(token));
+        let response: Value = serde_json::from_str(&body).unwrap();
+        serde_json::from_str::<Value>(response["result"]["content"][0]["text"].as_str().unwrap())
+            .unwrap()
+    };
+    let intent = mcp(
+        &token,
+        "pairing.generate",
+        json!({"member_id":member,"operation_key":"save-anchor","anchor_id":anchor,"timezone":"UTC","limit":1}),
+    );
+    assert_eq!(intent["pairing"]["anchor_id"], anchor);
+    let saved = mcp(
+        &token,
+        "recommendation.save",
+        json!({"member_id":member,"id":intent["id"],"proposal_index":0,"name":"已存搭配","operation_key":"save-1"}),
+    );
+    assert_eq!(saved["version"], 1, "{saved}");
+    assert!(saved["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|i| i["clothing_id"] == anchor));
+    assert_eq!(
+        cli(
+            &path,
+            "outfit.get",
+            json!({"member_id":member,"id":saved["id"]})
+        )["result"],
+        saved
+    );
+    assert_eq!(
+        cli(&path, "wear.list", json!({"member_id":member}))["result"]["items"],
+        json!([])
+    );
+    let liked = mcp(
+        &token,
+        "feedback.record",
+        json!({"member_id":member,"operation_key":"fb-like","intent_id":intent["id"],"proposal_index":0,"reaction":"like"}),
+    );
+    assert_eq!(liked["revision"], 1, "{liked}");
+    assert_eq!(
+        cli(
+            &path,
+            "feedback.get",
+            json!({"member_id":member,"id":liked["id"]})
+        )["result"],
+        liked
+    );
+    let history = cli(
+        &path,
+        "feedback.history",
+        json!({"member_id":member,"root_id":liked["root_id"]}),
+    )["result"]
+        .clone();
+    assert_eq!(history["items"], json!([liked.clone()]));
+    // Every rejected try_another leaves no feedback at all — public list still
+    // shows only the like root.
+    let try_input = json!({"member_id":member,"operation_key":"try-denied","intent_id":intent["id"],"proposal_index":0});
+    for denied_token in [&missing_change, &missing_record, &no_primary] {
+        let denied = mcp(denied_token, "feedback.try_another", try_input.clone());
+        assert_eq!(denied["error"]["code"], "scope_denied", "{denied}");
+    }
+    let untouched = cli(&path, "feedback.list", json!({"member_id":member}))["result"].clone();
+    assert_eq!(untouched["items"], json!([liked.clone()]));
+    let attempt = mcp(
+        &token,
+        "feedback.try_another",
+        json!({"member_id":member,"operation_key":"try-1","intent_id":intent["id"],"proposal_index":0}),
+    );
+    assert_eq!(attempt["feedback"]["reaction"], "skip", "{attempt}");
+    let continuation = &attempt["recommendation"];
+    assert_ne!(continuation["id"], intent["id"]);
+    // The continuation is itself a recognized pairing intent for the same anchor.
+    assert_eq!(
+        continuation["pairing"],
+        json!({"schema_version":1,"anchor_id":anchor})
+    );
+    assert_eq!(continuation["controls"]["source_intent"], intent["id"]);
+    let continuations = continuation["proposals"].as_array().unwrap();
+    assert!(!continuations.is_empty(), "{continuation}");
+    for proposal in continuations {
+        assert_eq!(
+            proposal["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|i| i["clothing_id"] == anchor)
+                .count(),
+            1,
+            "{proposal}"
+        );
+    }
+    let mut expected_ids = vec![intent["id"].clone(), continuation["id"].clone()];
+    expected_ids.sort_by(|a, b| b.as_str().unwrap().cmp(a.as_str().unwrap()));
+    let listed = mcp(&token, "pairing.list", json!({"member_id":member}));
+    let listed_ids: Vec<Value> = listed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["id"].clone())
+        .collect();
+    assert_eq!(listed_ids, expected_ids);
+    // The successful skip is the only feedback added, as the newest root.
+    let mut roots = vec![liked["id"].clone(), attempt["feedback"]["id"].clone()];
+    roots.sort_by(|a, b| b.as_str().unwrap().cmp(a.as_str().unwrap()));
+    let after = cli(&path, "feedback.list", json!({"member_id":member}))["result"].clone();
+    let after_ids: Vec<Value> = after["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["id"].clone())
+        .collect();
+    assert_eq!(after_ids, roots);
+    assert_eq!(
+        cli(&path, "wear.list", json!({"member_id":member}))["result"]["items"],
+        json!([])
+    );
+}
+
+#[test]
 fn real_authorized_cli_and_stdin_mcp_share_persistent_offline_recommendation_ids() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("db");
