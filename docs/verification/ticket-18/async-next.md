@@ -1,17 +1,7 @@
-# #18 checkpoint / async next
+# #18 异步研发已完成：独立验收指针
 
-This is an implementation checkpoint, NOT final candidate or acceptance. Current synchronous learning.recompute is not the final contract: actual100k recompute5587ms is a long task, docs02:92 requires immediate durablejob_id. Root agreed this must be fixed before delivery. No asynchronous product code/test was started before checkpoint.
+旧同步checkpoint和后续红绿日志保留。原计划全部落实为持久enqueue/显式worker、DEFERRED计算、短发布CAS、O(1)本机来源版本、GUI查询取消、原始操作授权和typed portable校验。最终证据与边界见 README.md。
 
-Confirmed terminal author handles:59743 workspace188/12ignored/clippy/finalCLI+MCP0;49141 public8green;32908 readableGUI2green;17874 actualOS6+package3 and completeGUI51passed/5skipped (twoOSGUI flags wereunset,3media/visionfixtures gated);65732 actuallearnedscale1passed/16.87s;79954 realcached-intentGUIred;90432 frontendbuild+GUI3green afterconfirmed-learning-change callback.95565 frontendpropcompileerror retained, then90432corrected. None is independent acceptance or final asynchronous-source verification.
+产品冻结4095912；测试冻结0d25a89。所有最终Rust/OS/完整GUI owner handle已自然终态；最终规模日志单列。根缓存独占，无07/09写入。真实Qwen新owner handle17386/PID30481供独立merger协商handoff，旧16553无可取得exit状态，未冒称终态0。
 
-Scale:10000garments/100000actualwearsnapshot events;65explicitmemories/3inferred, eachinferredfeature100000actualsourceIDs. Recompute5587ms;ranking5111ms,5requested/5returned/fixedpreserved,190156800bytesDB. Temp fixture naturallycleaned. Single sample not35p95.32owner had57193terminal/tempcleanup before starting. SourceIDarrays about12MiB futurebounded-sync compatibility coordinatedwithroot.
-
-Next vertical TDD/publicApplication contract:
-1 learning.recompute only validates/normalizes controls then durableenqueue member/kind/opkey, immediatejob_id before snapshot/rebuild and no profile change. ReopenApplication can jobs.get sameID. Repeatedsamekey samejob;differentinput idempotencyconflict.
-2 learning.worker.run sharedApplication explicitworker callableCLI/MCP. Use existingjobs claim/get/cancel/retry and stablekind learning_recompute. Existing finalprofile assertions use execute_and_wait helper, not silently synchronizepublicendpoint.
-3 compute from DEFERRED consistent event/state snapshot (feedback currenteffective revisions + wear effective immutable snapshots); no long IMMEDIATE lock. Record exact effective sourceIDs/signature, stateobserved/cutoff/suppressions.
-4 short IMMEDIATE publication atomically validates currentjob/token/lease/cancel, unchangedreset/suppression and sourceversions; publishesprofile+receipt/history/outbox and terminaljob result referencing profileID. Cancel/reset/expiry/late sourcecorrection cannot overwrite user intent. Localderivedcompute has no paid submission risk; crashedunpublishedjob may safelyreclaim/recompute. Queryterminaljob before rerun. Ifsource/state changed, typedfailedstale result, no profileoverwrite; user explicitlyrequestsnewjob.
-5 GUI immediately showsjob, explicitworker backgroundcall andjobs polling, cancellation. Successfulknownpublication notifies recommendation learningRevision; unknown503 keepskeys. Full rebuild opt-in still clears boundaries only on atomicpublication, not enqueue.
-6 actualconcurrency/cancel/reset/expiry public contracts, threeentry recipes updated, fullsame-sourceRust/clippy/GUI withOSflag1 andrealQwen, samefulllearned10k100k scope afterresourcecoordination. Latestintegration before finalcandidate; backup/sync explicitfive-table whitelist/source-domain validation ownercoordination after32accepted.
-
-Owned publicQwen server session16553/PID97691 currentlylive127.0.0.1:18086, aliaswardrobe-qwen. Existing licensedweight/binary, no downloads/keys. Parent may handoff to32merger; do not launch secondserver or killwithoutcoordination. Log /tmp/wardrobe-implementation/ticket18-qwen-server.log. Allrootcache builds/tests terminal; temporarytarget/node_moduleslinks removed atcheckpoint. No07/09cache writes, no push/close.
+候选待独立验收，无push/Issue关闭。
