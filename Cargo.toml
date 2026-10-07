@@ -1,4 +1,4 @@
 [workspace]
-members = ["crates/wardrobe-core", "crates/wardrobe-cli"]
+members = ["crates/wardrobe-core", "crates/wardrobe-cli", "crates/wardrobe-web"]
 exclude = ["apps/desktop/src-tauri"]
 resolver = "2"
