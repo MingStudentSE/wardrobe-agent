@@ -4,6 +4,7 @@ mod authorization;
 mod backup;
 mod care;
 mod clothing;
+mod categories;
 mod cutout;
 mod data_directory;
 mod encryption;
@@ -32,7 +33,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-// Schema 21 is reserved for schedules; 22 preserves portable receipt variants.
+// Combined categories and portable receipt variants; schedule integration follows.
 pub const DATABASE_SCHEMA_VERSION: u32 = 22;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
@@ -86,6 +87,7 @@ impl Application {
             ));
         }
         tx.execute_batch("CREATE TABLE IF NOT EXISTS members (id TEXT PRIMARY KEY, name TEXT NOT NULL); CREATE TABLE IF NOT EXISTS clothing (id TEXT PRIMARY KEY, member_id TEXT NOT NULL REFERENCES members(id), document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, entity_id TEXT NOT NULL, operation TEXT NOT NULL, document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, entity_id TEXT NOT NULL, document TEXT NOT NULL);")?;
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS wardrobe_categories(member_id TEXT NOT NULL REFERENCES members(id),id TEXT NOT NULL,name TEXT NOT NULL,deleted INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(member_id,id));")?;
         if version < 2 {
             for table in ["clothing", "audit", "outbox"] {
                 let entries = {
@@ -264,6 +266,7 @@ impl Application {
         }
         match operation {
             name if name.starts_with("sync.") => self.sync_operation(name, input),
+            "category.list" | "category.create" | "category.delete" => self.category_operation(operation,input),
             name if matches!(name,"backup.create"|"backup.preview"|"backup.restore"|"data_directory.move") => self.maintenance_enqueue(name,input),
             name if name.starts_with("maintenance.") => self.maintenance_operation(name,input),
             name if name.starts_with("data_directory.") => self.directory_operation(name, input),
@@ -369,6 +372,7 @@ pub fn operations() -> Value {
     descriptors.extend(encryption::descriptors());
     descriptors.extend(sync::descriptors());
     descriptors.extend(clothing::descriptors());
+    descriptors.extend(categories::descriptors());
     descriptors.extend(providers::descriptors());
     descriptors.extend(recognition::descriptors());
     descriptors.extend(product::descriptors());
