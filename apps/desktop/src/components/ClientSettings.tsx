@@ -3,9 +3,12 @@
  * states: default · hover · focus · active · disabled · loading · error · success */
 import React,{useEffect,useRef,useState} from 'react';
 import {api} from '../api';
+import {BROWSER_LIMITS} from '../platform';
+import {platformMode} from '../api';
 import './ClientSettings.css';
 type Member={member_id:string;name:string};type Operation={name:string;description:string};type Grant={id:string;name:string;mode:string;operations:string[];member_ids:string[]|null;expires_at:string|null;revoked:boolean};
 export function ClientSettings(){
+ if(platformMode==='web')return <section className="client-settings" id="client-settings" aria-label="客户端授权"><div className="settings-content"><h2>CLI / MCP 与外部 Agent</h2><p className="feedback" role="note">{BROWSER_LIMITS.clientAuthorize}</p><p className="helper">本机命令行入口：<code>wardrobe-cli capabilities</code>；登记客户端：<code>wardrobe-cli --trusted-local client.authorize --input-stdin</code>（令牌经标准输入提供）。浏览器自身的会话授权已由 wardrobe-web 服务在本机引导时创建。</p></div></section>;
  const[clients,setClients]=useState<Grant[]>([]),[members,setMembers]=useState<Member[]>([]),[operations,setOperations]=useState<Operation[]>([]),[name,setName]=useState(''),[mode,setMode]=useState('limited'),[scopes,setScopes]=useState<string[]>([]),[memberIds,setMemberIds]=useState<string[]>([]),[allMembers,setAllMembers]=useState(false),[expiry,setExpiry]=useState(''),[token,setToken]=useState(''),[showToken,setShowToken]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState('');const pending=useRef(false);
  const message=(e:unknown)=>typeof e==='object'&&e!==null&&'message'in e?String(e.message):'客户端授权操作失败，请重试。';
  const toggle=(old:string[],value:string)=>old.includes(value)?old.filter(v=>v!==value):[...old,value];
