@@ -549,5 +549,27 @@ if op=="get"{props["id"]=json!({"type":"string"});
 req.push("id");
 }
 if op=="list"{props["include_revoked"]=json!({"type":"boolean"});
-}json!({"name":format!("care.{op}"),"description":format!("洗护 {op}"),"inputSchema":{"type":"object","additionalProperties":false,"required":req,"properties":props},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1}}}})}).collect()
+};let mut descriptor=json!({"name":format!("care.{op}"),"description":format!("洗护 {op}"),"inputSchema":{"type":"object","additionalProperties":false,"required":req,"properties":props},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1}}}});
+        let op=descriptor["name"].as_str().unwrap().strip_prefix("care.").unwrap().to_string();
+        descriptor["effect"]=match op.as_str() {
+            "configure"|"mark_dirty"|"record"|"correct"|"revoke"=>json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+            _=>json!({"kind":"query","network":"none","local_files":false,"async":null}),
+        };
+        let mid=json!("<已授权成员ID>");
+        let cid=json!("<单品ID>");
+        descriptor["examples"]=match op.as_str() {
+            "configure"=>json!([{"request":{"member_id":mid,"clothing_id":cid,"operation_key":"<幂等操作键>","wash_after_wears":3,"expected_revision":0},"prerequisites":["期望洗涤次数阈值；expected_revision 乐观锁"]}]),
+            "mark_dirty"=>json!([{"request":{"member_id":mid,"clothing_id":cid,"operation_key":"<幂等操作键>","local_date":"2020-01-01","timezone":"UTC","dirty":true},"prerequisites":["人工标记待洗状态"]}]),
+            "record"=>json!([{"request":{"member_id":mid,"clothing_id":cid,"operation_key":"<幂等操作键>","local_date":"2020-01-02","timezone":"UTC","action":"wash"},"prerequisites":["洗护动作同步完成并重置穿着计数；action 为实际执行动作"]}]),
+            "correct"=>json!([{"request":{"member_id":mid,"operation_key":"<新幂等键>","root_event_id":"<根事件ID>","expected_revision":1,"local_date":"2020-01-03","timezone":"UTC"},"prerequisites":["按 expected_revision 更正洗护事件"]}]),
+            "revoke"=>json!([{"request":{"member_id":mid,"operation_key":"<新幂等键>","root_event_id":"<根事件ID>","expected_revision":2,"reason":"<作废原因>"},"prerequisites":["作废并保留历史"]}]),
+            "status"=>json!([{"request":{"member_id":mid,"clothing_id":cid},"prerequisites":["读取当前穿着计数与待洗状态"]}]),
+            "get"=>json!([{"request":{"member_id":mid,"id":"<事件ID>"},"prerequisites":["读取单条洗护事件"]}]),
+            "list"=>json!([{"request":{"member_id":mid},"prerequisites":["可选 clothing_id 过滤；include_revoked 默认不含作废"]}]),
+            "history"=>json!([{"request":{"member_id":mid,"root_event_id":"<根事件ID>"},"prerequisites":["同一根事件的修订链"]}]),
+            "dirty_list"=>json!([{"request":{"member_id":mid},"prerequisites":["列出当前待洗单品"]}]),
+            "reminders"=>json!([{"request":{"member_id":mid},"prerequisites":["读取可提醒的待洗项"]}]),
+            _=>json!([{"request":{"member_id":mid},"prerequisites":["读取可穿着性统计"]}]),
+        };
+        descriptor}).collect()
 }

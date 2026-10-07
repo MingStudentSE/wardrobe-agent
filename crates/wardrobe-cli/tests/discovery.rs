@@ -433,20 +433,15 @@ fn mcp_startup_failure_keeps_the_jsonrpc_stream_clean() {
     let blocker = dir.path().join("blocker");
     std::fs::write(&blocker, b"not a directory").unwrap();
     let db = blocker.join("wardrobe.sqlite");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+    // 启动即失败发生在任何 JSON-RPC 协议之前，测试不写 stdin（避免与进程退出竞争）
+    let child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
         .args(["--db", db.to_str().unwrap(), "mcp"])
         .env("HOME", dir.path().join("home"))
-        .stdin(Stdio::piped())
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    writeln!(
-        child.stdin.take().unwrap(),
-        "{}",
-        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}})
-    )
-    .unwrap();
     let (code, stdout, stderr) = bounded_output(child, 30, "mcp with unwritable storage");
     assert_eq!(code, Some(1), "startup failure must exit 1");
     assert!(
@@ -675,4 +670,103 @@ fn storage_failures_exit_1_while_json_errors_stay_2() {
     ]);
     assert_eq!(code, Some(2), "invalid_json must stay exit 2: {envelope}");
     assert_eq!(envelope["error"]["code"], "invalid_json");
+}
+
+#[test]
+fn registry_metadata_projects_through_cli_schema_and_mcp_tools_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+
+    // CLI schema 在无任何存储的情况下投影完整描述符
+    let db = dir.path().join("never").join("w.sqlite");
+    let (code, body, _) = bounded_output(
+        Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+            .args(["--db", db.to_str().unwrap(), "schema", "category.list"])
+            .env("HOME", &home)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+        30,
+        "schema clothing.list",
+    );
+    assert_eq!(code, Some(0), "{body}");
+    let envelope: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(envelope["result"]["scope"]["access"], json!("external"));
+    assert!(envelope["result"]["effect"].is_object(), "{envelope}");
+    assert!(envelope["result"]["outputSchema"].is_object());
+    assert_eq!(envelope["result"]["effect"]["kind"], json!("query"));
+
+    // 授权 MCP tools/list 投影同一描述符，且不暴露仅本机可信操作
+    let app = wardrobe_core::Application::open(&dir.path().join("mcp.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let grant = app
+        .execute(
+            "client.authorize",
+            json!({"name":"投影","mode":"limited","operations":["clothing.list","category.list"],"member_ids":null,"expires_at":null}),
+        )
+        .unwrap();
+    let token = grant["token"].as_str().unwrap().to_string();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args([
+            "--db",
+            dir.path().join("mcp.sqlite").to_str().unwrap(),
+            "mcp",
+        ])
+        .env("HOME", &home)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(
+        stdin,
+        "{}",
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"authorization_token":token}})
+    )
+    .unwrap();
+    writeln!(
+        stdin,
+        "{}",
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}})
+    )
+    .unwrap();
+    drop(stdin);
+    let (code, body, _) = bounded_output(child, 30, "tools/list projection");
+    assert_eq!(code, Some(0), "{body}");
+    assert!(!body.contains(&token), "令牌不得回显");
+    let responses: Vec<Value> = body
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let tools = responses[1]["result"]["tools"].as_array().unwrap();
+    let tool = tools
+        .iter()
+        .find(|t| t["name"] == json!("clothing.list"))
+        .expect("授权内操作必须出现");
+    assert_eq!(tool["scope"]["primary"], json!("clothing.list"));
+    assert!(tool["outputSchema"].is_object());
+    // 已标注 effect 的家族经 MCP 投影一致
+    let category_tool = tools
+        .iter()
+        .find(|t| t["name"] == json!("category.list"))
+        .expect("category.list 必须出现");
+    assert_eq!(
+        category_tool["effect"]["kind"],
+        json!("query"),
+        "{category_tool}"
+    );
+    assert!(
+        tools
+            .iter()
+            .all(|t| !t["name"].as_str().unwrap().starts_with("client.")),
+        "仅本机可信入口的操作不得进入外部发现"
+    );
+    assert!(
+        tools.iter().any(|t| t["name"] == json!("capabilities")),
+        "capabilities 凭有效授权可发现"
+    );
 }

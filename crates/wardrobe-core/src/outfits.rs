@@ -329,5 +329,24 @@ if *operation=="update"{properties["expected_version"]=json!({"type":"integer","
 if *operation=="version"{properties["version"]=json!({"type":"integer","minimum":1});required.push("version");}
 if *operation=="favorite"{properties["favorite"]=json!({"type":"boolean"});required.push("favorite");}
 if *operation=="list"{properties["status"]=json!({"enum":["active","deleted","all"]});properties["favorite"]=json!({"type":"boolean"});properties["limit"]=json!({"type":"integer","minimum":1,"maximum":100});properties["cursor"]=json!({"type":"string"});}let output=match *operation{ "list"=>json!({"type":"object","required":["schema_version","items","next_cursor"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":{"type":"object","required":["id","member_id","name","items","version","status","favorite"]}},"next_cursor":{"type":["string","null"]}}}), "render_local"=>json!({"type":"object","required":["schema_version","outfit_id","version","role","sync_scope","width","height","missing_images","data_url"],"properties":{"role":{"const":"outfit"},"sync_scope":{"const":"local_only"},"data_url":{"type":"string"}}}),_=>json!({"type":"object","required":["schema_version","id","member_id","name","items","version","status","favorite","created_at","updated_at"],"properties":{"schema_version":{"const":1},"version":{"type":"integer","minimum":1},"items":{"type":"array","minItems":1,"items":{"type":"object","required":["clothing_id","role","layer","snapshot"]}}}})};
-json!({"name":format!("outfit.{operation}"),"description":format!("本地Lookbook {operation}"),"inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties},"outputSchema":output})}).collect()
+let name=format!("outfit.{operation}");
+let mut descriptor=json!({"name":name,"description":format!("本地Lookbook {operation}"),"inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties},"outputSchema":output});
+descriptor["effect"]=match *operation {
+ "create"|"update"|"favorite"|"clone"|"delete"|"restore"=>json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+ "render_local"=>json!({"kind":"query","network":"none","local_files":true,"async":null}),
+ _=>json!({"kind":"query","network":"none","local_files":false,"async":null}),
+};
+descriptor["examples"]=match *operation {
+ "create"=>json!([{"request":{"member_id":"<已授权成员ID>","name":"<搭配名称>","items":[{"clothing_id":"<单品ID>","role":"outer","layer":2}]},"prerequisites":["单品须已存在；创建版本为1"]}]),
+ "get"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<outfit.create 返回的ID>"},"prerequisites":["读取当前版本"]}]),
+ "list"=>json!([{"request":{"member_id":"<已授权成员ID>","status":"active","limit":20},"prerequisites":["status 可为 active/deleted/all"]}]),
+ "update"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配ID>","name":"<新名称>","items":[{"clothing_id":"<单品ID>","role":"outer","layer":2}],"expected_version":1},"prerequisites":["expected_version 乐观锁；成功后版本+1 并存新快照"]}]),
+ "version"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配ID>","version":1},"prerequisites":["读取历史不可变版本快照"]}]),
+ "favorite"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配ID>","favorite":true},"prerequisites":["标记收藏"]}]),
+ "clone"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配ID>","name":"<副本名称>"},"prerequisites":["以当前版本创建新搭配"]}]),
+ "delete"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配ID>"},"prerequisites":["软删除入回收站，可 restore 恢复"]}]),
+ "restore"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配ID>"},"prerequisites":["仅回收站中的搭配可恢复"]}]),
+ _=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配ID>"},"prerequisites":["读取本机图片本地渲染，sync_scope 恒为 local_only，不联网"]}]),
+};
+descriptor}).collect()
 }

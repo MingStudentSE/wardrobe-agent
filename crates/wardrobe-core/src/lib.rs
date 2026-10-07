@@ -496,6 +496,13 @@ pub fn operations() -> Value {
         );
     capabilities["outputSchema"] = json!({"type":"object","required":["schema_version","operations","categories"],"properties":{"schema_version":{"type":"integer","const":1},"operations":{"type":"array","items":{"type":"object","required":["name","description","inputSchema","outputSchema"]}},"categories":{"type":"array","items":{"type":"string"}}}});
     descriptors.push(capabilities);
+    // scope 元数据由授权规则同源派生（authorization::scope_metadata），不是第二套命令表
+    for descriptor in descriptors.iter_mut() {
+        descriptor["scope"] = authorization::scope_metadata(
+            descriptor["name"].as_str().unwrap(),
+            &descriptor["inputSchema"],
+        );
+    }
     Value::Array(descriptors)
 }
 

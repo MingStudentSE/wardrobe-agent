@@ -334,10 +334,20 @@ fn provider_schema() -> Value {
 pub(crate) fn descriptors() -> Vec<Value> {
     let id_input = json!({"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false});
     let mut result = vec![
-        json!({"name":"provider.save","description":"保存模型端点和能力；更换端点会移除旧凭据","inputSchema":{"type":"object","required":["name","endpoint","model","capabilities","authentication"],"properties":{"id":{"type":"string"},"name":{"type":"string"},"endpoint":{"type":"string"},"model":{"type":"string"},"capabilities":{"type":"array","items":{"enum":CAPABILITIES}},"authentication":{"enum":["none","bearer"]},"adapter":{"enum":["openai_compatible","ark_seedream"]}},"additionalProperties":false},"outputSchema":provider_schema()}),
-        json!({"name":"provider.list","description":"读取本机模型配置，不包含凭据","inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":provider_schema()}}}}),
-        json!({"name":"provider.validate","description":"显式选择文本或视觉连接验证；视觉仅发送内置测试图，每次调用可能使用供应商额度，不验证图像生成或试穿","inputSchema":{"type":"object","required":["id","capability"],"properties":{"id":{"type":"string"},"capability":{"type":"string","enum":["text","vision"]}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","id","verified_capabilities","verified_at","usage"],"properties":{"schema_version":{"const":1,"type":"integer"},"id":{"type":"string"},"verified_capabilities":{"type":"array","items":{"type":"string","enum":["text","vision"]},"minItems":1,"maxItems":1},"verified_at":{"type":"string"},"usage":{"type":"object"}}}}),
+        json!({"name":"provider.save","description":"保存模型端点和能力；更换端点会移除旧凭据","effect":{"kind":"mutation","network":"none","local_files":false,"async":null},"examples":[{"request":{"name":"<本地供应商名称>","endpoint":"<http://127.0.0.1:端口/v1>","model":"<模型名>","capabilities":["text"],"authentication":"none"},"prerequisites":["endpoint 指向自建或本地服务；更换端点会移除旧凭据"]}],"inputSchema":{"type":"object","required":["name","endpoint","model","capabilities","authentication"],"properties":{"id":{"type":"string"},"name":{"type":"string"},"endpoint":{"type":"string"},"model":{"type":"string"},"capabilities":{"type":"array","items":{"enum":CAPABILITIES}},"authentication":{"enum":["none","bearer"]},"adapter":{"enum":["openai_compatible","ark_seedream"]}},"additionalProperties":false},"outputSchema":provider_schema()}),
+        json!({"name":"provider.list","description":"读取本机模型配置，不包含凭据","effect":{"kind":"query","network":"none","local_files":false,"async":null},"examples":[{"request":{},"prerequisites":["返回不含凭据的供应商配置"]}],"inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":provider_schema()}}}}),
+        json!({"name":"provider.validate","description":"显式选择文本或视觉连接验证；视觉仅发送内置测试图，每次调用可能使用供应商额度，不验证图像生成或试穿","effect":{"kind":"mutation","network":"explicit-provider","local_files":false,"async":null},"examples":[{"request":{"id":"<provider.save 返回的ID>","capability":"text"},"prerequisites":["显式网络验证并持久化验证结果，每次调用可能消耗供应商额度；视觉仅发送内置测试图；本示例不自动执行"]}],"inputSchema":{"type":"object","required":["id","capability"],"properties":{"id":{"type":"string"},"capability":{"type":"string","enum":["text","vision"]}},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","id","verified_capabilities","verified_at","usage"],"properties":{"schema_version":{"const":1,"type":"integer"},"id":{"type":"string"},"verified_capabilities":{"type":"array","items":{"type":"string","enum":["text","vision"]},"minItems":1,"maxItems":1},"verified_at":{"type":"string"},"usage":{"type":"object"}}}}),
     ];
+    let effects = json!({
+        "provider.credential.set": {"kind":"mutation","network":"none","local_files":false,"async":null},
+        "provider.credential.remove": {"kind":"mutation","network":"none","local_files":false,"async":null},
+        "provider.credential.status": {"kind":"query","network":"none","local_files":false,"async":null},
+    });
+    let examples = json!({
+        "provider.credential.set": [{"request":{"id":"<供应商ID>","api_key":"<仅经stdin提供的密钥占位>"},"prerequisites":["仅本机可信入口；密钥必须经 --input-stdin 提供，不得进入命令行或日志"]}],
+        "provider.credential.remove": [{"request":{"id":"<供应商ID>"},"prerequisites":["仅本机可信入口；移除系统安全凭据"]}],
+        "provider.credential.status": [{"request":{"id":"<供应商ID>"},"prerequisites":["仅本机可信入口；只返回配置状态，不返回密钥"]}],
+    });
     for name in [
         "provider.credential.set",
         "provider.credential.remove",
@@ -348,7 +358,10 @@ pub(crate) fn descriptors() -> Vec<Value> {
             input["properties"]["api_key"] = json!({"type":"string","writeOnly":true});
             input["required"] = json!(["id", "api_key"]);
         }
-        result.push(json!({"name":name,"description":"管理系统安全凭据，只返回配置状态","inputSchema":input,"outputSchema":{"type":"object","required":["schema_version","id","configured"],"properties":{"schema_version":{"const":1,"type":"integer"},"id":{"type":"string"},"configured":{"type":"boolean"}}}}));
+        let mut descriptor = json!({"name":name,"description":"管理系统安全凭据，只返回配置状态","inputSchema":input,"outputSchema":{"type":"object","required":["schema_version","id","configured"],"properties":{"schema_version":{"const":1,"type":"integer"},"id":{"type":"string"},"configured":{"type":"boolean"}}}});
+        descriptor["effect"] = effects[name].clone();
+        descriptor["examples"] = examples[name].clone();
+        result.push(descriptor);
     }
     result
 }

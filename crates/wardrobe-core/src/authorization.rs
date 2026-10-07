@@ -14,6 +14,63 @@ fn privileged(operation: &str) -> bool {
         || operation.starts_with("provider.credential.")
         || operation.starts_with("encryption.")
 }
+/// 描述符 scope 元数据：与上方 privileged()、maintenance::is_global_operation()
+/// 及 execute_as_client 中的精确授权条件同源派生；只描述既有执行语义，不改变授权。
+/// 成员约束在 member_ids 为数组时生效（含 full 模式）；有效输入不含 member_id 的
+/// 操作（除显式空间级豁免）受限成员授权无法执行，按 all-members 标注。
+/// 组合条件与 execute_as_client 中对应分支一一对应，公开契约测试钉住二者一致。
+pub(crate) fn scope_metadata(operation: &str, input_schema: &Value) -> Value {
+    let access = if privileged(operation) {
+        "trusted-local-only"
+    } else {
+        "external"
+    };
+    // capabilities 对有限授权免 primary 检查（execute_as_client 精确豁免）；
+    // 仅本机可信入口的操作外部一律拒绝，primary/member 不参与判定。
+    let primary_grant_required = access == "external" && operation != "capabilities";
+    let member_grant = if crate::maintenance::is_global_operation(operation) {
+        // 受限成员授权直接 member_denied，须授权全部成员
+        "all-members"
+    } else if ["capabilities", "provider.list", "provider.validate"].contains(&operation) {
+        "space-level"
+    } else if operation == "member.list" {
+        "filtered"
+    } else if input_schema["properties"].get("member_id").is_some() {
+        // 受限成员授权必须提供且仅能使用授权内 member_id
+        "per-member_id"
+    } else {
+        // 有效输入没有 member_id：受限成员授权在执行分支 member_denied
+        "all-members"
+    };
+    let mut scope = json!({
+        "access": access,
+        "primary": operation,
+        "primary_grant_required": primary_grant_required,
+        "member": {"grant": member_grant},
+    });
+    let additional = match operation {
+        "feedback.record" => json!([{
+            "when": {"reaction": ["actual_wore", "changed"]},
+            "requires": ["wear.record"],
+        }]),
+        "feedback.try_another" => json!([{
+            "requires": ["feedback.record", "recommendation.change"],
+        }]),
+        "learning.worker.run" | "jobs.retry" | "jobs.cancel" => json!([{
+            "when_job_kind": "learning_recompute",
+            "requires": ["learning.recompute"],
+        }]),
+        other if other.starts_with("maintenance.") && other != "maintenance.list" => json!([{
+            "requires_original_job_scope": true,
+            "job_field": "id",
+        }]),
+        _ => Value::Null,
+    };
+    if !additional.is_null() {
+        scope["additional"] = additional;
+    }
+    scope
+}
 fn parse_grant(stored: &str) -> Result<Value, ApiError> {
     let grant: Value = serde_json::from_str(stored)
         .map_err(|_| ApiError::new("storage_error", "客户端授权损坏"))?;
