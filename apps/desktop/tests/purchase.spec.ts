@@ -2,6 +2,16 @@ import {test,expect} from '@playwright/test';
 // 购买适配分析（issue #24）通过真实公开应用验收：候选草稿存放在候选域、
 // 不进入衣物库存；纠错显式发生；三项分析（搭配潜力/重复风险/缺口）引用
 // 真实库存并以版本化历史保留。种子数据经共享 dev API（同一 Application API）。
+test.afterEach(async({page})=>{
+ // 成员选择是持久化状态：切回默认成员（与 imports/feedback/learning 等规格
+ // 一致），避免污染共享 dev server 上后续规格（如 stylist 以默认成员 id
+ // 供工具帧引用）。select 值等于「我」即证明 member.select 已持久化。
+ const choice=page.getByRole('combobox',{name:/^当前成员/});
+ if(!(await choice.isVisible()))await page.getByText('当前衣橱').click();
+ await expect(choice).toBeEnabled();
+ await choice.selectOption({label:'我'});
+ await expect(choice).toHaveValue(await choice.getByRole('option',{name:'我',exact:true}).getAttribute('value')??'');
+});
 test('candidate draft stays out of inventory and analysis cites real stock',async({page})=>{
  const call=async(operation:string,input:object)=>{const r=await (await page.request.post('/__wardrobe_dev_api',{data:{operation,input}})).json();if(r.error)throw Error(r.error.message);return r.result;};
  const member=(await call('member.create',{name:'候选分析成员'})).member_id as string;
