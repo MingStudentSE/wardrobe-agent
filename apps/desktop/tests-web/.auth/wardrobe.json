@@ -1,0 +1,15 @@
+{
+  "cookies": [
+    {
+      "name": "wardrobe_session",
+      "value": "da1cff734fa4135d7c8ef817974724fde12cc739311b8761cc24d0da417eb069",
+      "domain": "127.0.0.1",
+      "path": "/",
+      "expires": 1791427753.592713,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Strict"
+    }
+  ],
+  "origins": []
+}

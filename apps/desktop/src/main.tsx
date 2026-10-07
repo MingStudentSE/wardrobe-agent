@@ -1,3 +1,4 @@
+import {WebGate} from './WebGate';
 import {SettingsHub} from './components/SettingsHub';
 import './components/journal-settings.css';
 import React, { useEffect, useState, useRef } from 'react';
@@ -75,4 +76,4 @@ function App(){
 {editorOpen&&editing&&editorMode==='edit'&&<ItemEditor onDirty={()=>{dirtyRef.current=true;setEditorDirty(true);}} onWear={beginWear} key={editorKey} member={member} item={editing} disabled={loading||memberBusy} canMutate={()=>!memberPending.current&&!mutationPending.current} onSaved={async()=>{dirtyRef.current=false;setEditorDirty(false);await list(member);}} onClose={closeEditor} onBusy={busyChanged}/>}</div>{editorDirty&&<p className="draft-indicator">有未保存修改</p>}</EditorDialog></main></div>;
 
 }
-createRoot(document.getElementById('root')!).render(<App/>);
+createRoot(document.getElementById('root')!).render(<WebGate><App/></WebGate>);

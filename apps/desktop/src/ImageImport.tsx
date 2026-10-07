@@ -1,6 +1,7 @@
 import './photo-workspace.css';
 import {useEffect,useRef,useState} from 'react';
-import {open} from '@tauri-apps/plugin-dialog';
+import {isTauriRuntime,pickImagePaths,pickFiles} from './platform';
+import {uploadPhoto} from './api';
 import {api} from './api';
 import {ImagePreview} from './ImagePreview';
 import {ImageEditor} from './ImageEditor';
@@ -15,7 +16,8 @@ export function ImageImport({memberId,clothingId,onAdopted,onBusy=()=>{},disable
  useEffect(()=>{let active=true;void api<References>('clothing.get',{member_id:memberId,id:clothingId}).then(doc=>{if(active)setReferences(doc);}).catch(e=>{if(active)setError(message(e));});return()=>{active=false;};},[memberId,clothingId]);
  async function run(work:()=>Promise<void>){if(pending.current||disabled||!canMutate())return;pending.current=true;setBusy(true);onBusy(true);setNotice('');setError('');try{await work();}catch(e){setError(message(e));}finally{pending.current=false;setBusy(false);onBusy(false);}}
  async function importOne(path:string,index:number){try{const image=await api<Imported>('assets.import',{member_id:memberId,path});setEntries(old=>old.map((entry,n)=>n===index?{path,image}:entry));}catch(e){setEntries(old=>old.map((entry,n)=>n===index?{path,error:message(e)}:entry));}}
- async function choose(){await run(async()=>{const result=await open({multiple:true,filters:[{name:'衣物图片',extensions:['jpg','jpeg','png','webp','heic','heif']}]});if(!result)return;const paths=Array.isArray(result)?result:[result];if(paths.length>100)throw new Error('每批最多选择 100 张图片。');const offset=entries.length;setEntries(old=>[...old,...paths.map(path=>({path}))]);for(let i=0;i<paths.length;i++)await importOne(paths[i],offset+i);});}
+ async function importOneFile(file:File,index:number){try{const image=await uploadPhoto(memberId,file);setEntries(old=>old.map((entry,n)=>n===index?{path:file.name,image}:entry));}catch(e){setEntries(old=>old.map((entry,n)=>n===index?{path:file.name,error:message(e)}:entry));}}
+ async function choose(){await run(async()=>{if(!isTauriRuntime){const files=await pickFiles({multiple:true});if(!files?.length)return;if(files.length>100)throw new Error('每批最多选择 100 张图片。');const offset=entries.length;setEntries(old=>[...old,...files.map(file=>({path:file.name}))]);for(let i=0;i<files.length;i++)await importOneFile(files[i],offset+i);return;}const result=await pickImagePaths({multiple:true});if(!result)return;if(result.length>100)throw new Error('每批最多选择 100 张图片。');const offset=entries.length;setEntries(old=>[...old,...result.map(path=>({path}))]);for(let i=0;i<result.length;i++)await importOne(result[i],offset+i);});}
  async function mutate(operation:string,input:object,success:string){await run(async()=>{await api(operation,{member_id:memberId,clothing_id:clothingId,...input});await refresh();await onAdopted();setRemoving(null);setNotice(success);});}
  function move(index:number,delta:number){const ids=[...(references.asset_ids??[])];[ids[index],ids[index+delta]]=[ids[index+delta],ids[index]];void mutate('assets.reorder',{asset_ids:ids},'图片排序已保存。');}
  const blocked=busy||disabled;

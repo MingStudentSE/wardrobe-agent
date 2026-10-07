@@ -1,0 +1,67 @@
+/* Web 门禁页：沿用共享 tokens 与设置页视觉，不发明新主题。 */
+.web-gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-12) var(--space-4);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}
+.web-gate-card {
+  width: min(560px, 100%);
+  background: var(--color-surface);
+  border: var(--rule) solid var(--color-rule);
+  border-radius: var(--radius-card);
+  padding: var(--space-8) var(--space-8);
+  display: grid;
+  gap: var(--space-4);
+}
+.web-gate-card h1 {
+  font-family: var(--font-display);
+  font-size: var(--text-display);
+  margin: 0;
+}
+.web-gate-card form {
+  display: grid;
+  gap: var(--space-3);
+}
+.web-gate-card label {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+.web-gate-card input,
+.web-gate-card textarea {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule) solid var(--color-rule);
+  border-radius: var(--radius);
+  background: var(--color-panel);
+  color: inherit;
+}
+.web-gate-steps {
+  padding-left: var(--space-5);
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+.web-gate-steps code {
+  display: block;
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  word-break: break-all;
+  background: var(--color-panel);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+}
+.web-gate-token {
+  border: var(--rule) solid var(--color-rule);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-2);
+}
