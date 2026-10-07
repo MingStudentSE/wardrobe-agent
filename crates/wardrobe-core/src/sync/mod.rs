@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Read, path::Path};
 use storage::{LocalFolder, SyncStorage, WriteCondition};
-const TABLES: [&str; 11] = [
+const TABLES: [&str; 12] = [
     "members",
     "clothing",
     "outfits",
@@ -31,13 +31,28 @@ const TABLES: [&str; 11] = [
     "weather_preferences",
     "feedback_events",
     "feedback_receipts",
+    "categories",
 ];
+// The category registry is keyed by the exact string clothing.category uses;
+// sync fields have no member column, so the wire entity is member-scoped.
+const CATEGORY_DOCUMENT: &str =
+    "json_object('schema_version',1,'member_id',member_id,'id',id,'name',name,'deleted',CASE WHEN deleted=1 THEN json('true') ELSE json('false') END)";
+/// Sync journal wire names are stable entity contracts; the physical registry
+/// table carries the wardrobe_ prefix, so SQL surfaces must map explicitly.
+fn physical_table(table: &str) -> &str {
+    if table == "categories" {
+        "wardrobe_categories"
+    } else {
+        table
+    }
+}
 fn entity_key(table: &str, prefix: &str) -> String {
     match table {
         "outfit_versions" => format!("{prefix}.outfit_id||':'||{prefix}.version"),
         "care_config" => format!("{prefix}.clothing_id"),
         "insights_preferences" | "weather_preferences" => format!("{prefix}.member_id"),
         "feedback_receipts" => format!("{prefix}.member_id||':'||{prefix}.operation_key"),
+        "categories" => format!("{prefix}.member_id||':'||{prefix}.id"),
         _ => format!("{prefix}.id"),
     }
 }
@@ -95,6 +110,37 @@ fn materialize(
     match table {
         "clothing" => {
             if doc.get("category").is_none() || doc.get("name").is_none() {
+                return Err(error("sync_dependency"));
+            }
+            let category = doc["category"]
+                .as_str()
+                .ok_or_else(|| error("sync_invalid"))?;
+            let default = crate::CATEGORIES.contains(&category);
+            let own: Option<bool> = tx
+                .query_row(
+                    "SELECT deleted FROM wardrobe_categories WHERE member_id=?1 AND id=?2",
+                    params![member, category],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(deleted) = own {
+                if deleted {
+                    // Same existence semantics as category_exists: only a live
+                    // own-member category is a valid target for a live fact.
+                    return Err(error("sync_invalid"));
+                }
+            } else if !default {
+                let foreign: bool = tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM wardrobe_categories WHERE id=?1)",
+                    [category],
+                    |r| r.get(0),
+                )?;
+                if foreign {
+                    // The custom id is known to belong to another member.
+                    return Err(error("sync_invalid"));
+                }
+                // Structurally valid but absent custom category: a missing
+                // dependency that may still arrive; defer it, never quarantine.
                 return Err(error("sync_dependency"));
             }
             tx.execute("INSERT INTO clothing VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,member,serialized])?;
@@ -206,6 +252,17 @@ fn materialize(
         }
         "insights_preferences" => {
             tx.execute("INSERT INTO insights_preferences VALUES(?1,?2) ON CONFLICT(member_id) DO UPDATE SET document=excluded.document",params![member,serialized])?;
+        }
+        "categories" => {
+            tx.execute(
+                "INSERT INTO wardrobe_categories(member_id,id,name,deleted) VALUES(?1,?2,?3,?4) ON CONFLICT(member_id,id) DO UPDATE SET name=excluded.name,deleted=excluded.deleted",
+                params![
+                    member,
+                    string(doc, "id")?,
+                    string(doc, "name")?,
+                    doc["deleted"].as_bool().ok_or_else(|| error("sync_invalid"))?
+                ],
+            )?;
         }
         _ => return Err(error("sync_invalid")),
     }
@@ -322,6 +379,8 @@ pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
                 "json_object('schema_version',1,'member_id',NEW.member_id,'operation_key',NEW.operation_key,'request',NEW.request,'result',NEW.result)"
             } else if table == "members" {
                 "json_object('id',NEW.id,'name',NEW.name)"
+            } else if table == "categories" {
+                "json_object('schema_version',1,'member_id',NEW.member_id,'id',NEW.id,'name',NEW.name,'deleted',CASE WHEN NEW.deleted=1 THEN json('true') ELSE json('false') END)"
             } else {
                 "NEW.document"
             };
@@ -333,15 +392,18 @@ pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
                 "json_object('schema_version',1,'member_id',OLD.member_id,'operation_key',OLD.operation_key,'request',OLD.request,'result',OLD.result)"
             } else if table == "members" {
                 "json_object('id',OLD.id,'name',OLD.name)"
+            } else if table == "categories" {
+                "json_object('schema_version',1,'member_id',OLD.member_id,'id',OLD.id,'name',OLD.name,'deleted',CASE WHEN OLD.deleted=1 THEN json('true') ELSE json('false') END)"
             } else {
                 "OLD.document"
             };
-            let changed = if table == "weather_preferences" && kind == "UPDATE" {
-                format!(" AND {before}!={after}")
-            } else {
-                String::new()
+            let changed = match (table, kind) {
+                ("weather_preferences", "UPDATE") | ("categories", "UPDATE") => {
+                    format!(" AND {before}!={after}")
+                }
+                _ => String::new(),
             };
-            tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS sync_{table}_{kind} AFTER {kind} ON {table} WHEN (SELECT applying FROM sync_control WHERE id=1)=0 AND EXISTS(SELECT 1 FROM encryption_state){changed} BEGIN INSERT INTO sync_journal(op_id,device,entity_type,entity_id,before_doc,after_doc,base) VALUES(lower(hex(randomblob(16))),(SELECT json_extract(document,'$.device_id') FROM encryption_state),'{table}',{key},{before},{after},COALESCE((SELECT json_group_object(device,seq) FROM sync_clock),'{{}}')); INSERT INTO sync_clock(device,seq) VALUES((SELECT json_extract(document,'$.device_id') FROM encryption_state),1) ON CONFLICT(device) DO UPDATE SET seq=seq+1; UPDATE sync_journal SET clock=(SELECT json_group_object(device,seq) FROM sync_clock) WHERE id=(SELECT max(id) FROM sync_journal); END;"))?;
+            tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS sync_{table}_{kind} AFTER {kind} ON {} WHEN (SELECT applying FROM sync_control WHERE id=1)=0 AND EXISTS(SELECT 1 FROM encryption_state){changed} BEGIN INSERT INTO sync_journal(op_id,device,entity_type,entity_id,before_doc,after_doc,base) VALUES(lower(hex(randomblob(16))),(SELECT json_extract(document,'$.device_id') FROM encryption_state),'{table}',{key},{before},{after},COALESCE((SELECT json_group_object(device,seq) FROM sync_clock),'{{}}')); INSERT INTO sync_clock(device,seq) VALUES((SELECT json_extract(document,'$.device_id') FROM encryption_state),1) ON CONFLICT(device) DO UPDATE SET seq=seq+1; UPDATE sync_journal SET clock=(SELECT json_group_object(device,seq) FROM sync_clock) WHERE id=(SELECT max(id) FROM sync_journal); END;", physical_table(table)))?;
         }
     }
     tx.execute_batch("CREATE INDEX IF NOT EXISTS sync_journal_entity ON sync_journal(entity_type,entity_id); CREATE INDEX IF NOT EXISTS sync_inbox_entity ON sync_inbox(json_extract(document,'$.entity_type'),json_extract(document,'$.entity_id'));")?;

@@ -123,6 +123,15 @@ fn clothing(doc: &Value, member: &str) -> Result<(), ApiError> {
     text(doc, "name", 1, 120)?;
     timestamp(doc, "created_at")?;
     timestamp(doc, "updated_at")?;
+    // Structural grammar only: live member-scoped existence is enforced at
+    // materialize, so immutable snapshots stay interpretable after deletion.
+    let category = doc["category"].as_str().unwrap_or("");
+    check(
+        crate::CATEGORIES.contains(&category)
+            || category
+                .strip_prefix("custom_")
+                .is_some_and(|raw| uuid::Uuid::parse_str(raw).is_ok()),
+    )?;
     let input: serde_json::Map<String, Value> = doc
         .as_object()
         .unwrap()
@@ -187,6 +196,22 @@ pub(super) fn validate(table: &str, entity: &str, doc: &Value) -> Result<(), Api
         "clothing" => {
             clothing(doc, member)?;
             check(doc["id"] == entity)?;
+        }
+        "categories" => {
+            fields(
+                doc,
+                &["schema_version", "member_id", "id", "name", "deleted"],
+            )?;
+            check(doc["deleted"].is_boolean())?;
+            text(doc, "name", 1, 40)?;
+            let category = string(doc, "id")?;
+            check(
+                crate::CATEGORIES.contains(&category)
+                    || category
+                        .strip_prefix("custom_")
+                        .is_some_and(|raw| uuid::Uuid::parse_str(raw).is_ok()),
+            )?;
+            check(entity == format!("{}:{}", member, category))?;
         }
         "outfits" | "outfit_versions" => {
             fields(

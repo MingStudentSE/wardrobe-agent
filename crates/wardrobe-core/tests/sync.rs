@@ -2772,3 +2772,119 @@ fn legacy_flat_epoch2_blob_commits_still_reach_a_fresh_peer_with_historical_wear
     }
     scan_originals(c.path(), &originals);
 }
+
+#[test]
+#[ignore = "requires actual OS credential store"]
+fn custom_category_create_and_its_clothing_reach_a_fresh_paired_peer_which_edits_the_garment() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    let ap = a.path().join("wardrobe.sqlite");
+    let bp = b.path().join("wardrobe.sqlite");
+    let owner = Application::open(&ap).unwrap();
+    let peer = Application::open(&bp).unwrap();
+    let _a = Cleanup(ap.clone());
+    let _b = Cleanup(bp.clone());
+    owner
+        .execute(
+            "encryption.create",
+            json!({"password":"temporary sync owner password","device_name":"sync owner"}),
+        )
+        .unwrap();
+    let offer = owner
+        .execute("encryption.pair.offer", json!({"device_name":"sync peer"}))
+        .unwrap();
+    let receipt = peer
+        .execute(
+            "encryption.pair.accept",
+            json!({"invitation":offer["invitation"],"pairing_secret":offer["pairing_secret"],"password":"temporary sync peer password"}),
+        )
+        .unwrap();
+    let confirmation = owner
+        .execute(
+            "encryption.pair.confirm",
+            json!({"receipt":receipt["receipt"]}),
+        )
+        .unwrap();
+    peer.execute(
+        "encryption.device.apply",
+        json!({"manifest":confirmation["manifest"]}),
+    )
+    .unwrap();
+    let member = owner
+        .execute("member.create", json!({"name":"分类同步家人"}))
+        .unwrap();
+    for app in [&owner, &peer] {
+        app.execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    }
+    let category = owner
+        .execute(
+            "category.create",
+            json!({"member_id":member["member_id"],"name":"冬季户外"}),
+        )
+        .unwrap();
+    let custom = category["id"].as_str().unwrap();
+    assert!(custom.starts_with("custom_"), "{}", category);
+    let garment = owner
+        .execute(
+            "clothing.create",
+            json!({"member_id":member["member_id"],"name":"同步冲锋衣","category":custom}),
+        )
+        .unwrap();
+    owner.sync_batch().unwrap();
+    peer.sync_batch().unwrap();
+    let owner_list = owner
+        .execute("category.list", json!({"member_id":member["member_id"]}))
+        .unwrap();
+    let peer_list = peer
+        .execute("category.list", json!({"member_id":member["member_id"]}))
+        .unwrap();
+    assert_eq!(
+        peer_list, owner_list,
+        "fresh peer must list the same real categories: {}",
+        peer_list
+    );
+    assert!(owner_list["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v["id"] == category["id"] && v["name"] == "冬季户外" && v["count"] == 1));
+    let received = peer
+        .execute(
+            "clothing.get",
+            json!({"member_id":member["member_id"],"id":garment["id"]}),
+        )
+        .unwrap();
+    assert_eq!(received["category"], category["id"]);
+    peer.execute(
+        "clothing.update",
+        json!({"member_id":member["member_id"],"id":garment["id"],"name":"对端改名冲锋衣"}),
+    )
+    .expect("peer must be able to edit a garment under the synced custom category");
+    for app in [&peer, &owner] {
+        app.sync_batch().unwrap();
+    }
+    assert_eq!(
+        owner
+            .execute(
+                "clothing.get",
+                json!({"member_id":member["member_id"],"id":garment["id"]})
+            )
+            .unwrap()["name"],
+        "对端改名冲锋衣"
+    );
+    for app in [&owner, &peer] {
+        let status = app.execute("sync.status", json!({})).unwrap();
+        assert_eq!(
+            status["quarantine"].as_array().unwrap().len(),
+            0,
+            "{}",
+            status
+        );
+        assert_eq!(status["pending"], 0, "{}", status);
+    }
+}

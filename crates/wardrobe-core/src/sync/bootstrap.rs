@@ -30,11 +30,13 @@ impl Application {
             if done || budget == 0 {
                 continue;
             }
-            let key = entity_key(table, table);
+            let physical = super::physical_table(table);
+            let key = entity_key(table, physical);
             let document=match table {
                 "members"=>"json_object('id',id,'name',name)".to_owned(),
                 "feedback_receipts"=>"json_object('schema_version',1,'member_id',member_id,'operation_key',operation_key,'request',request,'result',result)".to_owned(),
                 "weather_preferences"=>"json_remove(document,'$.config.endpoint','$.cache','$.last_error')".to_owned(),
+                "categories"=>super::CATEGORY_DOCUMENT.to_owned(),
                 _=>"document".to_owned(),
             };
             let filter = if table == "members" {
@@ -42,7 +44,7 @@ impl Application {
             } else {
                 " AND (?3 OR 1)"
             };
-            let sql=format!("SELECT rowid,{key},{document} FROM {table} WHERE rowid>?1{filter} ORDER BY rowid LIMIT ?2");
+            let sql=format!("SELECT rowid,{key},{document} FROM {physical} WHERE rowid>?1{filter} ORDER BY rowid LIMIT ?2");
             let mut statement = tx.prepare(&sql)?;
             let rows = statement
                 .query_map(params![cursor, budget, owner], |r| {
