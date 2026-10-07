@@ -32,7 +32,8 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 20;
+// Schema 21 is reserved for schedules; 22 preserves portable receipt variants.
+pub const DATABASE_SCHEMA_VERSION: u32 = 22;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
