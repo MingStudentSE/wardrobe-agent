@@ -19,6 +19,7 @@ mod maintenance;
 mod members;
 mod outfits;
 mod pairing;
+pub mod profiles;
 mod product;
 mod providers;
 mod recognition;
@@ -392,7 +393,9 @@ pub fn operations() -> Value {
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );
-    capabilities["outputSchema"] = json!({"type":"object","required":["schema_version","operations","categories"],"properties":{"schema_version":{"type":"integer","const":1},"operations":{"type":"array","items":{"type":"object","required":["name","description","inputSchema","outputSchema"]}},"categories":{"type":"array","items":{"type":"string"}}}});
+    capabilities["outputSchema"] = json!({"type":"object","required":["schema_version","operations","categories","taxonomy"],"properties":{"schema_version":{"type":"integer","const":1},"operations":{"type":"array","items":{"type":"object","required":["name","description","inputSchema","outputSchema"]}},"categories":{"type":"array","items":{"type":"string"}},"taxonomy":{"type":"object","required":["version","sub_categories","colors"],"properties":{"version":{"type":"integer"},"sub_categories":{"type":"array"},"colors":{"type":"array"}}}}});
+    capabilities["effect"] = json!({"kind":"query","network":"none","local_files":false,"async":null});
+    capabilities["examples"] = json!([{"request":{},"prerequisites":["免授权发现全部公开操作契约（名称/描述/输入输出schema）","限定scope客户端仅见其授权范围内操作；本示例只读不执行业务"]}]);
     descriptors.push(capabilities);
     // scope 元数据由授权规则同源派生（authorization::scope_metadata），不是第二套命令表
     for descriptor in descriptors.iter_mut() {

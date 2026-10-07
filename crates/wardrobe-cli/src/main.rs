@@ -23,12 +23,56 @@ fn main() {
         }
         args::Parsed::Help(Some(operation)) => print_operation(operation),
         args::Parsed::Schema(operation) => print_operation(operation),
-        args::Parsed::Mcp { db } => run_mcp(db),
+        args::Parsed::Mcp { db, profile } => {
+            let db = match resolve_db(db, profile) {
+                Ok(db) => db,
+                Err(error) => {
+                    if error.code == "storage_error" {
+                        println!("{}", json!({"schema_version":1,"error":error}));
+                        std::process::exit(1);
+                    }
+                    fail(error);
+                }
+            };
+            run_mcp(db)
+        }
+        args::Parsed::Profile(command) => run_profile(command),
         args::Parsed::Execute(execution) => execute(execution),
     }
 }
-fn run_mcp(db: Option<PathBuf>) {
-    let db = db.unwrap_or_else(wardrobe_core::default_database_path);
+fn resolve_db(
+    db: Option<PathBuf>,
+    profile: Option<String>,
+) -> Result<PathBuf, ApiError> {
+    if let Some(db) = db {
+        return Ok(db);
+    }
+    if let Some(resolved) = wardrobe_core::profiles::resolve(profile.as_deref())? {
+        return Ok(resolved);
+    }
+    Ok(wardrobe_core::default_database_path())
+}
+
+fn run_profile(command: args::ProfileCommand) {
+    use args::ProfileAction;
+    let result = match (command.action, command.name.as_deref(), command.data_dir.as_deref(), command.force) {
+        (ProfileAction::Add, Some(name), Some(dir), force) => wardrobe_core::profiles::upsert(name, dir, force),
+        (ProfileAction::Remove, Some(name), _, _) => wardrobe_core::profiles::remove(name),
+        (ProfileAction::List, _, _, _) => wardrobe_core::profiles::list(),
+        (ProfileAction::Use, Some(name), _, _) => wardrobe_core::profiles::set_default(name),
+        _ => unreachable!("args已校验参数组合"),
+    };
+    match result {
+        Ok(result) => println!("{}", json!({"schema_version":1,"result":result})),
+        Err(e) if e.code == "storage_error" => {
+            println!("{}", json!({"schema_version":1,"error":e}));
+            std::process::exit(1);
+        }
+        Err(e) => fail(e),
+    }
+}
+
+fn run_mcp(db: PathBuf) {
     let app = match Application::open(&db) {
         Ok(app) => app,
         Err(e) => {
@@ -66,9 +110,16 @@ fn execute(execution: args::Execution) {
                 .into(),
         });
     }
-    let db = execution
-        .db
-        .unwrap_or_else(wardrobe_core::default_database_path);
+    let db = match resolve_db(execution.db, execution.profile) {
+        Ok(db) => db,
+        Err(error) => {
+            if error.code == "storage_error" {
+                println!("{}", json!({"schema_version":1,"error":error}));
+                std::process::exit(1);
+            }
+            fail(error);
+        }
+    };
     let app = match Application::open(&db) {
         Ok(app) => app,
         Err(e) => {

@@ -1110,6 +1110,8 @@ pub(super) fn descriptors() -> Vec<Value> {
             properties.insert("confirm_overwrite".into(), json!({"type":"boolean"}));
             required.push("confirm_overwrite");
         }
+        if name == "backup.settings.set" {
+        }
         if matches!(name, "backup.create" | "backup.preview" | "backup.restore") {
             properties.insert("operation_key".into(), json!({"type":"string","minLength":1,"maxLength":200}));
         }
@@ -1117,6 +1119,9 @@ pub(super) fn descriptors() -> Vec<Value> {
             properties.insert("expected_revision".into(), json!({"type":"integer","minimum":0}));
             required.extend(["include_originals", "expected_revision"]);
         }
-        json!({"name":name,"description":"本地备份、预览与显式恢复","outputSchema":if matches!(name,"backup.create"|"backup.preview"|"backup.restore"){crate::maintenance::job_schema()}else{json!({"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":1}}})},"inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties}})
+        let (effect,examples)=match name {
+            "backup.create"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":{"job_kind":"backup_create","process":"maintenance.worker.run","terminal_states":["succeeded","failed","cancelled","waiting_input"]}}),json!([{"request":{"directory":"</绝对/本地/备份目录>","operation_key":"<唯一操作标识>","include_originals":false},"prerequisites":["异步入队一致性备份；由maintenance.worker.run本地执行写备份目录","include_originals明确是否包含原图；默认仅数据库与采用展示图"]}])),"backup.preview"=>(json!({"kind":"query","network":"none","local_files":true,"async":null}),json!([{"request":{"directory":"</绝对/本地/备份目录>"},"prerequisites":["预览备份内容与恢复影响；读取本地备份文件"]}])),"backup.restore"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":{"job_kind":"backup_restore","process":"maintenance.worker.run","terminal_states":["succeeded","failed","cancelled","waiting_input"]}}),json!([{"request":{"directory":"</绝对/本地/备份目录>","confirm_overwrite":true,"operation_key":"<唯一操作标识>"},"prerequisites":["显式确认覆盖后异步入队恢复；由maintenance.worker.run本地执行","先preview再restore；恢复失败保留现有数据"]}])),"backup.settings.get"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{},"prerequisites":["读取备份默认配置与revision"]}])),"backup.settings.set"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"directory":"</绝对/本地/备份目录>","include_originals":false,"expected_revision":0},"prerequisites":["expected_revision乐观并发：先settings.get读取当前revision","目录须绝对路径；设置不删除任何衣橱数据"]}])),_=>unreachable!()
+        };
+        json!({"name":name,"effect":effect,"examples":examples,"description":"本地备份、预览与显式恢复","outputSchema":if matches!(name,"backup.create"|"backup.preview"|"backup.restore"){crate::maintenance::job_schema()}else{json!({"type":"object","required":["schema_version","directory","include_originals","revision"],"properties":{"schema_version":{"const":1},"directory":{"type":"string"},"include_originals":{"type":"boolean"},"revision":{"type":"integer","minimum":0}}})},"inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties}})
     }).collect()
 }

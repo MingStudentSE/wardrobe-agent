@@ -12,17 +12,33 @@ pub enum Input {
 
 pub struct Execution {
     pub db: Option<PathBuf>,
+    pub profile: Option<String>,
     pub trusted_local: bool,
     pub command: String,
     pub input: Option<Input>,
+}
+
+pub enum ProfileAction {
+    Add,
+    Remove,
+    List,
+    Use,
+}
+
+pub struct ProfileCommand {
+    pub action: ProfileAction,
+    pub name: Option<String>,
+    pub data_dir: Option<PathBuf>,
+    pub force: bool,
 }
 
 pub enum Parsed {
     Help(Option<String>),
     Schema(String),
     Version,
-    Mcp { db: Option<PathBuf> },
+    Mcp { db: Option<PathBuf>, profile: Option<String> },
     Execute(Execution),
+    Profile(ProfileCommand),
 }
 
 fn invalid_arguments(message: &str) -> ApiError {
@@ -36,6 +52,7 @@ fn invalid_arguments(message: &str) -> ApiError {
 /// `mcp` 仅在作为命令位置参数时切换传输。
 pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
     let mut db: Option<PathBuf> = None;
+    let mut profile: Option<String> = None;
     let mut trusted_local = false;
     let mut input: Option<Input> = None;
     let mut positionals: Vec<&str> = Vec::new();
@@ -56,6 +73,9 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                     if db.is_some() {
                         return Err(invalid_arguments("--db 只能出现一次"));
                     }
+                    if profile.is_some() {
+                        return Err(invalid_arguments("--db 与 --profile 只能选择一种连接方式"));
+                    }
                     match args.get(i + 1) {
                         Some(value) => {
                             db = Some(PathBuf::from(value));
@@ -63,6 +83,19 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                             continue;
                         }
                         None => return Err(invalid_arguments("--db 缺少路径参数")),
+                    }
+                }
+                "--profile" => {
+                    if profile.is_some() {
+                        return Err(invalid_arguments("--profile 只能出现一次"));
+                    }
+                    match args.get(i + 1) {
+                        Some(value) => {
+                            profile = Some(value.to_string());
+                            i += 2;
+                            continue;
+                        }
+                        None => return Err(invalid_arguments("--profile 缺少名称参数")),
                     }
                 }
                 "--trusted-local" => {
@@ -100,6 +133,15 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                     continue;
                 }
                 other if other.starts_with('-') && other != "-" => {
+                    if positionals
+                        .first()
+                        .is_some_and(|c| c.starts_with("profile."))
+                    {
+                        // profile 子命令自带旗标（--data-dir/--force），由其分支解析
+                        positionals.push(arg);
+                        i += 1;
+                        continue;
+                    }
                     return Err(invalid_arguments(&format!("未知参数 {other}")))
                 }
                 _ => {}
@@ -112,7 +154,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
     if help_flag || version_flag {
         if !positionals.is_empty() || trusted_local || input.is_some() {
             return Err(invalid_arguments(
-                "--help/--version 必须单独使用，仅可与 --db 全局参数一起出现",
+                "--help/--version 必须单独使用，仅可携带全局参数",
             ));
         }
         return Ok(if help_flag {
@@ -153,7 +195,84 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                     "mcp 传输不接受 --input-stdin/--client-stdin",
                 ));
             }
-            Ok(Parsed::Mcp { db })
+            Ok(Parsed::Mcp { db, profile })
+        }
+        Some(command) if command.starts_with("profile.") => {
+            let action = match command {
+                "profile.add" => ProfileAction::Add,
+                "profile.remove" => ProfileAction::Remove,
+                "profile.list" => ProfileAction::List,
+                "profile.use" => ProfileAction::Use,
+                _ => return Err(invalid_arguments("profile子命令仅支持 add/remove/list/use")),
+            };
+            if input.is_some() {
+                return Err(invalid_arguments("profile子命令不接受标准输入方式"));
+            }
+            let mut name: Option<String> = None;
+            let mut data_dir: Option<PathBuf> = None;
+            let mut force = false;
+            let mut rest: Vec<&str> = positionals[1..].to_vec();
+            while let Some(arg) = rest.first().copied() {
+                match arg {
+                    "--data-dir" => {
+                        if data_dir.is_some() {
+                            return Err(invalid_arguments("--data-dir 只能出现一次"));
+                        }
+                        match rest.get(1) {
+                            Some(value) => {
+                                data_dir = Some(PathBuf::from(value));
+                                rest.drain(..2);
+                            }
+                            None => return Err(invalid_arguments("--data-dir 缺少路径参数")),
+                        }
+                    }
+                    "--force" => {
+                        force = true;
+                        rest.remove(0);
+                    }
+                    other if other.starts_with('-') && other != "-" => {
+                        return Err(invalid_arguments(&format!("未知参数 {other}")))
+                    }
+                    _ => {
+                        if name.is_some() {
+                            return Err(invalid_arguments("多余的位置参数"));
+                        }
+                        name = Some(arg.to_string());
+                        rest.remove(0);
+                    }
+                }
+            }
+            if profile.is_some() {
+                return Err(invalid_arguments("profile子命令不接受 --profile"));
+            }
+            match action {
+                ProfileAction::List => {
+                    if name.is_some() || data_dir.is_some() || force {
+                        return Err(invalid_arguments("profile.list 不接受参数"));
+                    }
+                }
+                ProfileAction::Add => {
+                    if name.is_none() || data_dir.is_none() {
+                        return Err(invalid_arguments(
+                            "profile.add 需要 <名称> 与 --data-dir <路径>",
+                        ));
+                    }
+                }
+                _ => {
+                    if name.is_none() {
+                        return Err(invalid_arguments("该profile子命令需要一个名称"));
+                    }
+                    if data_dir.is_some() {
+                        return Err(invalid_arguments("该profile子命令不接受 --data-dir"));
+                    }
+                }
+            }
+            Ok(Parsed::Profile(ProfileCommand {
+                action,
+                name,
+                data_dir,
+                force,
+            }))
         }
         Some(command) => {
             if positionals.len() > 2 {
@@ -166,6 +285,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                     }
                     Ok(Parsed::Execute(Execution {
                         db,
+                        profile,
                         trusted_local,
                         command: command.to_string(),
                         input: Some(Input::Inline(inline.to_string())),
@@ -173,6 +293,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                 }
                 None => Ok(Parsed::Execute(Execution {
                     db,
+                    profile,
                     trusted_local,
                     command: command.to_string(),
                     input,
@@ -185,6 +306,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
             }
             Ok(Parsed::Execute(Execution {
                 db,
+                profile,
                 trusted_local,
                 command: "capabilities".into(),
                 input: None,

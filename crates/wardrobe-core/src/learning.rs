@@ -932,6 +932,13 @@ impl Application {
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
+    let memory=json!({"type":"object","required":["schema_version","id","member_id","dimension","value","weight","note","source","algorithm_version","root_id","deleted","revision","created_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"dimension":{"enum":["color","style","material","pattern","category","occasion"]},"value":{"type":"string"},"weight":{"type":"integer","minimum":-5,"maximum":5},"note":{"type":"string"},"source":{"type":"object","required":["kind"],"properties":{"kind":{"enum":["explicit_user"]}}},"algorithm_version":{"type":"string"},"root_id":{"type":"string"},"deleted":{"type":"boolean"},"revision":{"type":"integer","minimum":1},"created_at":{"type":"string"}}});
+    // delete/reset发布收据：同一形状，operation标识具体管理动作
+    let manage_receipt=json!({"type":"object","required":["schema_version","id","member_id","operation","state","created_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"operation":{"enum":["learning.edit","learning.delete","learning.reset"]},"state":{"type":"object","required":["cutoff","suppressed"],"properties":{"cutoff":{"type":["string","null"]},"suppressed":{"type":"array","items":{"type":"object","required":["dimension","value"],"properties":{"dimension":{"enum":["color","style","material","pattern","category","occasion"]},"value":{"type":"string"}}}}}},"created_at":{"type":"string"}}});
+    let profile=json!({"type":"object","required":["schema_version","member_id","inferred","algorithm_version","explicit","source_stale"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"inferred":{"type":"array"},"algorithm_version":{"type":"string"},"explicit":{"type":"array","items":memory},"source_stale":{"type":"boolean"},"id":{"type":"string"},"created_at":{"type":"string"},"local_installation_generation":{"type":["string","null"]},"local_source_version":{"type":["integer","null"]},"reset_boundary":{"type":["string","null"]},"pair_projection":{"type":["object","null"]}}});
+    let receipt=json!({"type":"object","required":["schema_version","member_id","job_id","state","result"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"job_id":{"type":"string"},"state":{"type":"string"},"result":{"type":["object","null"]}}});
+    // worker.run返回完整持久化任务文档（kind固定learning_recompute）
+    let job_doc=json!({"type":"object","required":["schema_version","id","member_id","kind","operation_key","state","progress","attempts","next_due","lease_token","lease_expires","payload","result","error","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"kind":{"const":"learning_recompute"},"operation_key":{"type":"string"},"state":{"type":"string"},"progress":{"type":"integer"},"attempts":{"type":"integer"},"next_due":{"type":"integer"},"lease_token":{"type":["string","null"]},"lease_expires":{"type":"integer"},"payload":{"type":"object"},"result":{"type":["object","null"]},"error":{"type":["object","null"]},"created_at":{"type":"string"},"updated_at":{"type":"string"},"submitted_at":{"type":["string","null"]},"last_outcome":{"type":["string","null"]}}});
     ["get","set","edit","delete","reset","recompute","history","worker.run"].into_iter().map(|op|{
  let mut props=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
  if !["get","history","worker.run"].contains(&op){props["operation_key"]=json!({"type":"string","minLength":1,"maxLength":200});required.push("operation_key");}
@@ -942,7 +949,50 @@ pub(super) fn descriptors() -> Vec<Value> {
  if op=="recompute"{props["include_prior"]=json!({"type":"boolean","description":"明确重新纳入删除/重置前全部事实；否则保留删除和重置边界"});}
  if op=="worker.run"{props["job_id"]=json!({"type":"string"});required.push("job_id");}
  if op=="history"{props["cursor"]=json!({"type":"string"});props["limit"]=json!({"type":"integer","minimum":1,"maximum":100});}
- json!({"name":format!("learning.{op}"),"description":"成员偏好与推断记忆管理，不改变事实","inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"]}})
+ let output=match op {
+            "get"=>profile.clone(),
+            "set"|"edit"=>memory.clone(),
+            "delete"|"reset"=>manage_receipt.clone(),
+            "recompute"=>receipt.clone(),
+            "worker.run"=>job_doc.clone(),
+            "history"=>json!({"type":"object","required":["schema_version","member_id","items","next_cursor"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"items":{"type":"array"},"next_cursor":{"type":["string","null"]}}}),
+            _=>profile.clone(),
+        };
+        let (effect,examples)=match op {
+            "get"=>(
+                json!({"kind":"query","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["读取画像与显式偏好；无保存画像时返回空推断","source_stale表示画像落后于本机事实，落后时不参与推荐"]}]),
+            ),
+            "set" => (
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","dimension":"color","value":"藏青","weight":3},"prerequisites":["显式偏好覆盖同特征推断权重","同特征同值已存在时报preference_exists，请edit现有修订","不改变衣物事实"]}]),
+            ),
+            "edit"=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","root_id":"<偏好root_id>","expected_revision":1,"weight":-2},"prerequisites":["乐观并发：expected_revision不符报stale_revision","修订追加不覆盖历史；已删除偏好不可编辑"]}]),
+            ),
+            "delete"=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","dimension":"color","value":"藏青"},"prerequisites":["抑制该特征并墓碑化现有显式偏好；立即发布画像使推荐遗忘","历史保留，可用recompute(include_prior=true)恢复"]}]),
+            ),
+            "reset"=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","scope":"inferred"},"prerequisites":["scope=inferred仅清推断；all同时墓碑化全部显式偏好","设置重置边界并立即发布空推断；历史保留"]}]),
+            ),
+            "recompute"=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":{"job_kind":"learning_recompute","process":"learning.worker.run","terminal_states":["succeeded","failed","cancelled","waiting_input"]}}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>"},"prerequisites":["异步入队画像重算任务，立即返回任务收据而非画像","由learning.worker.run本地重算，不联网不消耗额度","同operation_key重复调用返回同一任务，不能改变输入"]}]),
+            ),
+            "history"=>(
+                json!({"kind":"query","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按ID升序返回学习操作历史（含set/edit/delete/reset发布收据）","游标为最后一条条目ID字符串，不属于当前成员时拒绝"]}]),
+            ),
+            _=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","job_id":"<learning_recompute任务ID>"},"prerequisites":["同步处理已入队画像重算任务；纯本地计算不消耗额度","终态succeeded/failed/cancelled/waiting_input时幂等返回任务文档","本示例不自动执行"]}]),
+            ),
+        };
+ json!({"name":format!("learning.{op}"),"description":"成员偏好与推断记忆管理，不改变事实","effect":effect,"examples":examples,"inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"outputSchema":output})
  }).collect()
 }
 
