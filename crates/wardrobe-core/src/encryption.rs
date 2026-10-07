@@ -361,6 +361,19 @@ pub(crate) fn descriptors() -> Vec<Value> {
     ];
     operations.into_iter().map(|(name,required,description)|{
  let mut properties=serde_json::Map::new();for field in ["directory","path","password","device_name","old_password","new_password","pairing_secret","device_id","recovery_secret","kind","plaintext_base64"]{properties.insert(field.into(),json!({"type":"string"}));}for field in ["bundle","invitation","receipt","manifest","envelope"]{properties.insert(field.into(),json!({"type":"object"}));}
- json!({"name":name,"description":description,"inputSchema":{"type":"object","required":required,"properties":properties},"outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}}})
+ let (effect,examples)=match &name[..] {
+            "encryption.status"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{},"prerequisites":["读取本机加密空间状态；只读不改"]}])),"encryption.package.read"=>(json!({"kind":"query","network":"none","local_files":true,"async":null}),json!([{"request":{"path":"</绝对/本地/密文包路径>"},"prerequisites":["验证并读取密文包；认证检查不导入任何事实"]}])),"encryption.package.export"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null}),json!([{"request":{"directory":"</绝对/本地/导出目录>"},"prerequisites":["将白名单事实与采用展示图导出为独立密文包；原图与私人图片不上包"]}])),"encryption.seal"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null}),json!([{"request":{"bundle":{"<设备名>":"<恢复包内容对象>"},"kind":"password","plaintext_base64":"<base64明文占位>"},"prerequisites":["使用独立恢复包加密字节；对象字段以inputSchema为准","口令与明文示例均为占位"]}])),"encryption.open"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null}),json!([{"request":{"bundle":{"<设备名>":"<恢复包内容对象>"},"kind":"password","envelope":{"<封装字段>":"<密文封装对象>"}},"prerequisites":["使用独立恢复包认证解密；对象字段以inputSchema为准","口令类输入走安全输入，示例均为占位"]}])),"encryption.restore"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null}),json!([{"request":{"bundle":{"<设备名>":"<恢复包内容对象>"},"password":"<密码占位，勿用真实口令>"},"prerequisites":["使用密码或恢复密钥恢复空间；失败不破坏现有数据；口令占位非真实凭据"]}])),_=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),{ let request: serde_json::Map<String, serde_json::Value> = required.iter().map(|f| {
+            let value = match *f {
+                "password" | "old_password" | "new_password" => json!("<密码占位，勿用真实口令>"),
+                "device_name" => json!("<设备名>"),
+                "directory" => json!("</绝对/本地/目录>"),
+                "path" | "bundle" => json!("</绝对/本地/路径>"),
+                _ => if properties.get(*f).and_then(|p| p.get("type")).and_then(|t| t.as_str()) == Some("object") { json!({}) } else { json!(*f) },
+            };
+            (f.to_string(), value)
+        }).collect();
+        json!([{"request":Value::Object(request),"prerequisites":["本机端到端加密操作；不联网；口令类字段示例均为占位符，真实口令走安全输入"]}])})
+        };
+        json!({"name":name,"effect":effect,"examples":examples,"description":description,"inputSchema":{"type":"object","required":required,"properties":properties},"outputSchema":if &name[..]=="encryption.status"{json!({"type":"object","required":["schema_version","enabled","state"],"properties":{"schema_version":{"const":1},"enabled":{"type":"boolean"},"state":{}}})}else{json!({"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}})}})
  }).collect()
 }

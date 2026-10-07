@@ -1928,3 +1928,97 @@ fn media_provider_families_effects_examples_and_runtime_contract() {
     // remaining：供应商流程的运行时输出对照由既有行为套件覆盖（recognition 8、product_display 6、flatlay、tryon，
     // 均使用本地HTTP fixture）；本测试不发起真实供应商调用。
 }
+
+#[test]
+fn backup_maintenance_data_directory_encryption_family_contract() {
+    // 真实本地备份全链：create入队→worker执行→preview→settings；encryption.status只读
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("bk.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let backup_dir = dir.path().join("backup-out");
+    let created = app
+        .execute(
+            "backup.create",
+            json!({"directory":backup_dir,"operation_key":"bk-1","include_originals":false}),
+        )
+        .unwrap();
+    assert_eq!(created["state"], json!("queued"), "备份异步入队");
+    assert_result_matches_schema(&schema_of("backup.create"), &created, "backup.create");
+    let done = app
+        .execute("maintenance.worker.run", json!({"id":created["id"]}))
+        .unwrap();
+    assert_eq!(done["state"], json!("succeeded"), "worker本地完成备份");
+    assert_result_matches_schema(&schema_of("maintenance.worker.run"), &done, "maintenance.worker.run");
+    let previewed = app
+        .execute(
+            "backup.preview",
+            json!({"directory":backup_dir}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("backup.preview"), &previewed, "backup.preview");
+    let current = app.execute("backup.settings.get", json!({})).unwrap();
+    let settings = app
+        .execute(
+            "backup.settings.set",
+            json!({"directory":backup_dir,"include_originals":false,"expected_revision":current["revision"]}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("backup.settings.set"), &settings, "backup.settings.set");
+    let status = app.execute("encryption.status", json!({})).unwrap();
+    assert_result_matches_schema(&schema_of("encryption.status"), &status, "encryption.status");
+    let listed = app.execute("maintenance.list", json!({})).unwrap();
+    assert_result_matches_schema(&schema_of("maintenance.list"), &listed, "maintenance.list");
+
+    // backup.create/restore与data_directory.move是异步入队操作，单独断言
+    let family = [
+        ("backup.preview", "query", true),
+        ("backup.settings.get", "query", false),
+        ("backup.settings.set", "mutation", false),
+        ("maintenance.get", "query", false),
+        ("maintenance.list", "query", false),
+        ("maintenance.cancel", "mutation", false),
+        ("maintenance.retry", "mutation", true),
+        ("maintenance.worker.run", "mutation", true),
+        ("data_directory.status", "query", false),
+        ("encryption.status", "query", false),
+        ("encryption.package.read", "query", true),
+        ("encryption.package.export", "mutation", true),
+        ("encryption.restore", "mutation", true),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    for op in ["backup.create", "backup.restore", "data_directory.move"] {
+        let d = descriptors.iter().find(|d| d["name"] == json!(op)).unwrap();
+        let async_meta = d["effect"]["async"].as_object().unwrap_or_else(|| panic!("{op} 须声明异步入队"));
+        assert_eq!(async_meta["process"], json!("maintenance.worker.run"), "{op}");
+    }
+    let create = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("backup.create"))
+        .unwrap();
+    let async_meta = create["effect"]["async"].as_object().expect("backup.create须声明异步入队");
+    assert_eq!(async_meta["process"], json!("maintenance.worker.run"));
+    // 其余加密操作（create/pair/device/seal等）的运行时证明沿用既有加密套件（真实两安装外部密文包已验）
+    for op in ["encryption.create", "encryption.encrypt", "encryption.pair.offer", "encryption.unpair", "encryption.recovery.create", "encryption.seal", "encryption.open", "encryption.decrypt", "encryption.password.change", "encryption.device.apply", "encryption.device.revoke", "encryption.pair.accept", "encryption.pair.confirm", "encryption.unpair"] {
+        let d = descriptors.iter().find(|d| d["name"] == json!(op)).unwrap_or_else(|| panic!("{op}"));
+        assert_eq!(d["effect"]["kind"], json!("mutation"), "{op}");
+        assert_eq!(d["effect"]["network"], json!("none"), "{op} 纯本机加密");
+    }
+}
