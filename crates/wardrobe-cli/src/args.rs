@@ -208,6 +208,11 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                             .into(),
                 });
             }
+            if profile.is_some() {
+                return Err(invalid_arguments(
+                    "scheduler 不支持 --profile 连接选择；请使用 --db 明确指定数据库",
+                ));
+            }
             if positionals.len() != 1 || input.is_some() {
                 return Err(invalid_arguments("scheduler 不接受输入参数"));
             }

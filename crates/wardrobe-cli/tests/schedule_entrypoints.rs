@@ -359,3 +359,22 @@ fn restricted_second_member_is_isolated_from_first_member_plans_and_mutations_de
     assert_eq!(second_after["plans"].as_array().unwrap().len(), 1);
     assert_eq!(second_after["plans"][0]["id"], second_plan["id"]);
 }
+
+#[test]
+fn scheduler_rejects_profile_connection_instead_of_silently_ignoring_it() {
+    // 调度是本机维护通道：--profile 连接选择不受支持，必须显式拒绝，
+    // 不能静默忽略后打开默认数据库（未被授权的连接路径）。
+    let dir = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .env("WARDROBE_DATA_DIR", dir.path())
+        .args(["--profile", "不存在的配置", "--trusted-local", "scheduler", "--once"])
+        .output()
+        .unwrap();
+    let parsed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["error"]["code"], "invalid_arguments");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        !dir.path().join("wardrobe.sqlite").exists(),
+        "拒绝后不得创建或打开任何数据库"
+    );
+}
