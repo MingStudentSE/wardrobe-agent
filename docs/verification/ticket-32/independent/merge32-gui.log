@@ -1,0 +1,102 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5194 --strictPort
+[WebServer] (node:11787) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 57 tests using 1 worker
+
+(node:11803) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 tests/authorization.spec.ts:2:1 › 可信设置登记限定客户端，一次性令牌关闭后不再展示且可撤销 (1.4s)
+  ✓   2 tests/authorization.spec.ts:3:1 › 过期时间错误可修改，完整业务与全部成员授权需明确选择 (604ms)
+  ✓   3 tests/backup.spec.ts:3:1 › 备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度 (1.7s)
+  ✓   4 tests/backup.spec.ts:18:1 › 独立安装实际移动目录后 GUI 与旧路径 CLI 读取同一数据 (2.7s)
+  ✓   5 tests/care.spec.ts:2:1 › 真实Application洗护阈值、手动待洗、干洗、更正撤销与重启 (1.6s)
+  ✓   6 tests/care.spec.ts:7:1 › 已提交响应丢失重试不重复洗护且成员锁保持 (899ms)
+  ✓   7 tests/care.spec.ts:8:1 › 迟到的真实洗护修订读取不会显示到新成员 (893ms)
+  ✓   8 tests/clothing-management.spec.ts:2:1 › details edit, archive, recycle and restore clothing without losing facts (976ms)
+  ✓   9 tests/clothing-management.spec.ts:14:1 › management controls remain reachable at supported narrow and desktop widths (2.8s)
+  ✓  10 tests/clothing-management.spec.ts:17:1 › large minor-unit prices display and edit without floating-point rounding (650ms)
+
+  ✓  11 tests/encrypted-package.spec.ts:7:1 › 真实系统密钥导出独立密文包，窄屏可操作并验证读取 (2.2s)
+  ✓  12 tests/encryption.spec.ts:3:1 › 加密空间设置展示恢复与配对流程，窄屏没有溢出 (612ms)
+  ✓  13 tests/encryption.spec.ts:4:1 › 真实系统安全存储建立空间，换密码后解除配对，再用恢复码恢复 (4.8s)
+  ✓  14 tests/feedback.spec.ts:10:1 › 推荐意见评分与历史持久，Try Another保持约束和七宽度 (1.7s)
+  ✓  15 tests/feedback.spec.ts:24:1 › 实际穿了与改穿必须UI确认，响应丢失重试只记一次穿着 (1.5s)
+  ✓  16 tests/feedback.spec.ts:41:1 › UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着 (1.8s)
+  ✓  17 tests/flatlay.spec.ts:6:1 › 全部两件商品图真实接口生成、预览本机保存、七宽度与重读，不产生穿着 (1.6s)
+  ✓  18 tests/image-editing.spec.ts:4:1 › 真实单品图片旋转预览替换恢复及重启保留 (1.7s)
+  ✓  19 tests/image-editing.spec.ts:10:1 › 归并真实来源图片保留来源单品和当前主图 (1.0s)
+  -  20 tests/image-editing.spec.ts:15:1 › 公开白衣真实本地模型下载抠图采用并在重启后显示离线缓存
+  ✓  21 tests/imports.spec.ts:6:1 › durable batch drafts merge save reload and show corrupt file independently (3.2s)
+  ✓  22 tests/imports.spec.ts:11:1 › cancelled perfile queue survives reload and explicit retry resumes only that file (1.8s)
+  ✓  23 tests/insights.spec.ts:3:1 › 洞察手算分布、次数天数、90天边界、成员偏好重载及更正撤销重算 (1.7s)
+  ✓  24 tests/insights.spec.ts:18:1 › 洞察空态、真实查询加载、参数错误与修改恢复都有明确状态 (4.0s)
+  ✓  25 tests/insights.spec.ts:24:1 › 重载时提前打开洞察会等待衣物加载后读取已保存阈值 (616ms)
+  ✓  26 tests/insights.spec.ts:26:1 › 成员切换真实回执延迟时旧洞察只读，确认切换后新成员重新展开读取 (850ms)
+  -  27 tests/local-provider.spec.ts:3:1 › 本地真实 SmolVLM 文本与视觉连接通过 GUI 和共享 CLI
+  ✓  28 tests/media.spec.ts:5:1 › real images preview adopt reorder detach and retain references after editing (1.2s)
+  ✓  29 tests/media.spec.ts:13:1 › image controls remain accessible at all specified widths (2.4s)
+  ✓  30 tests/media.spec.ts:17:1 › pending native picker blocks member switching and simultaneous save (1.8s)
+  ✓  31 tests/media.spec.ts:22:1 › a failed image stays separate from valid previews and can be retried (586ms)
+  ✓  32 tests/members.spec.ts:2:1 › create edit switch and reload an independent member wardrobe (956ms)
+  ✓  33 tests/members.spec.ts:19:1 › member controls stay usable at every required viewport (400ms)
+  ✓  34 tests/members.spec.ts:29:1 › saving cannot race a pending member switch (1.9s)
+  ✓  35 tests/outfits.spec.ts:2:1 › 离线Lookbook保存角色层次、克隆、收藏及回收站恢复 (1.9s)
+  ✓  36 tests/outfits.spec.ts:6:1 › 读取Lookbook时显示真实加载状态，列表完成后可编辑 (1.2s)
+  ✓  37 tests/pagination.spec.ts:2:1 › repeated load-more clicks show every real item once (790ms)
+  ✓  38 tests/pagination.spec.ts:13:1 › fresh save invalidates an older pending page response (1.6s)
+  ✓  39 tests/pagination.spec.ts:26:1 › manual price input preserves a three-decimal currency exactly (595ms)
+  ✓  40 tests/pagination.spec.ts:37:1 › load-more stays unavailable during post-save replacement query (1.8s)
+  ✓  41 tests/product-display.spec.ts:6:1 › 真实图片接口商品图预览、采用、重启及七宽度 (1.7s)
+  ✓  42 tests/product-display.spec.ts:15:1 › 专用图片模型通过真实设置保存并重读，不伪装文本验证 (708ms)
+  ✓  43 tests/providers.spec.ts:2:1 › 模型配置可重读，无密钥不会阻断已有衣橱 (867ms)
+  ✓  44 tests/providers.spec.ts:4:1 › 视觉专用配置仅在明确点击后发送内置测试图 (775ms)
+  ✓  45 tests/recognition.spec.ts:5:1 › 真实 Application HTTP 建议审核及重分析保留人工事实 (14.8s)
+  -  46 tests/recognition.spec.ts:12:1 › 真实本地模型通过 GUI 对公开鞋图返回建议且未审核不写事实
+  ✓  47 tests/recognition.spec.ts:15:1 › 批量单项识别失败后仍可手工入库并保留其他草稿 (11.6s)
+  ✓  48 tests/recommendations.spec.ts:2:1 › 离线推荐硬约束、替换换套、显式保存与重启不记穿着 (1.4s)
+  ✓  49 tests/recommendations.spec.ts:12:1 › 推荐已提交响应丢失重试保持同一意图与成员锁 (894ms)
+  ✓  50 tests/recommendations.spec.ts:17:1 › 迟到推荐读取不会跨成员显示 (770ms)
+  ✓  51 tests/tryon.spec.ts:7:1 › 人物和全部衣物真实HTTP、多方案前后对比、本机保存及七宽度 (2.1s)
+  ✓  52 tests/wears.spec.ts:2:1 › 穿着补记、同日换装、改穿及撤销保留事件历史 (1.3s)
+  ✓  53 tests/wears.spec.ts:12:1 › 模板今天穿与单品穿过均需显式确认，保存模板不产生穿着 (1.2s)
+  ✓  54 tests/wears.spec.ts:19:1 › 提交中阻止换成员，失败重试复用已提交幂等键 (1.6s)
+  ✓  55 tests/weather-ai.spec.ts:2:1 › 配置真实HTTP天气缓存，文本网络失败仍可规则与手工推荐且不记穿着 (2.2s)
+  ✘  56 tests/weather-ai.spec.ts:11:1 › 真实本机文本模型从五个规则候选选择合法组合，自动天气与保存不记穿着 (1.3m)
+(node:17149) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  57 tests/weather-ai.spec.ts:17:1 › AI立即显示持久任务并轮询，用户取消后不采用真实HTTP迟到响应 (1.5s)
+
+
+  1) tests/weather-ai.spec.ts:11:1 › 真实本机文本模型从五个规则候选选择合法组合，自动天气与保存不记穿着 ─────────────────────────────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('#recommendations').getByRole('status').filter({ hasText: '文本模型结果已通过真实库存和硬约束检查' })
+    Expected: visible
+    Timeout: 75000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" locator('#recommendations').getByRole('status').filter({ hasText: '文本模型结果已通过真实库存和硬约束检查' }) with timeout 75000ms
+      - waiting for locator('#recommendations').getByRole('status').filter({ hasText: '文本模型结果已通过真实库存和硬约束检查' })
+
+
+      13 |  const call=async(operation:string,input:object)=>{const b=await(await page.request.post('/__wardrobe_dev_api',{data:{operation,input}})).json();if(b.error)throw new Error(b.error.message);return b.result;};
+      14 |  const names=[['AI真实白上衣','top'],['AI真实黑上衣','top'],['AI真实牛仔裤','bottom'],['AI真实米色裤','bottom'],['AI真实白鞋','shoes'],['AI真实黑鞋','shoes'],['AI真实棕外套','outerwear']];for(const[name,category]of names)await call('clothing.create',{member_id:'default',name,category});await call('provider.save',{name:'实际本地Qwen组搭',endpoint:process.env.WARDROBE_AI_ACTUAL_ENDPOINT,model:'wardrobe-qwen',capabilities:['text'],authentication:'none'});await call('weather.configure',{member_id:'default',mode:'automatic',location:'Shanghai public city example',latitude:31.23,longitude:121.47,usage:'noncommercial'});await page.reload();const p=page.locator('#recommendations');await expect(p.getByLabel('推荐来源')).toBeEnabled();await p.getByLabel('推荐数量').selectOption('1');await p.getByLabel('推荐来源').selectOption('ai');await p.getByLabel('推荐文本模型').selectOption({label:'实际本地Qwen组搭'});await p.getByLabel('模型输出格式').selectOption('llama_cpp_schema');await p.getByLabel('天气参考').selectOption('automatic');await p.getByText('选择固定、排除与库存优先',{exact:true}).click();await p.getByLabel('搜索推荐库存').fill('AI真实');await p.getByLabel('固定 AI真实棕外套',{exact:true}).check();for(const[name]of names)await p.getByLabel(`优先 ${name}`,{exact:true}).check();const before=(await call('wear.list',{member_id:'default'})).items;
+    > 15 |  await p.getByRole('button',{name:'生成搭配建议',exact:true}).click();await expect(p.getByRole('status').filter({hasText:'文本模型结果已通过真实库存和硬约束检查'})).toBeVisible({timeout:75000});await expect(p.locator('.recommendation-proposal')).toHaveCount(1);await expect(p.locator('.recommendation-proposal')).toContainText('AI真实棕外套');await p.getByLabel('搭配保存名称').fill('实际AI建议保存');await p.getByRole('button',{name:'保存为搭配',exact:true}).click();await expect(p.getByRole('status').filter({hasText:'已保存为搭配'})).toBeVisible();expect((await call('wear.list',{member_id:'default'})).items).toEqual(before);await p.screenshot({path:'../../docs/verification/ticket-16/actual-ai-gui.png'});
+         |                                                                                                                                             ^
+      16 | });
+      17 | test('AI立即显示持久任务并轮询，用户取消后不采用真实HTTP迟到响应',async({page})=>{
+      18 |  let release!:()=>void,seen!:()=>void;const gate=new Promise<void>(r=>release=r),received=new Promise<void>(r=>seen=r);let posts=0;
+        at /private/tmp/wardrobe-merge-32/apps/desktop/tests/weather-ai.spec.ts:15:141
+
+    Error Context: test-results/weather-ai-真实本机文本模型从五个规则候选选择合法组合，自动天气与保存不记穿着/error-context.md
+
+  1 failed
+    tests/weather-ai.spec.ts:11:1 › 真实本机文本模型从五个规则候选选择合法组合，自动天气与保存不记穿着 ──────────────────────────────
+  3 skipped
+  53 passed (3.1m)

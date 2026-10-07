@@ -1,0 +1,16 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.83s
+     Running tests/clothing_management.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/clothing_management-84e697d05a982bad)
+
+running 8 tests
+test unknown_patch_fields_cannot_silently_override_identity_assets_or_lifecycle ... ok
+test canonical_taxonomy_and_color_ids_are_versioned_and_validated ... ok
+test optional_clothing_facts_round_trip_and_patch_preserves_omitted_facts ... ok
+test audit_history_retains_prior_facts_after_edit_and_delete ... ok
+test invalid_facts_are_rejected_without_partial_changes ... ok
+test clothing_history_lifecycle_and_edit_are_scoped_to_the_owner_member ... ok
+test combined_filters_search_sort_and_pagination_find_only_matching_facts ... ok
+test soft_delete_hides_clothing_and_explicit_restore_keeps_identity_and_facts ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+

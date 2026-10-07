@@ -1,0 +1,22 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 4.85s
+     Running tests/backup.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/backup-cbbda9a3225d5625)
+
+running 1 test
+test preview_rejects_valid_changed_blob_with_old_immutable_id_even_when_transport_is_resigned ... FAILED
+
+failures:
+
+---- preview_rejects_valid_changed_blob_with_old_immutable_id_even_when_transport_is_resigned stdout ----
+
+thread 'preview_rejects_valid_changed_blob_with_old_immutable_id_even_when_transport_is_resigned' (3687159) panicked at crates/wardrobe-core/tests/backup.rs:1525:90:
+called `Result::unwrap_err()` on an `Ok` value: Object {"clears_existing_authorization_and_device_trust": Bool(true), "current": Object {"assets": Number(1), "audit": Number(0), "care_asset_refs": Number(0), "care_config": Number(0), "care_events": Number(0), "care_receipts": Number(0), "clothing": Number(0), "insights_preferences": Number(0), "members": Number(1), "outbox": Number(0), "outfit_items": Number(0), "outfit_versions": Number(0), "outfits": Number(0), "recommendation_intents": Number(0), "recommendation_saves": Number(0), "wear_asset_refs": Number(0), "wear_events": Number(0), "wear_receipts": Number(0), "weather_preferences": Number(0), "workspace": Number(1)}, "device_trust_included": Bool(false), "discarded_local_jobs": Number(0), "incoming": Object {"assets": Number(1), "audit": Number(0), "care_asset_refs": Number(0), "care_config": Number(0), "care_events": Number(0), "care_receipts": Number(0), "clothing": Number(0), "insights_preferences": Number(0), "members": Number(1), "outbox": Number(0), "outfit_items": Number(0), "outfit_versions": Number(0), "outfits": Number(0), "recommendation_intents": Number(0), "recommendation_saves": Number(0), "wear_asset_refs": Number(0), "wear_events": Number(0), "wear_receipts": Number(0), "weather_preferences": Number(0), "workspace": Number(1)}, "local_credentials_included": Bool(false), "manifest": Object {"database_version": Number(18), "files": Array [Object {"bytes": Number(169), "path": String("media/01a1132e-66ad-76ec-a1ac-27069e17df4f.original"), "sha256": String("6bc5c66ef340e2b9832bdeca12f70df242b068961ac2b74913f4e68c1064c0fa")}, Object {"bytes": Number(54), "path": String("media/01a1132e-66be-77ec-8ba7-d2c0fc554b5b.webp"), "sha256": String("86982e375a6426e6649846510f85e385699580ad4802ac2d4376ccffbef42ed3")}, Object {"bytes": Number(54), "path": String("media/01a1132e-66c3-7570-9fe5-4217047620a3.webp"), "sha256": String("86982e375a6426e6649846510f85e385699580ad4802ac2d4376ccffbef42ed3")}, Object {"bytes": Number(184320), "path": String("facts.sqlite"), "sha256": String("702b364202c5a6f7f2aab257c790139f2cade80f4b1514de7fc6b9e42f2a9196")}], "format": String("wardrobe-backup"), "includes_originals": Bool(true), "maintenance_job_id": String("01a1132e-66aa-7447-8838-65175fbf5b1b"), "version": Number(1)}, "overwrites_current_facts": Bool(true), "valid": Bool(true)}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    preview_rejects_valid_changed_blob_with_old_immutable_id_even_when_transport_is_resigned
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p wardrobe-core --test backup`

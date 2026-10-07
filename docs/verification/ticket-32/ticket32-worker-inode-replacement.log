@@ -1,0 +1,9 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 3.77s
+     Running unittests src/lib.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wardrobe_core-1455b102a1d64765)
+
+running 1 test
+test maintenance::lease_tests::replacing_a_live_lock_inode_cannot_start_a_second_worker_or_publish_first_worker ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.01s
+

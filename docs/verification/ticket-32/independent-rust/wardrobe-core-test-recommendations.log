@@ -1,0 +1,24 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-merge-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.92s
+     Running tests/recommendations.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recommendations-4b434e0f15914463)
+
+running 16 tests
+test manual_weather_controls_are_explicit_offline_stale_and_strictly_validated ... ok
+test scale_ten_thousand_inventory_hundred_thousand_effective_wears ... ignored, actual 10k clothing / 100k wear projection scale evidence; run explicitly
+test default_three_offline_distinct_real_sets_persist_without_creating_actual_wear ... ok
+test fixed_and_excluded_are_hard_and_dirty_fixed_is_an_explicit_conflict ... ok
+test priority_across_body_patterns_and_actual_goal_counts_and_favorites_change_choices ... ok
+test replacing_optional_item_keeps_other_physical_layers_even_when_wear_ranking_changes ... ok
+test replace_one_and_change_set_preserve_fixed_hard_controls_and_persist_child_intents ... ok
+test replacing_one_body_or_optional_bag_preserves_exact_remaining_items_and_role ... ok
+test explicit_save_is_atomic_idempotent_template_only_and_rechecks_availability ... ok
+test dress_and_fixed_layers_and_shortage_never_invent_inventory ... ok
+test schema_fifteen_repairs_missing_intent_tables_and_preserves_insights_care_and_member_hard_isolation ... ok
+test seven_local_day_actual_repeat_is_soft_explicit_and_priority_affects_first_result ... ok
+test sport_unknown_coverage_is_real_partial_while_work_formal_unknown_tags_are_explained ... ok
+test valid_recommendations_respect_template_capacity_without_removing_fixed_items ... ok
+test single_replacement_of_optional_roles_or_shoes_preserves_other_ids_roles_layers_and_shortage ... ok
+test all_eleven_categories_fixed_roles_and_hard_lifecycle_threshold_constraints_are_real ... ok
+
+test result: ok. 15 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.17s
+

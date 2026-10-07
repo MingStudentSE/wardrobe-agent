@@ -1,0 +1,670 @@
+[
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--lib"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        9,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-lib.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wardrobe_core-1455b102a1d64765",
+        "bytes": 109233088
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "ai_recommendations"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        11,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-ai_recommendations.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/ai_recommendations-a8dd888404013697",
+        "bytes": 110755040
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "application"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        10,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-application.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/application-ffdc02d1fe195a3e",
+        "bytes": 110235152
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "assets"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        9,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-assets.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/assets-773e493192c33ac7",
+        "bytes": 110348768
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "authorization"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        7,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-authorization.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/authorization-fe956f04a592cf83",
+        "bytes": 110212064
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "backup"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        36,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-backup.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/backup-cbbda9a3225d5625",
+        "bytes": 111368880
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "care"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        12,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-care.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/care-3f096b7d4977dc9a",
+        "bytes": 110369616
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "clothing_management"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        8,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-clothing_management.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/clothing_management-84e697d05a982bad",
+        "bytes": 110204448
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "encrypted_package"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        1,
+        0,
+        3
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-encrypted_package.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/encrypted_package-045f42afeeda4e33",
+        "bytes": 110407440
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "encryption"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        3,
+        0,
+        6
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-encryption.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/encryption-e7ed1076601f67ba",
+        "bytes": 110421664
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "feedback"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        9,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-feedback.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/feedback-41f093acb406b2a6",
+        "bytes": 110733040
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "flatlay"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        5,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-flatlay.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/flatlay-5d698fcfee5160b0",
+        "bytes": 110456224
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "image_editing"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        6,
+        0,
+        1
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-image_editing.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/image_editing-8a2dcdd82019f0c5",
+        "bytes": 110751280
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "imports"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        7,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-imports.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/imports-fdde2689a15efba1",
+        "bytes": 110477616
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "insights"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        6,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-insights.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/insights-41d6aa0ff75cbf66",
+        "bytes": 110322400
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "jobs"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        2,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-jobs.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/jobs-de3e70e0e134969b",
+        "bytes": 110193584
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "maintenance_jobs"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        6,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-maintenance_jobs.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/maintenance_jobs-7947377bffcf498f",
+        "bytes": 110175296
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "members"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        4,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-members.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/members-8f049ded7e2d3f06",
+        "bytes": 110132112
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "outfits"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        5,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-outfits.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/outfits-c96ed020993d761c",
+        "bytes": 110417376
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "product_display"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        6,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-product_display.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/product_display-a18da5aa75ef9413",
+        "bytes": 110600480
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "providers"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        5,
+        0,
+        1
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-providers.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/providers-3ea6371799df229d",
+        "bytes": 110272272
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "recognition"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        8,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-recognition.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recognition-2f4b64dc71cadf25",
+        "bytes": 110680080
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "recommendations"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        15,
+        0,
+        1
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-recommendations.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/recommendations-4b434e0f15914463",
+        "bytes": 110411312
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "tryon"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        7,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-tryon.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/tryon-f5da9cae3915c061",
+        "bytes": 110703760
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "wears"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        8,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-wears.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wears-1550ba0bb9fb26ec",
+        "bytes": 110493424
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--test",
+      "weather"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        3,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-test-weather.log",
+    "removed_terminal_executables": [
+      {
+        "path": "/tmp/wardrobe-implementation/ticket-09/target/debug/deps/weather-b40e0cbe55c61bdb",
+        "bytes": 110229984
+      }
+    ]
+  },
+  {
+    "command": [
+      "/Users/links/.cargo/bin/cargo",
+      "test",
+      "-p",
+      "wardrobe-core",
+      "--doc"
+    ],
+    "exit": 0,
+    "totals": [
+      [
+        0,
+        0,
+        0
+      ]
+    ],
+    "log": "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/rust/wardrobe-core-doc.log",
+    "removed_terminal_executables": []
+  }
+]

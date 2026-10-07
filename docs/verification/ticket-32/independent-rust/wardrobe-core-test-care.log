@@ -1,0 +1,20 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-merge-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 1.01s
+     Running tests/care.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/care-3f096b7d4977dc9a)
+
+running 12 tests
+test positive_optional_threshold_and_manual_dirty_are_separate_from_lifecycle ... ok
+test caller_cannot_bypass_manual_dirty_intent_or_omit_config_revision ... ok
+test correction_rejects_conflicting_manual_dirty_and_cleaning_intents_instead_of_ignoring_fields ... ok
+test correcting_time_or_action_preserves_notes_when_not_explicitly_replaced ... ok
+test configuration_keeps_identity_creation_timestamp_and_uses_revision_cas ... ok
+test manual_dirty_clear_cleaning_and_maintenance_follow_actual_chronology_and_wear_revocations ... ok
+test chronological_backdating_correction_revocation_and_maintenance_rebuild_real_counts ... ok
+test max_schema_reopens_and_repairs_actual_missing_care_tables ... ok
+test revoked_care_snapshot_keeps_adopted_asset_after_detach_delete_and_restart ... ok
+test shared_garment_across_templates_reaches_threshold_without_blocking_truthful_wear ... ok
+test timezone_exact_retries_cas_member_isolation_and_deleted_snapshot_history_survive_restart ... ok
+test availability_reads_atomic_config_cohorts_on_one_snapshot_during_external_writes ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+

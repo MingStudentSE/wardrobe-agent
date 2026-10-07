@@ -1,0 +1,14 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.83s
+     Running tests/maintenance_jobs.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/maintenance_jobs-7947377bffcf498f)
+
+running 6 tests
+test directory_move_returns_job_before_publishing_location ... ok
+test backup_create_returns_durable_job_before_creating_any_package ... ok
+test queued_cancel_is_durable_and_explicit_retry_preserves_intent ... ok
+test backup_preview_returns_job_before_reading_complete_package ... ok
+test backup_restore_returns_job_before_overwriting_any_current_fact ... ok
+test member_limited_clients_cannot_read_or_control_whole_space_jobs ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

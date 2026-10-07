@@ -1,0 +1,49 @@
+{"phase": "seeded", "database_bytes": 743591936, "media_bytes": 270001539}
+{"operation": "backup.create", "durable_queued_reply_ms": 12.626499985344708, "job_id": "01a113a4-3c39-7244-97c7-4fc15a26634a"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4877012992, "sqlite_and_wal_bytes": 1153721424}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4708012032, "sqlite_and_wal_bytes": 1322230864}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4461453312, "sqlite_and_wal_bytes": 1476702288}
+{"phase": "backup.create", "seconds": 19.197726999991573}
+{"operation": "backup.preview", "durable_queued_reply_ms": 9.795624995604157, "job_id": "01a113a4-8735-77f2-8656-65bfa5053729"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4274917376, "sqlite_and_wal_bytes": 1476702288}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4289323008, "sqlite_and_wal_bytes": 1476702288}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4269797376, "sqlite_and_wal_bytes": 1476702288}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4261158912, "sqlite_and_wal_bytes": 1476702288}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4254023680, "sqlite_and_wal_bytes": 1476702288}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4253065216, "sqlite_and_wal_bytes": 1476702288}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4254081024, "sqlite_and_wal_bytes": 1476702288}
+{"phase": "backup.preview", "seconds": 39.472004417009884}
+{"operation": "backup.restore", "durable_queued_reply_ms": 13.546583009883761, "job_id": "01a113a5-2431-7164-b860-e9c365fdec55"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5287849984, "sqlite_and_wal_bytes": 733470800}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5287706624, "sqlite_and_wal_bytes": 733470800}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5286109184, "sqlite_and_wal_bytes": 733470800}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5277204480, "sqlite_and_wal_bytes": 733470800}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4267237376, "sqlite_and_wal_bytes": 1466540112}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4265144320, "sqlite_and_wal_bytes": 1466540112}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4263899136, "sqlite_and_wal_bytes": 1466540112}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4260786176, "sqlite_and_wal_bytes": 1466540112}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4282593280, "sqlite_and_wal_bytes": 1466540112}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3930480640, "sqlite_and_wal_bytes": 1822795352}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3488550912, "sqlite_and_wal_bytes": 2265741224}
+{"phase": "backup.restore", "seconds": 57.748450957995374}
+{"operation": "backup.preview", "durable_queued_reply_ms": 12.443749990779907, "job_id": "01a113a6-05c6-72c2-a4f9-ab3eb0aa2179"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4276072448, "sqlite_and_wal_bytes": 1476915280}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4275269632, "sqlite_and_wal_bytes": 1476915280}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4275122176, "sqlite_and_wal_bytes": 1476915280}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4271251456, "sqlite_and_wal_bytes": 1476915280}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4270575616, "sqlite_and_wal_bytes": 1476915280}
+{
+  "clothing": 10000,
+  "wear_events": 100000,
+  "originals": 9,
+  "feedback_revisions_and_observation_restored": true,
+  "package_bytes": 1003071211,
+  "source_removed_before_restore": true,
+  "restart_public_reads": true,
+  "fixture_seed": "public API shapes expanded by explicit synthetic SQL transaction",
+  "seconds": {
+    "backup.create": 19.197726999991573,
+    "backup.preview": 39.472004417009884,
+    "backup.restore": 57.748450957995374
+  }
+}

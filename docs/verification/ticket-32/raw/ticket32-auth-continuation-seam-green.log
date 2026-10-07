@@ -1,0 +1,9 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 2.85s
+     Running unittests src/lib.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wardrobe_core-1455b102a1d64765)
+
+running 1 test
+test authorization::restore_boundary_tests::restore_after_grant_validation_never_reopens_as_trusted ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+

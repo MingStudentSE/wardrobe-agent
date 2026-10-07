@@ -78,6 +78,13 @@ impl Application {
             }
             let doc: Value = serde_json::from_str(&doc)
                 .map_err(|_| ApiError::new("storage_error", "推荐意图损坏"))?;
+            let exists:bool=self.connection.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE member_id=?1 AND kind='text_recommendation' AND operation_key=?2)",params![member,key],|row|row.get(0))?;
+            if !exists {
+                // This is the real immutable fact, not a fabricated successful task.
+                let mut cached = doc;
+                cached["intent_id"] = cached["id"].clone();
+                return Ok(cached);
+            }
             doc["id"].clone()
         } else {
             Value::Null

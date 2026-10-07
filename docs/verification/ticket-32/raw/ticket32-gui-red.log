@@ -1,0 +1,36 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/backup.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5174 --strictPort
+[WebServer] (node:11374) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:11376) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/backup.spec.ts:3:1 › 备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度 (30.0s)
+
+
+  1) tests/backup.spec.ts:3:1 › 备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度 ────────────────────────────────────────
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByText('备份与数据目录', { exact: true })
+
+
+      4 |  const folder=mkdtempSync(join(tmpdir(),'wardrobe32-gui-'));
+      5 |  try{
+    > 6 |  await page.goto('/');await page.getByText('备份与数据目录',{exact:true}).click();
+        |                                                                    ^
+      7 |  await page.getByLabel('默认备份目录',{exact:true}).fill(folder);await page.getByLabel('包含本机原图').check();await page.getByRole('button',{name:'保存备份设置',exact:true}).click();
+      8 |  await expect(page.getByRole('status').filter({hasText:'备份设置已保存'})).toBeVisible();await page.reload();await page.getByText('备份与数据目录',{exact:true}).click();await expect(page.getByLabel('默认备份目录',{exact:true})).toHaveValue(folder);await expect(page.getByLabel('包含本机原图')).toBeChecked();
+      9 |  await page.getByRole('button',{name:'创建本地备份',exact:true}).click();await expect(page.getByRole('status').filter({hasText:'备份已创建'})).toBeVisible();const packagePath=await page.getByLabel('恢复包目录',{exact:true}).inputValue();expect(packagePath.startsWith(folder)).toBeTruthy();
+        at /private/tmp/wardrobe-ticket-32/apps/desktop/tests/backup.spec.ts:6:68
+
+    Error Context: test-results/backup-备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度/error-context.md
+
+  1 failed
+    tests/backup.spec.ts:3:1 › 备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度 ─────────────────────────────────────────

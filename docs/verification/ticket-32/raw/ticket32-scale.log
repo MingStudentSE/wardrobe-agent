@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/scale.py", line 40, in <module>
+    start=time.monotonic();result=command(db,name,args);elapsed[name]=time.monotonic()-start
+                                  ~~~~~~~^^^^^^^^^^^^^^
+  File "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/scale.py", line 7, in command
+    if p.returncode:raise RuntimeError(response)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: {'error': {'code': 'storage_error', 'message': '本地数据库操作失败'}}
