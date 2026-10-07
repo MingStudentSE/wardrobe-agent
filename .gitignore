@@ -25,3 +25,5 @@ coverage/
 # UI verification output
 apps/desktop/test-results/
 apps/desktop/playwright-report/
+
+/apps/desktop/node_modules
