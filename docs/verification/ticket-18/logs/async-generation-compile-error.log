@@ -1,0 +1,34 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+error[E0599]: no associated function or constant named `new_v4` found for struct `Uuid` in the current scope
+   --> crates/wardrobe-core/src/learning.rs:19:125
+    |
+ 19 | ...on) VALUES('',0,?1)", [uuid::Uuid::new_v4().to_string()])?;
+    |                                       ^^^^^^ associated function or constant not found in `Uuid`
+    |
+note: if you're trying to build a new `Uuid` consider using one of the following associated functions:
+      uuid::builder::<impl Uuid>::nil
+      uuid::builder::<impl Uuid>::max
+      uuid::builder::<impl Uuid>::from_fields
+      uuid::builder::<impl Uuid>::from_fields_le
+      and 12 others
+   --> /Users/links/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-1.27.0/src/builder.rs:72:5
+    |
+ 72 |     pub const fn nil() -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 98 |     pub const fn max() -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+122 |     pub const fn from_fields(d1: u32, d2: u16, d3: u16, d4: &[u8; 8]) -> Uuid {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+168 |     pub const fn from_fields_le(d1: u32, d2: u16, d3: u16, d4: &[u8; 8]) -> Uuid {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is an associated function `new_v7` with a similar name
+   --> /Users/links/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-1.27.0/src/v7.rs:72:5
+    |
+ 72 |     pub fn new_v7(ts: Timestamp) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `wardrobe-core` (lib) due to 1 previous error

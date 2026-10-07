@@ -375,6 +375,36 @@ impl Application {
             }
         }
         let priority: std::collections::HashSet<String> = priority.into_iter().collect();
+        let (learning_context, learning_weights) = self.learning_weights(&member)?;
+        let learning_scores: std::collections::HashMap<String, i64> = clothes
+            .iter()
+            .map(|c| {
+                let mut features = std::collections::BTreeSet::new();
+                for dimension in [
+                    "color", "style", "material", "pattern", "category", "occasion",
+                ] {
+                    let field = &c[dimension];
+                    if let Some(value) = field.as_str() {
+                        features.insert((dimension.to_owned(), value.to_owned()));
+                    }
+                    for value in field
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(serde_json::Value::as_str)
+                    {
+                        features.insert((dimension.to_owned(), value.to_owned()));
+                    }
+                }
+                (
+                    c["id"].as_str().unwrap().to_owned(),
+                    features
+                        .iter()
+                        .filter_map(|key| learning_weights.get(key))
+                        .sum(),
+                )
+            })
+            .collect();
         clothes.sort_by_key(|c| {
             let id = c["id"].as_str().unwrap();
             (
@@ -392,6 +422,7 @@ impl Application {
                 !c["occasion"]
                     .as_array()
                     .is_some_and(|values| values.iter().any(|v| v == occasion)),
+                std::cmp::Reverse(learning_scores.get(id).copied().unwrap_or(0)),
                 id.to_owned(),
             )
         });
@@ -579,7 +610,7 @@ impl Application {
         if let Some(object) = public_generation.as_object_mut() {
             object.remove("_lease_token");
         }
-        let doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"created_at":now,"updated_at":now,"controls":input,"feedback_context":{"day_excluded_ids":feedback_excluded,"disliked_set_count":disliked_set_count,"source":"explicit_effective_feedback"},"generation":public_generation,"proposals":proposals,"requested_count":limit,"actual_count":proposals.len(),"offline":public_generation["source"]!="text_model","creates_wear":false,"shortage_reasons":shortage_reasons,"weather_context":weather_context,"recent_window":{"from":from.to_string(),"through":today.to_string(),"timezone":zone.name(),"source":"actual_effective_wear"}});
+        let doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"created_at":now,"updated_at":now,"controls":input,"learning_context":learning_context,"feedback_context":{"day_excluded_ids":feedback_excluded,"disliked_set_count":disliked_set_count,"source":"explicit_effective_feedback"},"generation":public_generation,"proposals":proposals,"requested_count":limit,"actual_count":proposals.len(),"offline":public_generation["source"]!="text_model","creates_wear":false,"shortage_reasons":shortage_reasons,"weather_context":weather_context,"recent_window":{"from":from.to_string(),"through":today.to_string(),"timezone":zone.name(),"source":"actual_effective_wear"}});
         if !persist {
             return Ok(doc);
         }

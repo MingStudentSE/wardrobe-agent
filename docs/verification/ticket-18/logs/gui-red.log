@@ -1,0 +1,41 @@
+npm notice run wardrobe-desktop@0.1.0 npx
+npm notice run 'playwright' test tests/learning.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5174 --strictPort
+[WebServer] (node:81456) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:81498) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/learning.spec.ts:2:1 › 显式偏好可查看编辑删除，重置与完整重建明确且不写穿着 (5.7s)
+
+
+  1) tests/learning.spec.ts:2:1 › 显式偏好可查看编辑删除，重置与完整重建明确且不写穿着 ───────────────────────────────────────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('link', { name: '记忆', exact: true })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('link', { name: '记忆', exact: true }) with timeout 5000ms
+      - waiting for getByRole('link', { name: '记忆', exact: true })
+
+
+      3 |  await page.goto('/');await page.getByText('管理成员档案',{exact:true}).click();const name=`学习验收-${Date.now()}`;await page.getByLabel('新成员名称').fill(name);await page.getByRole('button',{name:'创建成员',exact:true}).click();const choice=page.getByRole('combobox',{name:'当前成员',exact:true});await expect(choice.getByRole('option',{name,exact:true})).toBeAttached();const member=await choice.getByRole('option',{name,exact:true}).getAttribute('value');await expect(choice).toHaveValue(member!);
+      4 |  try{
+    > 5 |  await expect(page.getByRole('link',{name:'记忆',exact:true})).toBeVisible();await page.getByRole('link',{name:'记忆',exact:true}).click();const panel=page.locator('#learning');await panel.getByRole('button',{name:'查看偏好与记忆',exact:true}).click();
+        |                                                              ^
+      6 |  await panel.getByLabel('偏好维度').selectOption('color');await panel.getByLabel('偏好值').fill('blue');await panel.getByLabel('偏好权重').fill('4');await panel.getByLabel('偏好说明').fill('明确喜欢蓝色');await panel.getByRole('button',{name:'保存明确偏好',exact:true}).click();await expect(panel.getByRole('status')).toContainText('明确偏好已保存');
+      7 |  const explicit=panel.locator('.learning-explicit');await expect(explicit).toContainText('blue');await explicit.getByRole('button',{name:'编辑',exact:true}).click();await panel.getByLabel('偏好权重').fill('-2');await panel.getByRole('button',{name:'保存明确偏好',exact:true}).click();await expect(explicit).toContainText('-2');
+      8 |  await page.reload();await page.getByRole('link',{name:'记忆',exact:true}).click();await panel.getByRole('button',{name:'查看偏好与记忆',exact:true}).click();await expect(explicit).toContainText('-2');
+        at /private/tmp/wardrobe-ticket-18/apps/desktop/tests/learning.spec.ts:5:62
+
+    Error Context: test-results/learning-显式偏好可查看编辑删除，重置与完整重建明确且不写穿着/error-context.md
+
+  1 failed
+    tests/learning.spec.ts:2:1 › 显式偏好可查看编辑删除，重置与完整重建明确且不写穿着 ────────────────────────────────────────

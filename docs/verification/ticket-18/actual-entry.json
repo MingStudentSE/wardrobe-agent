@@ -1,0 +1,291 @@
+{
+  "limited_operations": [
+    "learning.get",
+    "learning.set",
+    "learning.edit",
+    "learning.delete",
+    "learning.reset",
+    "learning.recompute",
+    "learning.history",
+    "recommendation.generate",
+    "wear.list"
+  ],
+  "explicit": {
+    "algorithm_version": "explicit-and-events-v1",
+    "created_at": "2026-10-06T23:43:14.027096+00:00",
+    "deleted": false,
+    "dimension": "color",
+    "id": "01a11399-926a-7610-9e21-0235b2c7c865",
+    "member_id": "01a11399-9177-748b-872b-f35a1f2897b8",
+    "note": "explicit choice",
+    "revision": 1,
+    "root_id": "01a11399-926a-7610-9e21-0235b2c7c865",
+    "schema_version": 1,
+    "source": {
+      "kind": "explicit_user"
+    },
+    "value": "blue",
+    "weight": 5
+  },
+  "edited": {
+    "algorithm_version": "explicit-and-events-v1",
+    "created_at": "2026-10-06T23:43:14.073833+00:00",
+    "deleted": false,
+    "dimension": "color",
+    "id": "01a11399-9299-77f4-816a-0157ff277f7f",
+    "member_id": "01a11399-9177-748b-872b-f35a1f2897b8",
+    "note": "explicit choice",
+    "revision": 2,
+    "root_id": "01a11399-926a-7610-9e21-0235b2c7c865",
+    "schema_version": 1,
+    "source": {
+      "kind": "explicit_user"
+    },
+    "value": "blue",
+    "weight": -2
+  },
+  "deleted": {
+    "created_at": "2026-10-06T23:43:14.090389+00:00",
+    "id": "01a11399-92aa-766c-876a-2e56fb638fc9",
+    "member_id": "01a11399-9177-748b-872b-f35a1f2897b8",
+    "operation": "learning.delete",
+    "schema_version": 1,
+    "state": {
+      "cutoff": null,
+      "suppressed": [
+        {
+          "dimension": "color",
+          "value": "blue"
+        }
+      ]
+    }
+  },
+  "reset": {
+    "created_at": "2026-10-06T23:43:14.122836+00:00",
+    "id": "01a11399-92ca-71f0-9389-918bccf33698",
+    "member_id": "01a11399-9177-748b-872b-f35a1f2897b8",
+    "operation": "learning.reset",
+    "schema_version": 1,
+    "state": {
+      "cutoff": "2026-10-06T23:43:14.122836+00:00",
+      "suppressed": []
+    }
+  },
+  "profile": {
+    "algorithm_version": "explicit-and-events-v1",
+    "created_at": "2026-10-06T23:43:14.011961+00:00",
+    "id": "01a11399-925b-752e-a5b0-07db1ca1baa0",
+    "include_prior": false,
+    "inferred": [
+      {
+        "algorithm_version": "explicit-and-events-v1",
+        "dimension": "category",
+        "source": {
+          "feedback_ids": [],
+          "kind": "inferred_events",
+          "wear_ids": [
+            "01a11399-922b-70f0-b1b0-026b2e6df677"
+          ]
+        },
+        "value": "top",
+        "weight": 1
+      },
+      {
+        "algorithm_version": "explicit-and-events-v1",
+        "dimension": "color",
+        "source": {
+          "feedback_ids": [],
+          "kind": "inferred_events",
+          "wear_ids": [
+            "01a11399-922b-70f0-b1b0-026b2e6df677"
+          ]
+        },
+        "value": "blue",
+        "weight": 1
+      }
+    ],
+    "member_id": "01a11399-9177-748b-872b-f35a1f2897b8",
+    "reset_boundary": null,
+    "schema_version": 1
+  },
+  "rebuilt": {
+    "algorithm_version": "explicit-and-events-v1",
+    "created_at": "2026-10-06T23:43:14.152238+00:00",
+    "id": "01a11399-92e8-75a1-a03f-59399386990c",
+    "include_prior": true,
+    "inferred": [
+      {
+        "algorithm_version": "explicit-and-events-v1",
+        "dimension": "category",
+        "source": {
+          "feedback_ids": [],
+          "kind": "inferred_events",
+          "wear_ids": [
+            "01a11399-922b-70f0-b1b0-026b2e6df677"
+          ]
+        },
+        "value": "top",
+        "weight": 1
+      },
+      {
+        "algorithm_version": "explicit-and-events-v1",
+        "dimension": "color",
+        "source": {
+          "feedback_ids": [],
+          "kind": "inferred_events",
+          "wear_ids": [
+            "01a11399-922b-70f0-b1b0-026b2e6df677"
+          ]
+        },
+        "value": "blue",
+        "weight": 1
+      }
+    ],
+    "member_id": "01a11399-9177-748b-872b-f35a1f2897b8",
+    "reset_boundary": null,
+    "schema_version": 1
+  },
+  "recommendation": {
+    "actual_count": 1,
+    "controls": {
+      "limit": 1,
+      "member_id": "01a11399-9177-748b-872b-f35a1f2897b8",
+      "operation_key": "preferred",
+      "timezone": "UTC"
+    },
+    "created_at": "2026-10-06T23:43:14.059690+00:00",
+    "creates_wear": false,
+    "feedback_context": {
+      "day_excluded_ids": [],
+      "disliked_set_count": 0,
+      "source": "explicit_effective_feedback"
+    },
+    "generation": {
+      "attempts": 0,
+      "source": "rules"
+    },
+    "id": "01a11399-928b-7488-aff1-9e013fcc46ac",
+    "learning_context": {
+      "algorithm_version": "explicit-and-events-v1",
+      "explicit_count": 1,
+      "hard_constraints_override": true,
+      "inferred_count": 2,
+      "profile_id": "01a11399-925b-752e-a5b0-07db1ca1baa0",
+      "source": "managed_member_memory"
+    },
+    "member_id": "01a11399-9177-748b-872b-f35a1f2897b8",
+    "offline": true,
+    "proposals": [
+      {
+        "complete": true,
+        "items": [
+          {
+            "category": "top",
+            "clothing_id": "01a11399-91ef-73a0-9055-206ac34d7aef",
+            "layer": 0,
+            "name": "Blue",
+            "role": "top"
+          },
+          {
+            "category": "bottom",
+            "clothing_id": "01a11399-91f7-74b0-8fba-0de004220101",
+            "layer": 0,
+            "name": "裤",
+            "role": "bottom"
+          },
+          {
+            "category": "shoes",
+            "clothing_id": "01a11399-920c-701b-ba6b-f484ee4272e3",
+            "layer": 0,
+            "name": "鞋",
+            "role": "shoes"
+          }
+        ],
+        "missing_roles": [],
+        "occasion_verified": false,
+        "reasons": [
+          "离线角色规则：真实可用衣物，固定与排除约束已保留",
+          "日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除",
+          "目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）"
+        ],
+        "repeat_relaxed": false
+      }
+    ],
+    "recent_window": {
+      "from": "2026-09-30",
+      "source": "actual_effective_wear",
+      "through": "2026-10-06",
+      "timezone": "UTC"
+    },
+    "requested_count": 1,
+    "schema_version": 1,
+    "shortage_reasons": [],
+    "updated_at": "2026-10-06T23:43:14.059690+00:00",
+    "weather_context": {
+      "mode": "off",
+      "network_requested": false,
+      "source": "disabled",
+      "stale": false
+    }
+  },
+  "history_count": 8,
+  "wear_preserved": {
+    "created_at": "2026-10-06T23:43:13.963802+00:00",
+    "id": "01a11399-922b-70f0-b1b0-026b2e6df677",
+    "items": [
+      {
+        "clothing_id": "01a11399-91ef-73a0-9055-206ac34d7aef",
+        "snapshot": {
+          "brand": null,
+          "category": "top",
+          "color": [
+            "blue"
+          ],
+          "color_description": null,
+          "created_at": "2026-10-06T23:43:13.903504+00:00",
+          "currency": null,
+          "description": null,
+          "favorite": false,
+          "fit": null,
+          "id": "01a11399-91ef-73a0-9055-206ac34d7aef",
+          "material": [],
+          "member_id": "01a11399-9177-748b-872b-f35a1f2897b8",
+          "name": "Blue",
+          "notes": null,
+          "occasion": [],
+          "pattern": [],
+          "price_exponent": null,
+          "purchase_date": null,
+          "purchase_price_minor": null,
+          "purchase_store": null,
+          "purchase_url": null,
+          "schema_version": 1,
+          "seasons": [],
+          "size_label": null,
+          "status": "active",
+          "style": [],
+          "sub_category": null,
+          "tags": [],
+          "taxonomy_version": 1,
+          "updated_at": "2026-10-06T23:43:13.903504+00:00"
+        }
+      }
+    ],
+    "kind": "record",
+    "local_date": "2020-01-01",
+    "local_time": null,
+    "member_id": "01a11399-9177-748b-872b-f35a1f2897b8",
+    "notes": "",
+    "occurred_at": "2020-01-01T12:00:00+00:00",
+    "revision": 1,
+    "root_event_id": "01a11399-922b-70f0-b1b0-026b2e6df677",
+    "schema_version": 1,
+    "source_outfit": null,
+    "supersedes_event_id": null,
+    "time_precision": "date",
+    "timezone": "UTC"
+  },
+  "effective_wear_count": 1,
+  "credential_recorded": false,
+  "temporary_data_removed_on_exit": true
+}
