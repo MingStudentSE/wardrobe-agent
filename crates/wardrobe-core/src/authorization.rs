@@ -112,6 +112,45 @@ fn parse_grant(stored: &str) -> Result<Value, ApiError> {
     }
     Ok(grant)
 }
+fn check_grant_operation(grant: &Value, operation: &str) -> Result<(), ApiError> {
+    if grant["revoked"] == true {
+        return Err(ApiError::new("authorization_revoked", "客户端授权已撤销"));
+    }
+    if let Some(expires) = grant["expires_at"].as_str() {
+        let date = chrono::DateTime::parse_from_rfc3339(expires)
+            .map_err(|_| ApiError::new("storage_error", "客户端授权到期时间损坏"))?;
+        if date <= chrono::Utc::now() {
+            return Err(ApiError::new("authorization_expired", "客户端授权已到期"));
+        }
+    }
+    if privileged(operation) {
+        return Err(ApiError::new(
+            "scope_denied",
+            "客户端不能登记授权或管理系统凭据，请使用可信本机设置",
+        ));
+    }
+    if operation != "capabilities"
+        && grant["mode"] != "full"
+        && !grant["operations"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(operation))
+    {
+        return Err(ApiError::new("scope_denied", "操作超出客户端授权scope"));
+    }
+    Ok(())
+}
+
+fn require_granted_member(grant: &Value, member: &str) -> Result<(), ApiError> {
+    if grant["member_ids"]
+        .as_array()
+        .is_some_and(|members| !members.contains(&json!(member)))
+    {
+        return Err(ApiError::new("member_denied", "成员超出客户端授权范围"));
+    }
+    Ok(())
+}
+
 fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
     if input
         .as_object()
@@ -160,32 +199,76 @@ impl Application {
                 }
                 _ => e.into(),
             })?;
+        self.execute_as_grant_id(string(&parse_grant(&stored)?, "id")?, operation, input)
+    }
+
+    // Deferred tools retain a grant ID, never the raw bearer token. Resolve it
+    // afresh for each dispatch and reuse the same scope/member/revocation checks.
+    pub(super) fn execute_as_grant_id(
+        &self,
+        grant_id: &str,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, ApiError> {
+        if self.installation_changed()? {
+            return Application::open(std::path::Path::new(self.connection.path().unwrap()))?
+                .execute_as_grant_id(grant_id, operation, input);
+        }
+        if let Some(path) = self.redirected()? {
+            return Application::open(&path)?.execute_as_grant_id(grant_id, operation, input);
+        }
+        self.check_schema()?;
+        if !input.is_object() {
+            return Err(ApiError::new("invalid_input", "输入必须是JSON对象"));
+        }
+        let stored = self
+            .connection
+            .query_row(
+                "SELECT document FROM clients WHERE id=?1",
+                [grant_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    ApiError::new("unauthorized", "原始客户端授权不存在")
+                }
+                _ => error.into(),
+            })?;
+        self.execute_with_grant(parse_grant(&stored)?, operation, input)
+    }
+
+    pub(crate) fn check_deferred_grant(
+        &self,
+        grant_id: &str,
+        operation: &str,
+        member: &str,
+    ) -> Result<(), ApiError> {
+        self.check_schema()?;
+        let stored = self
+            .connection
+            .query_row(
+                "SELECT document FROM clients WHERE id=?1",
+                [grant_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    ApiError::new("unauthorized", "原始客户端授权不存在")
+                }
+                _ => error.into(),
+            })?;
         let grant = parse_grant(&stored)?;
-        if grant["revoked"] == true {
-            return Err(ApiError::new("authorization_revoked", "客户端授权已撤销"));
-        }
-        if let Some(expires) = grant["expires_at"].as_str() {
-            let date = chrono::DateTime::parse_from_rfc3339(expires)
-                .map_err(|_| ApiError::new("storage_error", "客户端授权到期时间损坏"))?;
-            if date <= chrono::Utc::now() {
-                return Err(ApiError::new("authorization_expired", "客户端授权已到期"));
-            }
-        }
-        if privileged(operation) {
-            return Err(ApiError::new(
-                "scope_denied",
-                "客户端不能登记授权或管理系统凭据，请使用可信本机设置",
-            ));
-        }
-        if operation != "capabilities"
-            && grant["mode"] != "full"
-            && !grant["operations"]
-                .as_array()
-                .unwrap()
-                .contains(&json!(operation))
-        {
-            return Err(ApiError::new("scope_denied", "操作超出客户端授权scope"));
-        }
+        check_grant_operation(&grant, operation)?;
+        require_granted_member(&grant, member)
+    }
+
+    fn execute_with_grant(
+        &self,
+        grant: Value,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, ApiError> {
+        check_grant_operation(&grant, operation)?;
         if operation == "feedback.record"
             && matches!(input["reaction"].as_str(), Some("actual_wore" | "changed"))
             && grant["mode"] != "full"
@@ -259,9 +342,7 @@ impl Application {
             }
             if input.get("member_id").is_some() {
                 let member = self.member(&input)?;
-                if !members.contains(&json!(member)) {
-                    return Err(ApiError::new("member_denied", "成员超出客户端授权范围"));
-                }
+                require_granted_member(&grant, &member)?;
                 if operation == "jobs.list" {
                     let mut result = self.execute(operation, input)?;
                     result["items"].as_array_mut().unwrap().retain(|job| {
@@ -284,6 +365,28 @@ impl Application {
                     "member_denied",
                     "此操作需要明确授权的member_id，空间级操作须授权全部成员",
                 ));
+            }
+        }
+        if matches!(
+            operation,
+            "stylist.worker.run" | "jobs.retry" | "jobs.cancel"
+        ) {
+            let member = self.member(&input)?;
+            let job = self.job_get(json!({"member_id":member,"id":string(&input,"id")?}))?;
+            if job["kind"] == "stylist_query" {
+                let expected = crate::stylist::StylistOrigin::Client {
+                    grant_id: string(&grant, "id")?.to_owned(),
+                };
+                let actual: crate::stylist::StylistOrigin =
+                    serde_json::from_value(job["payload"]["origin"].clone())
+                        .map_err(|_| ApiError::new("storage_error", "任务授权来源损坏"))?;
+                if actual != expected {
+                    return Err(ApiError::new(
+                        "scope_denied",
+                        "客户端不能管理其他授权来源的着装问答",
+                    ));
+                }
+                self.check_deferred_grant(string(&grant, "id")?, "stylist.ask", &member)?;
             }
         }
         if grant["mode"] != "full"
@@ -310,6 +413,9 @@ impl Application {
                 ));
             }
         }
+        if operation == "stylist.ask" {
+            self.check_deferred_grant(string(&grant, "id")?, operation, &self.member(&input)?)?;
+        }
         #[cfg(test)]
         AFTER_AUTHORIZATION.with(|hook| {
             let callback = hook.borrow_mut().take();
@@ -334,6 +440,14 @@ impl Application {
                         || grant["operations"].as_array().unwrap().contains(&o["name"]))
             });
             return Ok(result);
+        }
+        if operation == "stylist.ask" {
+            return self.stylist_enqueue(
+                input,
+                crate::stylist::StylistOrigin::Client {
+                    grant_id: string(&grant, "id")?.to_owned(),
+                },
+            );
         }
         if operation == "provider.save" {
             return self.provider_save_from_client(input);

@@ -1,7 +1,10 @@
+#[path = "provider_text.rs"]
+mod text_transport;
 use crate::{string, ApiError, Application};
 use rusqlite::params;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+pub(crate) use text_transport::read_chat_response;
 use uuid::Uuid;
 const CAPABILITIES: &[&str] = &["text", "vision", "image_generation", "virtual_tryon"];
 impl Application {

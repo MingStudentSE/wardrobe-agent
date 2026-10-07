@@ -26,6 +26,7 @@ mod providers;
 mod recognition;
 mod recommendations;
 pub mod sync;
+mod stylist;
 mod tryon;
 mod wears;
 mod weather;
@@ -323,6 +324,7 @@ impl Application {
             op if op.starts_with("outfit.") => self.outfit_execute(op, input),
             op if op.starts_with("wear.") => self.wear_execute(op, input),
             op if op.starts_with("learning.") => self.learning_execute(op, input),
+            op if op.starts_with("stylist.") => self.stylist_execute(op, input),
             op if op.starts_with("feedback.") => self.feedback_execute(op, input),
             op if op.starts_with("weather.") => self.weather_execute(op, input),
             op if op.starts_with("recommendation.") => self.recommendation_execute(op, input),
@@ -393,6 +395,7 @@ pub fn operations() -> Value {
     descriptors.extend(weather::descriptors());
     descriptors.extend(feedback::descriptors());
     descriptors.extend(learning::descriptors());
+    descriptors.extend(stylist::descriptors());
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());
     descriptors.extend(image_editing::descriptors());
