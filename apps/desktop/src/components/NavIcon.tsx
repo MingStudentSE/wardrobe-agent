@@ -1,0 +1,2 @@
+import React from 'react';
+export function NavIcon({name}:{name:string}){const paths:Record<string,string>={wardrobe:'M4 3h16v18H4z M12 3v18 M9 10v3 M15 10v3',outfits:'M8 3l-5 4 3 5 2-1v10h8V11l2 1 3-5-5-4-2 3h-4z',records:'M5 5h14v16H5z M8 3v4 M16 3v4 M5 10h14 M9 14h6 M9 17h4',settings:'M4 6h16 M4 12h16 M4 18h16 M8 4v4 M16 10v4 M10 16v4'};return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]??paths.wardrobe}/></svg>;}

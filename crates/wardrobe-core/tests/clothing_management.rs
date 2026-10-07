@@ -150,7 +150,7 @@ fn invalid_facts_are_rejected_without_partial_changes() {
     );
 }
 #[test]
-fn canonical_taxonomy_and_color_ids_are_versioned_and_validated() {
+fn custom_subcategories_and_canonical_colors_are_preserved() {
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("db")).unwrap();
     app.execute("space.default", json!({})).unwrap();
@@ -158,15 +158,11 @@ fn canonical_taxonomy_and_color_ids_are_versioned_and_validated() {
     assert_eq!(item["sub_category"], "shirt");
     assert_eq!(item["color"], json!(["white"]));
     assert_eq!(item["material"], json!(["棉"]));
-    assert_eq!(
-        app.execute(
-            "clothing.create",
-            json!({"member_id":"default","name":"错误","category":"shoes","sub_category":"shirt"})
-        )
-        .unwrap_err()
-        .code,
-        "invalid_input"
-    );
+    let custom=app.execute("clothing.create",json!({"member_id":"default","name":"开衫","category":"top","sub_category":"细针织开衫"})).unwrap();
+    assert_eq!(custom["sub_category"], "细针织开衫");
+    let updated=app.execute("clothing.update",json!({"member_id":"default","id":custom["id"],"sub_category":"短款开衫"})).unwrap();
+    assert_eq!(updated["sub_category"], "短款开衫");
+    assert!(app.execute("clothing.update",json!({"member_id":"default","id":custom["id"],"sub_category":"a".repeat(501)})).is_err());
 }
 #[test]
 fn clothing_history_lifecycle_and_edit_are_scoped_to_the_owner_member() {
