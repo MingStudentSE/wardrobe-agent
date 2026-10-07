@@ -1,0 +1,5 @@
+ docs/verification/ticket-18/learning-1280.png      | Bin 140295 -> 140686 bytes
+ docs/verification/ticket-18/learning-320.png       | Bin 132137 -> 132773 bytes
+ .../ticket-18/learning-sources-1280.png            | Bin 141679 -> 141870 bytes
+ .../ticket-18/learning-sources-320.png             | Bin 130484 -> 130795 bytes
+ 4 files changed, 0 insertions(+), 0 deletions(-)

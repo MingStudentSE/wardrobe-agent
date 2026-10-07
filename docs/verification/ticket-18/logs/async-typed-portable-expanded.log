@@ -1,0 +1,9 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 4.33s
+     Running tests/learning_jobs.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/learning_jobs-1f9e18dda37ffc00)
+
+running 1 test
+test portable_learning_keeps_preferences_and_marks_foreign_inference_stale ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.05s
+

@@ -1,0 +1,22 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 1.55s
+     Running tests/learning_jobs.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/learning_jobs-1f9e18dda37ffc00)
+
+running 1 test
+test recompute_returns_durable_job_before_profile_changes_and_explicit_worker_publishes ... FAILED
+
+failures:
+
+---- recompute_returns_durable_job_before_profile_changes_and_explicit_worker_publishes stdout ----
+
+thread 'recompute_returns_durable_job_before_profile_changes_and_explicit_worker_publishes' (3940306) panicked at crates/wardrobe-core/tests/learning_jobs.rs:17:5:
+assertion failed: r["job_id"].is_string()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    recompute_returns_durable_job_before_profile_changes_and_explicit_worker_publishes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p wardrobe-core --test learning_jobs`

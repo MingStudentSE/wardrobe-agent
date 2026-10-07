@@ -1,0 +1,16 @@
+
+Running 61 tests using 1 worker
+
+  ✓   1 tests/authorization.spec.ts:2:1 › 可信设置登记限定客户端，一次性令牌关闭后不再展示且可撤销 (1.6s)
+  ✓   2 tests/authorization.spec.ts:3:1 › 过期时间错误可修改，完整业务与全部成员授权需明确选择 (581ms)
+  ✓   3 tests/backup.spec.ts:3:1 › 备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度 (1.6s)
+  ✓   4 tests/backup.spec.ts:18:1 › 独立安装实际移动目录后 GUI 与旧路径 CLI 读取同一数据 (1.3s)
+  ✓   5 tests/care.spec.ts:2:1 › 真实Application洗护阈值、手动待洗、干洗、更正撤销与重启 (1.3s)
+  ✓   6 tests/care.spec.ts:7:1 › 已提交响应丢失重试不重复洗护且成员锁保持 (870ms)
+  ✓   7 tests/care.spec.ts:8:1 › 迟到的真实洗护修订读取不会显示到新成员 (869ms)
+  ✓   8 tests/clothing-management.spec.ts:2:1 › details edit, archive, recycle and restore clothing without losing facts (986ms)
+  ✓   9 tests/clothing-management.spec.ts:14:1 › management controls remain reachable at supported narrow and desktop widths (3.0s)
+  ✓  10 tests/clothing-management.spec.ts:17:1 › large minor-unit prices display and edit without floating-point rounding (674ms)
+
+  ✓  11 tests/encrypted-package.spec.ts:7:1 › 真实系统密钥导出独立密文包，窄屏可操作并验证读取 (2.0s)
+  ✓  12 tests/encryption.spec.ts:3:1 › 加密空间设置展示恢复与配对流程，窄屏没有溢出 (561ms)

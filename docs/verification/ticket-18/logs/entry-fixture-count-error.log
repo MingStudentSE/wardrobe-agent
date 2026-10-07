@@ -1,0 +1,1 @@
+Initial reproduce-entry.py expected9 history entries but performed8 learning mutations (recompute,set,edit,delete,recompute,reset,recompute,recompute). Assertion failed; corrected oracle to8. Not a product failure.

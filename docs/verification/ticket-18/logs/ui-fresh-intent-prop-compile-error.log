@@ -1,0 +1,5 @@
+npm notice run wardrobe-desktop@0.1.0 build
+npm notice run tsc && vite build
+src/components/Recommendations.tsx(20,28): error TS2304: Cannot find name 'learningRevision'.
+src/main.tsx(45,2482): error TS2322: Type '{ learningRevision: number; key: string; member: string; disabled: boolean; canMutate: () => boolean; onBusy: (busy: boolean) => void; }' is not assignable to type 'IntrinsicAttributes & { member: string; disabled: boolean; canMutate: () => boolean; onBusy: (b: boolean) => void; }'.
+  Property 'learningRevision' does not exist on type 'IntrinsicAttributes & { member: string; disabled: boolean; canMutate: () => boolean; onBusy: (b: boolean) => void; }'.

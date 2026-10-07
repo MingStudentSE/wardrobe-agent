@@ -1,0 +1,135 @@
+{
+  "generated_at": "2026-10-07T01:20:00Z",
+  "task": "learning-entry-os: independent CLI/stdin-MCP + real temp OS credential-store encryption/pairing package evidence",
+  "source": {
+    "worktree": "/Users/links/.codex/wardrobe-execution/worktrees/merge-18",
+    "head_sha": "cd7ef72e1b5dfb0423bc3937f2ea59553664ae09",
+    "git_status_porcelain_lines": 0,
+    "source_or_tests_modified": false
+  },
+  "preconditions": {
+    "evidence_dir": "/Users/links/.codex/wardrobe-execution/results/learning-independent-core-evidence",
+    "fmt_exit": 0,
+    "workspace_test_exit": 0,
+    "clippy_exit": 0,
+    "learning_scale_ignored_exit": 0,
+    "learning_target_cargo_processes": "none",
+    "wait_required": false,
+    "snapshot": "/Users/links/.codex/wardrobe-execution/results/learning-entry-os-evidence/precondition-check.txt"
+  },
+  "environment": {
+    "native_env": "/Users/links/.codex/wardrobe-execution/native-env.sh",
+    "CARGO_TARGET_DIR": "/Users/links/.codex/wardrobe-execution/cache/learning"
+  },
+  "commands": [
+    {
+      "step": 1,
+      "cmd": "cargo build -p wardrobe-cli",
+      "exit": 0,
+      "stdout": "/Users/links/.codex/wardrobe-execution/results/learning-entry-os-evidence/build.stdout.log",
+      "stderr": "/Users/links/.codex/wardrobe-execution/results/learning-entry-os-evidence/build.stderr.log"
+    },
+    {
+      "step": 2,
+      "cmd": "python3 docs/verification/ticket-18/reproduce-entry.py /Users/links/.codex/wardrobe-execution/cache/learning/debug/wardrobe-cli",
+      "exit": 0,
+      "note": "first attempt exited 1 solely because native-env.sh (DYLD_LIBRARY_PATH for libheif) was not sourced in that shell; dyld aborted CLI launch with SIGABRT before any product logic ran. Original failed-run artifacts preserved; step re-run once with the mandated environment. No code/fakes changed.",
+      "first_attempt_exit": 1,
+      "first_attempt_stderr": "/Users/links/.codex/wardrobe-execution/results/learning-entry-os-evidence/reproduce.stderr.log",
+      "stdout_sanitized": "/Users/links/.codex/wardrobe-execution/results/learning-entry-os-evidence/reproduce.stdout.json",
+      "stderr": "/Users/links/.codex/wardrobe-execution/results/learning-entry-os-evidence/reproduce.stderr.log"
+    },
+    {
+      "step": 3,
+      "cmd": "cargo test -p wardrobe-core --test encryption -- --ignored --nocapture",
+      "exit": 0,
+      "stdout": "/Users/links/.codex/wardrobe-execution/results/learning-entry-os-evidence/encryption.stdout.log",
+      "stderr": "/Users/links/.codex/wardrobe-execution/results/learning-entry-os-evidence/encryption.stderr.log"
+    },
+    {
+      "step": 4,
+      "cmd": "cargo test -p wardrobe-core --test encrypted_package -- --ignored --nocapture",
+      "exit": 0,
+      "stdout": "/Users/links/.codex/wardrobe-execution/results/learning-entry-os-evidence/encrypted_package.stdout.log",
+      "stderr": "/Users/links/.codex/wardrobe-execution/results/learning-entry-os-evidence/encrypted_package.stderr.log"
+    }
+  ],
+  "os_test_results": {
+    "encryption": {
+      "result_line": "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 9.48s",
+      "passed": 6,
+      "failed": 0,
+      "ignored_reported": 0,
+      "run_mode": "--ignored explicit (real macOS credential store, tempdir fixtures, existing fixture cleanup on exit)"
+    },
+    "encrypted_package": {
+      "result_line": "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 4.28s",
+      "passed": 3,
+      "failed": 0,
+      "ignored_reported": 0,
+      "run_mode": "--ignored explicit (real macOS credential store, tempdir fixtures, existing fixture cleanup on exit)"
+    },
+    "ignored_items_counted_as_pass_only_via_explicit_run": true
+  },
+  "cli_stdin_mcp_verification": {
+    "cli_binary": "/Users/links/.codex/wardrobe-execution/cache/learning/debug/wardrobe-cli",
+    "script": "docs/verification/ticket-18/reproduce-entry.py (temporary limited client token held in memory/stdin only; token never written to evidence)",
+    "stdout_valid_json": true,
+    "token_leak_check": "only 'lease_token': null key names present; no credential values in stdout",
+    "durable_async_receipts": [
+      {
+        "job_id": "01a113ea-df9a-723e-9e6b-42538b1edb45",
+        "receipt_state": "queued",
+        "terminal_state": "succeeded",
+        "terminal_progress": 100
+      },
+      {
+        "job_id": "01a113ea-e03b-7642-9d18-a8405a966d21",
+        "receipt_state": "queued",
+        "terminal_state": "succeeded",
+        "terminal_progress": 100
+      },
+      {
+        "job_id": "01a113ea-e0a3-743f-b301-f2e3bdd10a05",
+        "receipt_state": "queued",
+        "terminal_state": "succeeded",
+        "terminal_progress": 100
+      },
+      {
+        "job_id": "01a113ea-e0f7-745c-adb0-bb6c1b8f5d5f",
+        "receipt_state": "queued",
+        "terminal_state": "succeeded",
+        "terminal_progress": 100
+      }
+    ],
+    "all_receipts_queued_then_succeeded": true,
+    "history_count": 8,
+    "effective_wear_count": 1,
+    "limited_operations_count": 12,
+    "credential_recorded": false,
+    "temporary_data_removed_on_exit": true
+  },
+  "overall": {
+    "all_steps_exit_zero": true,
+    "os_tests_total_passed": 9,
+    "os_tests_total_failed": 0
+  },
+  "constraints": {
+    "source_or_tests_modified": false,
+    "fakes_enabled": false,
+    "existing_userkeys_or_credentials_read": false,
+    "recovery_secret_or_token_in_evidence": false,
+    "paid_calls_or_user_photos": false,
+    "git_commit_push_merge_close_issue": false
+  },
+  "still_pending": [
+    "GUI",
+    "model provider",
+    "formal review"
+  ],
+  "claims": {
+    "ticket_18_complete": false,
+    "beta_complete": false,
+    "note": "Evidence supplement only; ticket 18 and Beta completion not claimed. Awaiting supervisor acceptance."
+  }
+}
