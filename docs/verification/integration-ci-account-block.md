@@ -35,3 +35,8 @@ GitHub check-run112458992926 与112458973838 的 annotations 实际返回：近�
 ## 18b7b191 显式反馈联合源码
 
 自动 run37537612838 已 completed/failure；Windows、macOS14、macOS15Intel、Ubuntu22.04/24.04 五 jobs 实际 steps=[]。Windows check112522547841 annotation 实际仍为账户付款失败或支出上限不足，未启动 runner。重复 run37537607953 cancelled。独立180Rust/9OS/51GUI不能替代当前源码跨平台发行；没有手动retry。
+
+
+## 765e759 备份恢复联合源码
+
+自动 run37549756906 已 completed/failure；五 jobs 实际 steps=[]。Windows check112562176066 annotation 实际为近期付款失败或支出上限不足，未启动 runner；重复 run37549753766 cancelled。独立230Rust/9OS及54不同GUI通过（53全量加1受影响模型用例重跑，原环境失败保留）不替代当前源码平台验证。没有手动retry。
