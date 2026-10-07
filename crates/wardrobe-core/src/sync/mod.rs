@@ -655,10 +655,12 @@ impl Application {
                         Ok(json!({"op_id":r.get::<_,String>(0)?,"code":r.get::<_,String>(1)?}))
                     })?
                     .collect::<Result<Vec<_>, _>>()?;
+                let mut transport_statement=self.connection.prepare("SELECT publisher,code,attempts FROM sync_index_errors WHERE target_id=?1 ORDER BY epoch,publisher LIMIT 32")?;
+                let transport_errors=transport_statement.query_map([target_key],|r|Ok(json!({"publisher":r.get::<_,String>(0)?,"code":r.get::<_,String>(1)?,"attempts":r.get::<_,u64>(2)?})))?.collect::<Result<Vec<_>,_>>()?;
                 let active_job: Option<String> = self.connection.query_row("SELECT document FROM jobs WHERE kind='sync' AND json_extract(document,'$.payload.target.target_key')=?1 AND json_extract(document,'$.state') IN ('queued','running') ORDER BY id DESC LIMIT 1",[target_key],|r|r.get(0)).optional()?;
                 let active_job=active_job.as_deref().map(serde_json::from_str::<Value>).transpose().map_err(|_|error("storage_error"))?.map(|job|json!({"id":job["id"],"member_id":job["member_id"],"state":job["state"]}));
                 Ok(
-                    json!({"schema_version":1,"pending":pending,"asset_errors":asset_errors,"quarantine":quarantine,"target":target_value,"active_job":active_job}),
+                    json!({"schema_version":1,"pending":pending,"asset_errors":asset_errors,"transport_errors":transport_errors,"quarantine":quarantine,"target":target_value,"active_job":active_job}),
                 )
             }
             "sync.run" => self.sync_enqueue(input),
@@ -690,7 +692,17 @@ impl Application {
                         .as_bytes(),
                 )
             });
-        let prefix = format!("{}/changes", string(&identity, "space_id")?);
+        let prefix = if identity["epoch"].as_u64().unwrap_or(0) == 1 {
+            format!("{}/changes", string(&identity, "space_id")?)
+        } else {
+            format!(
+                "{}/epochs/{}/changes",
+                string(&identity, "space_id")?,
+                identity["epoch"]
+                    .as_u64()
+                    .ok_or_else(|| error("sync_invalid"))?
+            )
+        };
         self.sync_publish_assets(&storage, &identity)?;
         self.sync_discover_assets(&storage, &identity)?;
         let mut stmt=self.connection.prepare("SELECT id,op_id,device,entity_type,entity_id,before_doc,after_doc,base,clock,EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0 ORDER BY id LIMIT 256")?;
@@ -866,7 +878,7 @@ impl Application {
         let missing_assets = self.sync_fetch_assets(&storage)?;
         let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0) OR EXISTS(SELECT 1 FROM sync_inbox i WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=i.op_id)) OR EXISTS(SELECT 1 FROM sync_publications p JOIN sync_inbox i ON i.op_id=p.op_id WHERE p.target_id=?1 AND p.locally_published=1 AND NOT EXISTS(SELECT 1 FROM sync_index_entries e WHERE e.target_id=?1 AND e.epoch=?2 AND e.op_id=p.op_id))", params![target_key,identity["epoch"].as_u64().ok_or_else(||error("sync_invalid"))?],|r|r.get(0))?;
         Ok(
-            json!({"schema_version":1,"sent":sent,"received":received,"pending":pending + missing_markers,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":has_more || incoming_more || (pending > 0 && replayed + replay_quarantined == (256 - incoming_count) as u64 && incoming_count < 256)}),
+            json!({"schema_version":1,"sent":sent,"received":received,"pending":pending + missing_markers,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":has_more || incoming_more || (pending > 0 && (incoming_count == 256 || replayed + replay_quarantined > 0))}),
         )
     }
 }

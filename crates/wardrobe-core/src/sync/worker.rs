@@ -10,7 +10,20 @@ impl Application {
                 |r| r.get(0),
             )
             .map_err(|_| error("sync_not_configured"))?;
-        let target: Value = serde_json::from_str(&target).map_err(|_| error("storage_error"))?;
+        let mut target: Value =
+            serde_json::from_str(&target).map_err(|_| error("storage_error"))?;
+        if identity["epoch"].as_u64().unwrap_or(0) > 1 {
+            let key=digest(json!({"directory":target["directory"],"space_id":identity["space_id"],"epoch":identity["epoch"]}).to_string().as_bytes());
+            if target["target_key"] != key {
+                target["target_key"] = json!(key);
+                let tx = self.begin_write()?;
+                tx.execute(
+                    "UPDATE sync_targets SET document=?1 WHERE id='primary'",
+                    [target.to_string()],
+                )?;
+                tx.commit()?;
+            }
+        }
         let member = self.member(&json!({"member_id":"default"}))?;
         if input.get("operation_key").is_some() && !input["operation_key"].is_string() {
             return Err(error("invalid_input"));

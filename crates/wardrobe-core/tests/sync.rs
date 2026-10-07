@@ -966,6 +966,15 @@ fn two_installations_exchange_member_and_clothing_incrementally_without_duplicat
             .unwrap()["name"],
         "healthy independent device stream"
     );
+    let waiting = peer.sync_batch().unwrap();
+    assert_eq!(
+        waiting["has_more"], false,
+        "unavailable causal prerequisites do not cause an unbounded worker loop"
+    );
+    assert!(
+        waiting["pending"].as_u64().unwrap() > 0,
+        "waiting work remains durable and retryable"
+    );
     drop(peer);
     let peer = Application::open(&bp).unwrap();
     assert!(
@@ -1040,7 +1049,7 @@ fn legacy_schema_keeps_actual_history_asset_foreign_keys_and_repairs_sync_tables
         db.execute_batch(&format!("CREATE TABLE {table}({ddl});INSERT INTO {table} SELECT * FROM fixture_saved;DROP TABLE fixture_saved")).unwrap();
     }
     db.execute_batch(
-        "DROP TABLE sync_fields;PRAGMA user_version=14;PRAGMA legacy_alter_table=OFF;",
+        "DROP TABLE sync_fields;DROP TABLE sync_index_errors;DROP TABLE sync_missing;PRAGMA user_version=14;PRAGMA legacy_alter_table=OFF;",
     )
     .unwrap();
     drop(db);
@@ -1113,6 +1122,15 @@ fn legacy_schema_keeps_actual_history_asset_foreign_keys_and_repairs_sync_tables
             .unwrap(),
         0
     );
+    for table in ["sync_index_errors", "sync_missing"] {
+        assert_eq!(
+            db.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r
+                .get::<_, u32>(0))
+                .unwrap(),
+            0,
+            "physical transport retry tables repair independently of global schema version"
+        );
+    }
 }
 #[test]
 #[ignore = "requires actual OS credential store"]
@@ -1234,13 +1252,19 @@ fn incremental_publication_is_bounded_and_retains_the_rest_across_restart() {
             .unwrap();
         std::fs::write(&index_heads[0], latest_head).unwrap();
         assert_eq!(
-            rollback_result["state"], "failed",
-            "an authenticated head cannot roll back after a partial page was received"
+            rollback_result["state"], "succeeded",
+            "a bad publisher is isolated from healthy publishers"
         );
-        assert_eq!(rollback_result["error"]["code"], "storage_corrupt");
+        assert_eq!(
+            rollback_result["result"]["received"], 0,
+            "a rolled-back authenticated head cannot provide facts"
+        );
+        let rollback_status = peer.execute("sync.status", json!({})).unwrap();
+        assert!(rollback_status["transport_errors"].as_array().unwrap().iter().any(|e|e["code"]=="storage_corrupt"),"authenticated head rollback remains a durable corruption error after partial-page receipt");
     }
     for _ in 0..10 {
         let r = peer.sync_batch().unwrap();
+
         assert_eq!(
             r["sent"], 0,
             "namespace bootstrap must never echo a new local member fact"
@@ -1915,4 +1939,164 @@ fn corrupt_indexed_marker_is_durable_and_does_not_block_a_healthy_publisher() {
         "receiving config preserves local transport endpoint"
     );
     assert!(updated["cache"].is_null() && updated["last_error"].is_null());
+}
+
+#[test]
+#[ignore = "requires actual OS credential store"]
+fn pairing_later_device_preserves_authenticated_same_epoch_history() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let c = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    let ap = a.path().join("db");
+    let bp = b.path().join("db");
+    let cp = c.path().join("db");
+    let owner = Application::open(&ap).unwrap();
+    let peer = Application::open(&bp).unwrap();
+    let newcomer = Application::open(&cp).unwrap();
+    let _cleanup = [Cleanup(ap), Cleanup(bp), Cleanup(cp)];
+    owner
+        .execute(
+            "encryption.create",
+            json!({"password":"generated old manifest fixture","device_name":"historical owner"}),
+        )
+        .unwrap();
+    let pair = |app: &Application, name: &str| {
+        let offer = owner
+            .execute("encryption.pair.offer", json!({"device_name":name}))
+            .unwrap();
+        let receipt=app.execute("encryption.pair.accept",json!({"invitation":offer["invitation"],"pairing_secret":offer["pairing_secret"],"password":"generated peer fixture"})).unwrap();
+        let confirmed = owner
+            .execute(
+                "encryption.pair.confirm",
+                json!({"receipt":receipt["receipt"]}),
+            )
+            .unwrap();
+        app.execute(
+            "encryption.device.apply",
+            json!({"manifest":confirmed["manifest"]}),
+        )
+        .unwrap();
+        confirmed["manifest"].clone()
+    };
+    pair(&peer, "original peer");
+    let member = owner.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let garment = owner
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"published before later pairing","category":"top"}),
+        )
+        .unwrap();
+    let peer_member = peer.execute("space.default", json!({})).unwrap()["member_id"].clone();
+    let peer_fact=peer.execute("clothing.create",json!({"member_id":peer_member,"name":"accepted history from later revoked device","category":"bottom"})).unwrap();
+    for app in [&owner, &peer] {
+        app.execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    }
+    owner.sync_batch().unwrap();
+    peer.sync_batch().unwrap();
+    owner.sync_batch().unwrap();
+
+    assert_eq!(
+        owner
+            .execute(
+                "clothing.get",
+                json!({"member_id":peer_member,"id":peer_fact["id"]})
+            )
+            .unwrap()["name"],
+        "accepted history from later revoked device",
+        "fixture must prove history accepted before revocation"
+    );
+    let latest = pair(&newcomer, "later peer");
+    peer.execute("encryption.device.apply", json!({"manifest":latest}))
+        .unwrap();
+    newcomer
+        .execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    newcomer.sync_batch().unwrap();
+    assert_eq!(
+        newcomer
+            .execute(
+                "clothing.get",
+                json!({"member_id":member,"id":garment["id"]})
+            )
+            .unwrap()["name"],
+        "published before later pairing",
+        "old owner-signed same-epoch history remains readable to a newly paired device"
+    );
+    owner.sync_batch().unwrap();
+    let peer_device =
+        peer.execute("encryption.status", json!({})).unwrap()["state"]["device_id"].clone();
+    let rotated = owner
+        .execute(
+            "encryption.device.revoke",
+            json!({"device_id":peer_device,"password":"generated epoch fixture"}),
+        )
+        .unwrap();
+    newcomer
+        .execute(
+            "encryption.device.apply",
+            json!({"manifest":rotated["manifest"]}),
+        )
+        .unwrap();
+    let forbidden=peer.execute("clothing.create",json!({"member_id":peer_member,"name":"fresh write from revoked epoch","category":"bottom"})).unwrap();
+    peer.sync_batch().unwrap();
+    owner.sync_batch().unwrap();
+    newcomer.sync_batch().unwrap();
+    assert_eq!(
+        newcomer
+            .execute(
+                "clothing.get",
+                json!({"member_id":peer_member,"id":peer_fact["id"]})
+            )
+            .unwrap()["name"],
+        "accepted history from later revoked device"
+    );
+    assert_eq!(
+        newcomer
+            .execute(
+                "clothing.get",
+                json!({"member_id":peer_member,"id":forbidden["id"]})
+            )
+            .unwrap_err()
+            .code,
+        "not_found",
+        "fresh old-epoch writes must not cross revocation"
+    );
+    let d = tempfile::tempdir().unwrap();
+    let dp = d.path().join("db");
+    let after_rotation = Application::open(&dp).unwrap();
+    let _d_cleanup = Cleanup(dp);
+    let current = pair(&after_rotation, "fresh current-epoch peer");
+    newcomer
+        .execute("encryption.device.apply", json!({"manifest":current}))
+        .unwrap();
+    after_rotation
+        .execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    owner.sync_batch().unwrap();
+    after_rotation.sync_batch().unwrap();
+    assert_eq!(after_rotation.execute("clothing.get",json!({"member_id":peer_member,"id":peer_fact["id"]})).unwrap()["name"],"accepted history from later revoked device","a current authorized publisher must relay accepted historical facts to a newly paired post-rotation device");
+    assert_eq!(
+        after_rotation
+            .execute(
+                "clothing.get",
+                json!({"member_id":peer_member,"id":forbidden["id"]})
+            )
+            .unwrap_err()
+            .code,
+        "not_found"
+    );
 }

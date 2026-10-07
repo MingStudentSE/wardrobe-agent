@@ -772,7 +772,55 @@ impl Application {
                 "请先更新已验证设备状态",
             ));
         }
-        package::manifest(&s, &i["manifest"])?;
+        // Sync logs outlive pairing-list revisions within an epoch. Validate the
+        // original owner signature and publisher membership without weakening
+        // snapshot-package inspection's exact-current-manifest requirement.
+        let supplied = &i["manifest"];
+        fields(supplied, &["payload_base64", "signature"])?;
+        let raw = bytes(supplied, "payload_base64", MAX_BYTES)?;
+        let owner =
+            VerifyingKey::from_bytes(&exact::<32>(&s, "owner_public")?).map_err(|_| error())?;
+        owner
+            .verify_strict(
+                &raw,
+                &Signature::from_bytes(&exact::<64>(supplied, "signature")?),
+            )
+            .map_err(|_| error())?;
+        let manifest: Value = serde_json::from_slice(&raw).map_err(|_| invalid())?;
+        fields(
+            &manifest,
+            &[
+                "protocol_version",
+                "space_id",
+                "epoch",
+                "revision",
+                "owner_public",
+                "devices",
+                "recipients",
+            ],
+        )?;
+        if manifest["protocol_version"] != 1
+            || manifest["space_id"] != s["space_id"]
+            || manifest["epoch"] != s["epoch"]
+            || manifest["owner_public"] != s["owner_public"]
+            || !manifest["revision"]
+                .as_u64()
+                .is_some_and(|r| r > 0 && r <= s["revision"].as_u64().unwrap_or(0))
+            || !manifest["devices"].as_array().is_some_and(|devices| {
+                devices.iter().any(|d| {
+                    d["device_id"] == i["device_id"]
+                        && s["devices"]
+                            .as_array()
+                            .is_some_and(|current| current.iter().any(|c| c == d))
+                })
+            })
+        {
+            return Err(ApiError::new(
+                "device_state_required",
+                "同步发布者需要已验证的设备状态",
+            ));
+        }
+
         if !s["devices"]
             .as_array()
             .ok_or_else(invalid)?
