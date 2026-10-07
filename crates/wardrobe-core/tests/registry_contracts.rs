@@ -1542,3 +1542,147 @@ fn learning_family_effects_examples_and_runtime_output_contract() {
         json!("learning_recompute")
     );
 }
+
+#[test]
+fn jobs_weather_client_capabilities_family_contract() {
+    // 真实运行时输出：任务生命周期、天气配置/缓存（本机HTTP桩真实联网）、客户端授权、能力发现
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("jw.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let caps = app.execute("capabilities", json!({})).unwrap();
+    assert_result_matches_schema(&schema_of("capabilities"), &caps, "capabilities");
+    assert!(caps["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|o| o["name"] == json!("recommendation.generate")));
+
+    let rec = app
+        .execute("learning.recompute", json!({"member_id":member,"operation_key":"jw-1"}))
+        .unwrap();
+    let job_id = rec["job_id"].clone();
+    let got = app
+        .execute("jobs.get", json!({"member_id":member,"id":job_id}))
+        .unwrap();
+    assert_eq!(got["state"], json!("queued"));
+    assert_result_matches_schema(&schema_of("jobs.get"), &got, "jobs.get");
+    let listed = app.execute("jobs.list", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("jobs.list"), &listed, "jobs.list");
+    let cancelled = app
+        .execute("jobs.cancel", json!({"member_id":member,"id":job_id}))
+        .unwrap();
+    assert_eq!(cancelled["state"], json!("cancelled"));
+    assert_result_matches_schema(&schema_of("jobs.cancel"), &cancelled, "jobs.cancel");
+    let retried = app
+        .execute("jobs.retry", json!({"member_id":member,"id":job_id}))
+        .unwrap();
+    assert_eq!(retried["state"], json!("queued"), "本地任务取消后可重试");
+    assert_result_matches_schema(&schema_of("jobs.retry"), &retried, "jobs.retry");
+    let done = app
+        .execute("learning.worker.run", json!({"member_id":member,"job_id":job_id}))
+        .unwrap();
+    assert_eq!(done["state"], json!("succeeded"));
+    let err = app
+        .execute("jobs.cancel", json!({"member_id":member,"id":job_id}))
+        .unwrap_err();
+    assert_eq!(err.code, "invalid_state", "已完成任务不能取消");
+
+    let off = app
+        .execute("weather.configure", json!({"member_id":member,"mode":"off"}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("weather.configure"), &off, "weather.configure");
+    let got_weather = app.execute("weather.get", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("weather.get"), &got_weather, "weather.get");
+    let refreshed_off = app.execute("weather.refresh", json!({"member_id":member})).unwrap();
+    assert_eq!(refreshed_off["cache"], Value::Null, "mode=off刷新不联网");
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 2048];
+        let _ = stream.read(&mut buf);
+        let body = "{\"current\":{\"temperature_2m\":21.5,\"time\":1728000000},\"current_units\":{\"temperature_2m\":\"°C\",\"time\":\"unixtime\"}}";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+    });
+    let configured = app
+        .execute(
+            "weather.configure",
+            json!({"member_id":member,"mode":"automatic","location":"上海","latitude":31.2,"longitude":121.5,"usage":"noncommercial","endpoint":format!("http://127.0.0.1:{port}/v1")}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("weather.configure"), &configured, "configure-automatic");
+    let refreshed = app.execute("weather.refresh", json!({"member_id":member})).unwrap();
+    server.join().unwrap();
+    assert_eq!(
+        refreshed["cache"]["temperature_c"],
+        json!(21.5),
+        "refresh真实调用配置端点"
+    );
+    assert_eq!(refreshed["last_error"], Value::Null);
+    assert_result_matches_schema(&schema_of("weather.refresh"), &refreshed, "weather.refresh");
+
+    let granted = app
+        .execute(
+            "client.authorize",
+            json!({"name":"契约测试客户端","mode":"limited","operations":["recommendation.generate"],"member_ids":null,"expires_at":null}),
+        )
+        .unwrap();
+    assert!(granted["token"].as_str().is_some(), "authorize一次性返回令牌");
+    assert_result_matches_schema(&schema_of("client.authorize"), &granted, "client.authorize");
+    let clients = app.execute("client.list", json!({})).unwrap();
+    assert_result_matches_schema(&schema_of("client.list"), &clients, "client.list");
+    let revoked = app
+        .execute("client.revoke", json!({"id":granted["id"]}))
+        .unwrap();
+    assert_eq!(revoked["revoked"], json!(true));
+    assert_result_matches_schema(&schema_of("client.revoke"), &revoked, "client.revoke");
+
+    let family = [
+        ("jobs.get", "query", false),
+        ("jobs.list", "query", false),
+        ("jobs.cancel", "mutation", false),
+        ("jobs.retry", "mutation", false),
+        ("weather.configure", "mutation", false),
+        ("weather.get", "query", false),
+        ("client.authorize", "mutation", false),
+        ("client.list", "query", false),
+        ("client.revoke", "mutation", false),
+        ("capabilities", "query", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    let refresh = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("weather.refresh"))
+        .unwrap();
+    let conditional = refresh["effect"]["conditional_effects"]
+        .as_array()
+        .expect("refresh 须声明条件联网");
+    assert!(conditional.iter().any(|c| {
+        c["when"]["config.mode"] == json!("automatic") && c["effect"]["network"] == json!("web-weather")
+    }));
+}
