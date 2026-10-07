@@ -22,6 +22,7 @@ mod product;
 mod providers;
 mod recognition;
 mod recommendations;
+mod pair_search;
 mod tryon;
 mod wears;
 mod weather;

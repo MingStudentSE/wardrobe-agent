@@ -483,7 +483,9 @@ impl Application {
                 return Err(invalid("保留单品层级须完整"));
             }
         }
+        let pair_weights = self.learning_pair_weights(&member)?;
         let rules = PlanningRules {
+            pair_weights: &pair_weights,
             fixed: &fixed,
             limit: limit as usize,
             recent: &recent,
@@ -639,9 +641,10 @@ impl Application {
         Ok(doc)
     }
 }
-// Each frontier state advances one sorted role slot. We only materialize emitted
-// combinations and their immediate neighbors, never the full Cartesian product.
+// Individual-only ranking uses a monotone neighbor frontier. Pair rewards use
+// admissible-bound search streams so unseen non-monotone rewards remain eligible.
 struct PlanningRules<'a> {
+    pair_weights: &'a crate::pair_search::PairWeights,
     fixed: &'a [String],
     limit: usize,
     recent: &'a std::collections::BTreeSet<Vec<String>>,
@@ -653,6 +656,7 @@ struct PlanningRules<'a> {
 }
 fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> (Vec<Value>, bool) {
     let PlanningRules {
+        pair_weights,
         fixed,
         limit,
         recent,
@@ -804,17 +808,82 @@ fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> (Vec<Value>, bool) {
             })
             .sum::<usize>() as i64)
     };
+    let pair_slots: Vec<Vec<Vec<(String, usize)>>> = if pair_weights.is_empty() {
+        vec![]
+    } else {
+        compiled
+            .iter()
+            .map(|(slots, _)| {
+                slots
+                    .iter()
+                    .map(|slot| {
+                        slot.iter()
+                            .map(|c| match c {
+                                Some(c) => (
+                                    c["id"].as_str().unwrap().to_owned(),
+                                    ranks[c["id"].as_str().unwrap()],
+                                ),
+                                None => (String::new(), 0),
+                            })
+                            .collect()
+                    })
+                    .collect()
+            })
+            .collect()
+    };
+    let fixed_ids: Vec<String> = mandatory
+        .iter()
+        .map(|c| c["id"].as_str().unwrap().to_owned())
+        .collect();
+    let pair_score = |pattern: usize, indices: &[usize]| {
+        if pair_weights.is_empty() {
+            return 0;
+        }
+        let mut ids: Vec<&str> = fixed_ids.iter().map(String::as_str).collect();
+        for (slot, index) in pair_slots[pattern].iter().zip(indices) {
+            if !slot[*index].0.is_empty() {
+                ids.push(&slot[*index].0);
+            }
+        }
+        let mut total = 0i64;
+        for (i, a) in ids.iter().enumerate() {
+            for b in &ids[i + 1..] {
+                let key = if a < b {
+                    (a.to_string(), b.to_string())
+                } else {
+                    (b.to_string(), a.to_string())
+                };
+                total += pair_weights.get(&key).copied().unwrap_or(0);
+            }
+        }
+        total
+    };
+    let mut searches: Vec<_> = pair_slots
+        .iter()
+        .map(|slots| crate::pair_search::PairSearch::new(slots, &fixed_ids, pair_weights))
+        .collect();
     let mut heap = BinaryHeap::new();
     let mut visited = BTreeSet::new();
     for (pattern, (slots, _)) in compiled.iter().enumerate() {
-        let indices = vec![0; slots.len()];
-        heap.push((score(pattern, &indices), pattern, indices.clone()));
-        visited.insert((pattern, indices));
+        let indices = if pair_weights.is_empty() {
+            Some(vec![0; slots.len()])
+        } else {
+            searches[pattern].next()
+        };
+        if let Some(indices) = indices {
+            heap.push((
+                pair_score(pattern, &indices),
+                score(pattern, &indices),
+                pattern,
+                indices.clone(),
+            ));
+            visited.insert((pattern, indices));
+        }
     }
     let mut result = vec![];
     let mut physical = BTreeSet::new();
     let mut repeated = vec![];
-    while let Some((_, pattern, indices)) = heap.pop() {
+    while let Some((_, _, pattern, indices)) = heap.pop() {
         let (slots, missing) = &compiled[pattern];
         let mut selected = mandatory.clone();
         for (slot, index) in slots.iter().zip(&indices) {
@@ -855,12 +924,21 @@ fn plan(clothes: &[Value], rules: &PlanningRules<'_>) -> (Vec<Value>, bool) {
                 return (result, false);
             }
         }
-        for slot in 0..slots.len() {
-            let mut next = indices.clone();
-            next[slot] += 1;
-            if next[slot] < slots[slot].len() && visited.insert((pattern, next.clone())) {
-                heap.push((score(pattern, &next), pattern, next));
+        if pair_weights.is_empty() {
+            for slot in 0..slots.len() {
+                let mut next = indices.clone();
+                next[slot] += 1;
+                if next[slot] < slots[slot].len() && visited.insert((pattern, next.clone())) {
+                    heap.push((0, score(pattern, &next), pattern, next));
+                }
             }
+        } else if let Some(next) = searches[pattern].next() {
+            heap.push((
+                pair_score(pattern, &next),
+                score(pattern, &next),
+                pattern,
+                next,
+            ));
         }
     }
     result.extend(repeated.into_iter().take(limit - result.len()));
@@ -999,6 +1077,7 @@ fn validate_model(
         return Err(fail());
     }
     let candidate_rules = PlanningRules {
+        pair_weights: rules.pair_weights,
         fixed: rules.fixed,
         limit: 5,
         recent: rules.recent,
@@ -1070,6 +1149,7 @@ fn validate_model(
             .cloned()
             .collect();
         let validation = PlanningRules {
+            pair_weights: rules.pair_weights,
             fixed: &ids,
             limit: 1,
             recent: rules.recent,
