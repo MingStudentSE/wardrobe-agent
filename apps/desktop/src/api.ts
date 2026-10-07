@@ -1,4 +1,4 @@
-// 传输适配层（ADR0026 D6）：业务代码只调用 api()/uploadPhoto()/uploadBatch()。
+// 传输适配层（ADR0029 D6）：业务代码只调用 api()/uploadPhoto()/uploadBatch()。
 // - tauri：桌面壳，可信直调 Application（现状保留）
 // - dev：vite 开发桥（仅 DEV，非生产交付）
 // - web：wardrobe-web 本机服务（生产浏览器）；业务经 execute_as_client 会话 API
@@ -40,7 +40,7 @@ async function webFetch(url: string, init: RequestInit): Promise<any> {
     throw { code: 'service_unavailable', message: '本机服务响应异常，请确认 wardrobe-web 正在运行。' };
   }
   if (body?.error) {
-    // 撤销/到期与未登录一样：立即回到登录门（ADR0026 D4：撤销即时传播）
+    // 撤销/到期与未登录一样：立即回到登录门（ADR0029 D4：撤销即时传播）
     if (
       body.error.code === 'unauthorized' ||
       response.status === 401 ||

@@ -1,4 +1,4 @@
-//! 本机 Web 服务实现（ADR0026）：
+//! 本机 Web 服务实现（ADR0029）：
 //! - 只绑定 127.0.0.1；Host 白名单 + POST Origin 同源 + 会话 CSRF 三层防护
 //! - 一切业务经 `Application::execute_as_client`（复用既有授权模型，特权操作天然拒绝）
 //! - 首启一次性引导令牌（0600）→ 恰好一次创建浏览器 client grant

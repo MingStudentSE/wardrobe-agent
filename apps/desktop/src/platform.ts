@@ -1,4 +1,4 @@
-// 平台能力适配层（ADR0026 D6）：桌面 Tauri 与本机 Web 服务共用同一 UI，
+// 平台能力适配层（ADR0029 D6）：桌面 Tauri 与本机 Web 服务共用同一 UI，
 // 平台差异在这里声明。Web 不具备的能力必须如实标注，不伪称与原生等价。
 export const isTauriRuntime = '__TAURI_INTERNALS__' in window;
 

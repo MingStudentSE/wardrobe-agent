@@ -1,4 +1,4 @@
-//! wardrobe-web：本机浏览器交付服务（ADR0026）。
+//! wardrobe-web：本机浏览器交付服务（ADR0029）。
 //! 只绑定 127.0.0.1；数据与桌面/CLI 完全一致；无公网监听、无账号体系。
 
 use std::path::PathBuf;

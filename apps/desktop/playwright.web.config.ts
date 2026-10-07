@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-// Web 端 e2e：生产构建 UI + 真实 wardrobe-web 服务 + 真实 SQLite（ADR0026 交付验证）。
+// Web 端 e2e：生产构建 UI + 真实 wardrobe-web 服务 + 真实 SQLite（ADR0029 交付验证）。
 // 需要：npm run build 产出 dist；cargo build -p wardrobe-web（或 WARDROBE_WEB_BIN 指向现成二进制）。
 // DYLD_LIBRARY_PATH 等原生媒体环境继承自外层 shell（见 docs/agents/build-storage.md）。
 const port=process.env.WARDROBE_WEB_TEST_PORT??'5188';

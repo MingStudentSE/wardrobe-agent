@@ -3,7 +3,7 @@ import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-// 首启引导：一次性引导令牌 → 恰好一次创建浏览器授权 → 会话建立（ADR0026 D4）。
+// 首启引导：一次性引导令牌 → 恰好一次创建浏览器授权 → 会话建立（ADR0029 D4）。
 const dataDir=process.env.WARDROBE_WEB_TEST_DATA!;
 const authFile=fileURLToPath(new URL('./.auth/wardrobe.json',import.meta.url));
 const connectionFile=fileURLToPath(new URL('./.auth/connection-token.txt',import.meta.url));

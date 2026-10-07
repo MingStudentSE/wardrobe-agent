@@ -1,4 +1,4 @@
-// Web 门禁（ADR0026 D4）：生产浏览器模式下的首启引导与会话登录。
+// Web 门禁（ADR0029 D4）：生产浏览器模式下的首启引导与会话登录。
 // Tauri 与 dev 模式直接放行（桌面壳与开发桥有自己的可信模型）。
 import React, { useEffect, useState } from 'react';
 import { platformMode } from './api';

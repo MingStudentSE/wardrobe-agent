@@ -1,6 +1,6 @@
 # F01–F30 Web 覆盖矩阵（2026-10-07，#39 本轮切片）
 
-口径：**Web 实测** = 本轮经浏览器 e2e（`apps/desktop/tests-web/`，生产构建 + 真实 wardrobe-web 服务）或 Web 栈行为测试（`crates/wardrobe-web/tests/web_stack.rs`，真实 TCP + 真实 SQLite + 真实图片解码）验证过；**通道可用** = Web 与桌面共用同一 Application API 与四工作区 UI，传输层经 ADR0026 适配层等价，但本轮未在浏览器逐项端到端验证——不把它们当作 Web 验收完成。证据日志在 `/Users/links/.codex/wardrobe-execution/results/continue-20261007/ticket39-web/`。
+口径：**Web 实测** = 本轮经浏览器 e2e（`apps/desktop/tests-web/`，生产构建 + 真实 wardrobe-web 服务）或 Web 栈行为测试（`crates/wardrobe-web/tests/web_stack.rs`，真实 TCP + 真实 SQLite + 真实图片解码）验证过；**通道可用** = Web 与桌面共用同一 Application API 与四工作区 UI，传输层经 ADR0029 适配层等价，但本轮未在浏览器逐项端到端验证——不把它们当作 Web 验收完成。证据日志在 `/Users/links/.codex/wardrobe-execution/results/continue-20261007/ticket39-web/`。
 
 | 功能 | Web 状态 | 说明与证据 |
 |---|---|---|
@@ -17,17 +17,17 @@
 | F11 推荐反馈 | 通道可用 · 未逐项验证 | 反馈组件经同一 API；Web 验收延后 |
 | F12 实际穿着历史 | **已实现 · Web 实测（核心）** | e2e：显式记录实际穿着、时间线"1 次 · 1 天"；补记/更正/撤销经同一 UI，未逐项验证 |
 | F13 洞察 | **已实现 · Web 实测** | e2e：实际穿着频率等统计渲染 |
-| F14 定时推荐 | **未实现于 Web（如实标注）** | #25 延后；浏览器无系统通知/后台定时；Web 不伪称等价（ADR0026 D7） |
+| F14 定时推荐 | **未实现于 Web（如实标注）** | #25 已在桌面端交付；Web 无系统通知/后台定时，不推进定时任务；Web 不伪称等价（ADR0029 D7） |
 | F15 搭配图 | 通道可用 · 未实测 | 本地拼贴与 flatlay.* 通道存在；AI 需真实供应商 |
 | F16 虚拟试穿 | 通道可用 · 未实测（需真实供应商） | Web 人物导入通道已实现（/api/upload purpose=person → tryon.person.import，行为测试覆盖单图上传语义）；真实试穿未发生 |
 | F17 Stylist Agent | 通道可用 · 未实测 | 依赖内置 AI/供应商；Web 未验证 |
 | F18 偏好学习 | 通道可用 · 未逐项验证 | learning.* 经同一 API；Web 验收延后 |
 | F19 CLI | 不变（本机入口） | Web 不影响 CLI；行为测试证明 Web 会话写入与 CLI 等价读取同库一致 |
 | F20 MCP | 不变（本机入口） | 同 F19；同一注册源与授权模型 |
-| F21 同步 | **未实现（#27 延后）** | Web 无同步入口；不新增第二套同步逻辑 |
+| F21 同步 | 通道可用 · 未实测（Web 受限如实标注） | 合并集成线后 sync.* 经同一 api() 适配层进入 Web 构建（SyncSettings 面板存在），不新增第二套同步逻辑；本地文件夹选择依赖桌面对话框、凭据只写本机系统安全存储；本轮未在浏览器实测，Web 验收延后 |
 | F22 备份与迁移 | **已实现 · Web 实测（备份+预览）** | 行为测试：经浏览器会话 backup.create → maintenance.worker.run 收据 succeeded → backup.preview 清单含会话创建的单品。恢复的浏览器端到端沿 ADR0022 核心验收，Web 侧未单独实测 |
 | F23 软件设置 | **部分 · 能力边界实测** | e2e：模型/客户端/加密/备份设置页在浏览器打开；模型连接可查看保存；凭据/客户端授权/加密明确标注"浏览器不可用，须桌面端或 CLI"；备份设置可读 |
-| F24 跨平台发行 | 本轮不适用（延后如实标注） | macOS 桌面发行归 #35；Web 三 OS 浏览器矩阵为 ADR0026 D9 验证门，本轮仅 macOS Chromium/Chrome 实测 |
+| F24 跨平台发行 | 本轮不适用（延后如实标注） | macOS 桌面发行归 #35；Web 三 OS 浏览器矩阵为 ADR0029 D9 验证门，本轮仅 macOS Chromium/Chrome 实测 |
 | F25 洗护 | 通道可用 · 面板实测 | e2e：洗护记录面板打开可用；阈值/待洗流程未逐项验证 |
 | F26 多图维护 | 通道可用 · 未逐项验证 | ImageImport/ImageEditor 经适配层（浏览器文件选择已实现）；旋转/抠图/替换主图未在 Web 逐项验证 |
 | F27 Lookbook / Studio | 通道可用 · 部分实测 | e2e：保存搭配；克隆/今天穿/改穿未逐项 |

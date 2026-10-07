@@ -3,7 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 
-// 浏览器内安全边界证据（ADR0026 D4）：撤销立即传播、CSRF/Origin 在真实浏览器中拒绝、
+// 浏览器内安全边界证据（ADR0029 D4）：撤销立即传播、CSRF/Origin 在真实浏览器中拒绝、
 // /auth/state 不泄露连接令牌、连接令牌可重新登录。
 const dataDir=process.env.WARDROBE_WEB_TEST_DATA!;
 const cli=process.env.WARDROBE_CLI_BIN??fileURLToPath(new URL('../../../target/debug/wardrobe-cli',import.meta.url));

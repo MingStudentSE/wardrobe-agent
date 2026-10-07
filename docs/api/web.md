@@ -1,6 +1,6 @@
 # Web 端运行与交付（wardrobe-web）
 
-状态：2026-10-07，#39 本轮切片交付。架构决策见 [ADR0026](../adr/0026-local-web-service.md)；F01–F30 在 Web 的逐项状态见 [web-feature-matrix-20261007.md](../verification/web-feature-matrix-20261007.md)。本文是运行、构建、测试、部署/升级/回滚与已知限制的入口。
+状态：2026-10-07，#39 本轮切片交付。架构决策见 [ADR0029](../adr/0029-local-web-service.md)；F01–F30 在 Web 的逐项状态见 [web-feature-matrix-20261007.md](../verification/web-feature-matrix-20261007.md)。本文是运行、构建、测试、部署/升级/回滚与已知限制的入口。
 
 ## 一、运行
 
@@ -45,11 +45,11 @@ e2e 配置 `playwright.web.config.ts` 用 `WARDROBE_WEB_BIN` / `WARDROBE_CLI_BIN
 
 ## 五、已知限制（如实标注，不伪称与原生等价）
 
-1. **平台能力边界**：浏览器无系统通知、无后台/定时执行、无开机启动。任务（imports/images/learning/maintenance）沿用持久队列，但只在页面打开且服务运行时由页面驱动推进；页面关闭任务暂停，重启后可查询/重试。#25 定时推荐延后。
+1. **平台能力边界**：浏览器无系统通知、无后台/定时执行、无开机启动。任务（imports/images/learning/maintenance）沿用持久队列，但只在页面打开且服务运行时由页面驱动推进；页面关闭任务暂停，重启后可查询/重试。#25 定时推荐已在桌面端交付，Web 端不推进定时任务。
 2. **可信本机能力**：`client.*`、`provider.credential.*`、`encryption.*`（及 `schedule.runtime.configure`）在浏览器会话中被核心拒绝，设置页明确标注"须在桌面端或 CLI 管理"。外部客户端（CLI/MCP AI）的授权登记不经浏览器。
-3. **会话生命周期**：服务重启即登出（会话不持久化、令牌不落盘）。持久会话或 OS keyring 集成涉及数据边界，待用户决策（ADR0026 验证门）。
+3. **会话生命周期**：服务重启即登出（会话不持久化、令牌不落盘）。持久会话或 OS keyring 集成涉及数据边界，待用户决策（ADR0029 验证门）。
 4. **网络位置**：仅 127.0.0.1。LAN/远程访问会改变数据边界，未实现、未经用户决策不做。
 5. **并发**：服务内单 `Application` 互斥串行；长任务（备份/恢复）执行期间其他 API 请求排队——单用户场景可接受。
-6. **浏览器矩阵**：本轮仅在 macOS Chromium（Playwright）实测。声明的最低基线（Chrome/Edge ≥120、Firefox ≥121、Safari ≥17）与 Windows/Linux 真机验证为后续交付门（ADR0026 D9）。
+6. **浏览器矩阵**：本轮仅在 macOS Chromium（Playwright）实测。声明的最低基线（Chrome/Edge ≥120、Firefox ≥121、Safari ≥17）与 Windows/Linux 真机验证为后续交付门（ADR0029 D9）。
 7. **上传限制**：单图 20 MiB、单批 64 MiB/100 文件、类型 JPEG/PNG/WebP/HEIC/HEIF，与桌面一致；超大或非法输入被拒绝且不落残留（有负向测试）。
 8. **桌面侧栏裁剪**：1280×900 下侧栏"管理成员档案"表单被 100dvh 侧栏裁剪（既有桌面问题，#34 范畴）；Web e2e 以高窗口完成成员流程并如实记录。
