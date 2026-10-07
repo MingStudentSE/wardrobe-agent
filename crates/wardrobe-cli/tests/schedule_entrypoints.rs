@@ -202,7 +202,7 @@ fn cli_schedule_lifecycle_pause_reopen_and_mcp_share_identity_with_declared_sche
         "schedule.list",
         json!({"member_id":"default"}),
     );
-    assert_eq!(ok, false, "{mcp_list}");
+    assert!(!ok, "{mcp_list}");
     assert_eq!(mcp_list["schema_version"], 1);
     let shared = mcp_list["plans"]
         .as_array()
@@ -287,7 +287,7 @@ fn restricted_second_member_is_isolated_from_first_member_plans_and_mutations_de
     let mcp =
         |operation: &str, arguments: Value| mcp_call(&path, &restricted, operation, arguments);
     let (ok, own) = mcp("schedule.list", json!({"member_id":second}));
-    assert_eq!(ok, false, "{own}");
+    assert!(!ok, "{own}");
     assert_eq!(own["plans"].as_array().unwrap().len(), 1);
     assert_eq!(own["plans"][0]["id"], second_plan["id"]);
     // 成员限定读取不得泄露第一位成员的计划；跨成员直接查询被类型化拒绝。

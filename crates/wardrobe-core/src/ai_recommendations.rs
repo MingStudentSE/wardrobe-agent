@@ -24,12 +24,31 @@ impl Application {
         &self,
         member: &str,
         value: Option<&Value>,
+        target_date: Option<&Value>,
+        timezone: &str,
     ) -> Result<(bool, Value), ApiError> {
         if !value.is_some_and(|v| v["mode"] == "automatic") {
             return self.recommendation_weather(value);
         }
         if value.unwrap().as_object().is_none_or(|m| m.len() != 1) {
             return Err(ApiError::new("invalid_input", "自动天气只提供mode"));
+        }
+        if let Some(target) = target_date {
+            let target = target
+                .as_str()
+                .ok_or_else(|| ApiError::new("invalid_input", "目标日期须为文字"))?;
+            let date = chrono::NaiveDate::parse_from_str(target, "%Y-%m-%d")
+                .map_err(|_| ApiError::new("invalid_input", "目标日期无效"))?;
+            let zone: chrono_tz::Tz = timezone
+                .parse()
+                .map_err(|_| ApiError::new("invalid_input", "推荐时区无效"))?;
+            if date != chrono::Utc::now().with_timezone(&zone).date_naive() {
+                // This provider stores current observations, not target-day forecasts.
+                return Ok((
+                    false,
+                    json!({"mode":"automatic","source":"unavailable","stale":false,"obtained_at":null,"temperature_c":null,"network_requested":false,"target_date":target,"unavailable_reason":"target_date_not_supported","last_error":null}),
+                ));
+            }
         }
         let mut doc = self.weather_execute("weather.get", json!({"member_id":member}))?;
         let refresh = doc["config"]["mode"] == "automatic"
@@ -172,7 +191,12 @@ impl Application {
         let job_id = claimed["id"].as_str().unwrap().to_owned();
         let lease = claimed["lease_token"].as_str().unwrap().to_owned();
         let provider_id = string(&input, "provider_id")?.to_owned();
-        let weather = self.recommendation_weather_for(&member, input.get("weather"))?;
+        let weather = self.recommendation_weather_for(
+            &member,
+            input.get("weather"),
+            input.get("target_date"),
+            string(&input, "timezone")?,
+        )?;
         let mut catalog = vec![];
         let availability = self.care_execute("care.availability", json!({"member_id":member}))?;
         for field in [

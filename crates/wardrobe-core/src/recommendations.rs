@@ -23,7 +23,12 @@ impl Application {
             return self.ai_enqueue(input);
         }
         let context = if op == "recommendation.generate" {
-            Some(self.recommendation_weather_for(&self.member(&input)?, input.get("weather"))?)
+            Some(self.recommendation_weather_for(
+                &self.member(&input)?,
+                input.get("weather"),
+                input.get("target_date"),
+                string(&input, "timezone")?,
+            )?)
         } else {
             None
         };

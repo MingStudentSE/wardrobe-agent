@@ -151,7 +151,7 @@ impl Application {
             return Ok(doc);
         }
         if op == "schedule.device" {
-            if input.as_object().unwrap().len() != 0 {
+            if !input.as_object().unwrap().is_empty() {
                 return Err(bad("设备查询不接受参数"));
             }
             return Ok(
