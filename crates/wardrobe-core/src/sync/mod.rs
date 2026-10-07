@@ -1,5 +1,6 @@
 //! Incremental workspace synchronization. No provider SDK or credentials here.
 mod assets;
+mod bootstrap;
 mod branches;
 mod conflicts;
 mod index;
@@ -266,6 +267,7 @@ fn error(code: &str) -> ApiError {
 }
 pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     repair_immutable(tx)?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_bootstrap(space_id TEXT NOT NULL,table_name TEXT NOT NULL,last_row INTEGER NOT NULL DEFAULT 0,done INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(space_id,table_name))")?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_index_read(target_id TEXT NOT NULL,epoch INTEGER NOT NULL,publisher TEXT NOT NULL,next_page INTEGER NOT NULL,observed_head INTEGER NOT NULL,previous_digest TEXT,PRIMARY KEY(target_id,epoch,publisher)); CREATE TABLE IF NOT EXISTS sync_index_batches(target_id TEXT NOT NULL,epoch INTEGER NOT NULL,page INTEGER NOT NULL,document TEXT NOT NULL,published INTEGER NOT NULL,PRIMARY KEY(target_id,epoch,page)); CREATE TABLE IF NOT EXISTS sync_index_entries(target_id TEXT NOT NULL,epoch INTEGER NOT NULL,op_id TEXT NOT NULL,page INTEGER NOT NULL,PRIMARY KEY(target_id,epoch,op_id)); CREATE TABLE IF NOT EXISTS sync_bootstrap_ids(op_id TEXT PRIMARY KEY); CREATE TABLE IF NOT EXISTS sync_publications(target_id TEXT NOT NULL,op_id TEXT NOT NULL,PRIMARY KEY(target_id,op_id)); CREATE TABLE IF NOT EXISTS sync_pending(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,document TEXT NOT NULL,reason TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_quarantine(target_id TEXT NOT NULL,marker_key TEXT NOT NULL,op_id TEXT NOT NULL,code TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(target_id,marker_key)); CREATE TABLE IF NOT EXISTS sync_reassert(op_id TEXT PRIMARY KEY,fields TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_resolution_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS sync_asset_queue(id TEXT PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_immutable(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,branch_id TEXT NOT NULL,document TEXT NOT NULL,clock TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,branch_id)); CREATE TABLE IF NOT EXISTS sync_control(id INTEGER PRIMARY KEY CHECK(id=1),applying INTEGER NOT NULL); INSERT OR IGNORE INTO sync_control VALUES(1,0); CREATE TABLE IF NOT EXISTS sync_clock(device TEXT PRIMARY KEY,seq INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS sync_targets(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_journal(id INTEGER PRIMARY KEY,op_id TEXT NOT NULL UNIQUE,device TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,before_doc TEXT,after_doc TEXT NOT NULL,base TEXT NOT NULL,clock TEXT NOT NULL DEFAULT '{}',published INTEGER NOT NULL DEFAULT 0,registered INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS sync_inbox(op_id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_fields(entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,field TEXT NOT NULL,variants TEXT NOT NULL,PRIMARY KEY(entity_type,entity_id,field)); CREATE TABLE IF NOT EXISTS sync_cursors(target_id TEXT NOT NULL,key TEXT NOT NULL,PRIMARY KEY(target_id,key));")?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_index_errors(target_id TEXT NOT NULL,epoch INTEGER NOT NULL,publisher TEXT NOT NULL,code TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(target_id,epoch,publisher))")?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_missing(target_id TEXT NOT NULL,epoch INTEGER NOT NULL,publisher TEXT NOT NULL,key TEXT NOT NULL,document TEXT NOT NULL,code TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(target_id,epoch,key));CREATE INDEX IF NOT EXISTS sync_missing_retry ON sync_missing(target_id,epoch,attempts,key)")?;
@@ -562,52 +564,11 @@ impl Application {
                 let identity = self.sync_identity()?;
                 LocalFolder::new(&directory)?;
                 let tx = self.begin_write()?;
-                let owner: bool = tx.query_row(
-                    "SELECT json_extract(document,'$.owner') FROM encryption_state",
-                    [],
-                    |r| r.get(0),
-                )?;
                 for table in TABLES {
-                    let key = entity_key(table, table);
-                    let sql = if table == "weather_preferences" {
-                        format!("SELECT {key},json_remove(document,'$.config.endpoint','$.cache','$.last_error') FROM {table} WHERE ?1 OR 1")
-                    } else if table == "members" {
-                        "SELECT id,json_object('id',id,'name',name) FROM members WHERE ?1 OR EXISTS(SELECT 1 FROM clothing c WHERE c.member_id=members.id)".to_string()
-                    } else if table == "feedback_receipts" {
-                        format!("SELECT {key},json_object('schema_version',1,'member_id',member_id,'operation_key',operation_key,'request',request,'result',result) FROM {table} WHERE ?1 OR 1")
-                    } else {
-                        format!("SELECT {key},document FROM {table} WHERE ?1 OR 1")
-                    };
-                    let mut stmt = tx.prepare(&sql)?;
-                    let rows = stmt
-                        .query_map([owner], |r| {
-                            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-                        })?
-                        .collect::<Result<Vec<_>, _>>()?;
-                    drop(stmt);
-                    for (id, document) in rows {
-                        let seen = publication::has_original(&tx, table, &id, &document)?;
-                        if seen {
-                            continue;
-                        }
-                        let base: String = tx.query_row(
-                            "SELECT COALESCE(json_group_object(device,seq),'{}') FROM sync_clock",
-                            [],
-                            |r| r.get(0),
-                        )?;
-                        let device = string(&identity, "device_id")?;
-                        tx.execute("INSERT INTO sync_clock VALUES(?1,1) ON CONFLICT(device) DO UPDATE SET seq=seq+1",[device])?;
-                        let clock: String = tx.query_row(
-                            "SELECT json_group_object(device,seq) FROM sync_clock",
-                            [],
-                            |r| r.get(0),
-                        )?;
-                        let op_id = uuid::Uuid::now_v7().to_string();
-                        tx.execute("INSERT INTO sync_journal(op_id,device,entity_type,entity_id,after_doc,base,clock) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![op_id,device,table,id,document,base,clock])?;
-                        if table == "members" {
-                            tx.execute("INSERT INTO sync_bootstrap_ids VALUES(?1)", [op_id])?;
-                        }
-                    }
+                    tx.execute(
+                        "INSERT OR IGNORE INTO sync_bootstrap(space_id,table_name) VALUES(?1,?2)",
+                        params![string(&identity, "space_id")?, table],
+                    )?;
                 }
 
                 let target = json!({"id":"primary","target_key":digest(json!({"directory":directory,"space_id":identity["space_id"]}).to_string().as_bytes()),"provider_kind":"local_folder","directory":directory});
@@ -703,6 +664,7 @@ impl Application {
                     .ok_or_else(|| error("sync_invalid"))?
             )
         };
+        let bootstrap_more = self.sync_bootstrap(&identity)?;
         // Only local outstanding facts can require a new namespace. Received
         // members must never generate a synthetic local echo or observed clock.
         let tx = self.begin_write()?;
@@ -909,7 +871,7 @@ impl Application {
         let missing_assets = self.sync_fetch_assets(&storage)?;
         let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0) OR EXISTS(SELECT 1 FROM sync_inbox i WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=i.op_id)) OR EXISTS(SELECT 1 FROM sync_publications p JOIN sync_inbox i ON i.op_id=p.op_id WHERE p.target_id=?1 AND p.locally_published=1 AND NOT EXISTS(SELECT 1 FROM sync_index_entries e WHERE e.target_id=?1 AND e.epoch=?2 AND e.op_id=p.op_id))", params![target_key,identity["epoch"].as_u64().ok_or_else(||error("sync_invalid"))?],|r|r.get(0))?;
         Ok(
-            json!({"schema_version":1,"sent":sent,"received":received,"pending":pending + missing_markers,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":has_more || incoming_more || (pending > 0 && (incoming_count == 256 || replayed + replay_quarantined > 0))}),
+            json!({"schema_version":1,"sent":sent,"received":received,"pending":pending + missing_markers,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":bootstrap_more || has_more || incoming_more || (pending > 0 && (incoming_count == 256 || replayed + replay_quarantined > 0))}),
         )
     }
 }

@@ -1049,7 +1049,7 @@ fn legacy_schema_keeps_actual_history_asset_foreign_keys_and_repairs_sync_tables
         db.execute_batch(&format!("CREATE TABLE {table}({ddl});INSERT INTO {table} SELECT * FROM fixture_saved;DROP TABLE fixture_saved")).unwrap();
     }
     db.execute_batch(
-        "DROP TABLE sync_fields;DROP TABLE sync_index_errors;DROP TABLE sync_missing;PRAGMA user_version=14;PRAGMA legacy_alter_table=OFF;",
+        "DROP TABLE sync_fields;DROP TABLE sync_index_errors;DROP TABLE sync_missing;DROP TABLE sync_bootstrap;PRAGMA user_version=14;PRAGMA legacy_alter_table=OFF;",
     )
     .unwrap();
     drop(db);
@@ -1122,7 +1122,7 @@ fn legacy_schema_keeps_actual_history_asset_foreign_keys_and_repairs_sync_tables
             .unwrap(),
         0
     );
-    for table in ["sync_index_errors", "sync_missing"] {
+    for table in ["sync_index_errors", "sync_missing", "sync_bootstrap"] {
         assert_eq!(
             db.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r
                 .get::<_, u32>(0))
@@ -2170,4 +2170,107 @@ fn first_fact_after_empty_peer_configuration_publishes_its_member_namespace() {
         "a peer with local facts retains its member identity"
     );
     assert_eq!(owner.sync_batch().unwrap()["pending"], 0);
+}
+
+#[test]
+#[ignore = "requires actual OS credential store"]
+fn existing_inventory_bootstrap_runs_in_durable_bounded_worker_steps() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    let ap = a.path().join("db");
+    let bp = b.path().join("db");
+    let owner = Application::open(&ap).unwrap();
+    let peer = Application::open(&bp).unwrap();
+    let _cleanup = [Cleanup(ap.clone()), Cleanup(bp.clone())];
+    let member = owner.execute("space.default", json!({})).unwrap()["member_id"].clone();
+    for n in 0..300 {
+        owner.execute("clothing.create",json!({"member_id":member,"name":format!("preexisting actual garment {n}"),"category":"top"})).unwrap();
+    }
+    owner.execute("encryption.create",json!({"password":"generated durable bootstrap fixture","device_name":"preexisting owner"})).unwrap();
+    let offer = owner
+        .execute(
+            "encryption.pair.offer",
+            json!({"device_name":"bootstrap peer"}),
+        )
+        .unwrap();
+    let receipt=peer.execute("encryption.pair.accept",json!({"invitation":offer["invitation"],"pairing_secret":offer["pairing_secret"],"password":"generated peer fixture"})).unwrap();
+    let confirmed = owner
+        .execute(
+            "encryption.pair.confirm",
+            json!({"receipt":receipt["receipt"]}),
+        )
+        .unwrap();
+    peer.execute(
+        "encryption.device.apply",
+        json!({"manifest":confirmed["manifest"]}),
+    )
+    .unwrap();
+    for app in [&owner, &peer] {
+        app.execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    }
+    let db = rusqlite::Connection::open(&ap).unwrap();
+    let registered: u64 = db
+        .query_row("SELECT count(*) FROM sync_journal", [], |r| r.get(0))
+        .unwrap();
+    assert!(registered<=256,"target configuration cannot synchronously register the entire preexisting inventory: {registered}");
+    drop(db);
+    let queued = owner.execute("sync.run", json!({})).unwrap();
+    assert!(queued["job_id"].is_string());
+    let first = owner
+        .execute("sync.process", json!({"id":queued["job_id"]}))
+        .unwrap();
+    assert_eq!(first["state"], "queued");
+    assert!(first["result"]["sent"].as_u64().unwrap() <= 256);
+    drop(owner);
+    let owner = Application::open(&ap).unwrap();
+    for _ in 0..20 {
+        let step = owner
+            .execute("sync.process", json!({"id":queued["job_id"]}))
+            .unwrap();
+        assert_ne!(step["state"], "failed");
+        assert!(step["result"]["sent"].as_u64().unwrap() <= 256);
+        if step["state"] == "succeeded" {
+            break;
+        }
+    }
+    assert_eq!(
+        owner
+            .execute(
+                "jobs.get",
+                json!({"member_id":member,"id":queued["job_id"]})
+            )
+            .unwrap()["state"],
+        "succeeded",
+        "bootstrap remainder survives process restart"
+    );
+    for _ in 0..20 {
+        let result = peer.sync_batch().unwrap();
+        assert!(result["received"].as_u64().unwrap() <= 256);
+        if result["has_more"] == false {
+            break;
+        }
+    }
+    let mut cursor = serde_json::Value::Null;
+    let mut count = 0;
+    loop {
+        let mut input = json!({"member_id":member,"limit":100});
+        if !cursor.is_null() {
+            input["cursor"] = cursor.clone();
+        }
+        let page = peer.execute("clothing.list", input).unwrap();
+        count += page["items"].as_array().unwrap().len();
+        cursor = page["next_cursor"].clone();
+        if cursor.is_null() {
+            break;
+        }
+    }
+    assert_eq!(
+        count, 300,
+        "bounded durable bootstrap retains every actual preexisting garment"
+    );
 }
