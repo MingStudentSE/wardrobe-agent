@@ -36,7 +36,10 @@ pub enum Parsed {
     Help(Option<String>),
     Schema(String),
     Version,
-    Mcp { db: Option<PathBuf>, profile: Option<String> },
+    Mcp {
+        db: Option<PathBuf>,
+        profile: Option<String>,
+    },
     Execute(Execution),
     Profile(ProfileCommand),
 }
@@ -142,7 +145,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                         i += 1;
                         continue;
                     }
-                    return Err(invalid_arguments(&format!("未知参数 {other}")))
+                    return Err(invalid_arguments(&format!("未知参数 {other}")));
                 }
                 _ => {}
             }

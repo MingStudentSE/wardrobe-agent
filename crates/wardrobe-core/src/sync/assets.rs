@@ -124,52 +124,100 @@ impl Application {
         // accepted commit still passes the full decoder, publisher-signature
         // and revoked-device validation below.
         let legacy = format!("{}/blobs", string(identity, "space_id")?);
-        let mut commits = vec![];
+        // Budget and fairness: every already-processed commit key is skipped
+        // without decryption, each folder consumes at most a fixed number of
+        // listing pages per worker step, and the scan resumes from a durable
+        // cursor (wrapping around at the end) so late commits and every
+        // publisher's assets are discovered eventually instead of one large
+        // folder monopolizing each step.
+        const DISCOVER_PAGE_BUDGET: usize = 16;
+        let mut processed = std::collections::HashSet::new();
+        {
+            let mut statement = self
+                .connection
+                .prepare("SELECT key FROM sync_asset_commits")?;
+            let rows = statement
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            processed.extend(rows);
+        }
+        let space = string(identity, "space_id")?;
+        let resume = |folder: &str| -> Result<Option<String>, ApiError> {
+            Ok(self
+                .connection
+                .query_row(
+                    "SELECT last_key FROM sync_blob_scan WHERE space_id=?1 AND folder=?2",
+                    [space, folder],
+                    |r| r.get(0),
+                )
+                .optional()?)
+        };
         for (folder, fallback) in [(prefix.as_str(), false), (legacy.as_str(), true)] {
             if fallback && folder == prefix.as_str() {
                 continue;
             }
-            let mut cursor = None;
-            loop {
+            let mut cursor = resume(folder)?;
+            let mut pages = 0usize;
+            let mut reached_end = false;
+            while cursor.is_none() || pages < DISCOVER_PAGE_BUDGET {
                 let page = storage.list(folder, cursor.as_deref(), 64)?;
                 for entry in page.items {
-                    if entry.key.ends_with(".commit") {
-                        commits.push((entry.key, fallback));
+                    if !entry.key.ends_with(".commit") || processed.contains(&entry.key) {
+                        continue;
                     }
+                    let raw = bounded(storage, &entry.key)?;
+                    let cipher: Value = match serde_json::from_slice(&raw) {
+                        Ok(value) => value,
+                        Err(_) if fallback => continue,
+                        Err(_) => return Err(error("storage_corrupt")),
+                    };
+                    if fallback && cipher["identity"]["epoch"].as_u64() != Some(epoch) {
+                        continue;
+                    }
+                    let index = self.sync_decrypt("blobs", &cipher)?;
+                    let asset = &index["asset"];
+                    if asset["role"] != "product_display"
+                        || asset["state"] != "adopted"
+                        || asset["sync_scope"] != "workspace"
+                        || asset["mime"] != "image/webp"
+                        || !asset["bytes"]
+                            .as_u64()
+                            .is_some_and(|n| n > 0 && n <= MAX_ASSET as u64)
+                        || !index["chunks"]
+                            .as_array()
+                            .is_some_and(|c| !c.is_empty() && c.len() <= MAX_ASSET / CHUNK)
+                    {
+                        return Err(error("sync_invalid"));
+                    }
+                    let id = string(asset, "id")?;
+                    self.connection.execute("INSERT INTO sync_asset_queue VALUES(?1,?2,'pending') ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,index.to_string()])?;
+                    self.connection.execute(
+                        "INSERT OR IGNORE INTO sync_asset_commits(key) VALUES(?1)",
+                        [entry.key.as_str()],
+                    )?;
+                    processed.insert(entry.key.clone());
                 }
                 cursor = page.cursor;
+                pages += 1;
                 if cursor.is_none() {
+                    reached_end = true;
+                    break;
+                }
+                if pages >= DISCOVER_PAGE_BUDGET {
                     break;
                 }
             }
-        }
-        for (key, fallback) in commits {
-            let raw = bounded(storage, &key)?;
-            let cipher: Value = match serde_json::from_slice(&raw) {
-                Ok(value) => value,
-                Err(_) if fallback => continue,
-                Err(_) => return Err(error("storage_corrupt")),
-            };
-            if fallback && cipher["identity"]["epoch"].as_u64() != Some(epoch) {
-                continue;
+            if reached_end {
+                self.connection.execute(
+                    "DELETE FROM sync_blob_scan WHERE space_id=?1 AND folder=?2",
+                    params![space, folder],
+                )?;
+            } else if let Some(last) = cursor {
+                self.connection.execute(
+                    "INSERT INTO sync_blob_scan(space_id,folder,last_key) VALUES(?1,?2,?3) ON CONFLICT(space_id,folder) DO UPDATE SET last_key=excluded.last_key",
+                    params![space, folder, last],
+                )?;
             }
-            let index = self.sync_decrypt("blobs", &cipher)?;
-            let asset = &index["asset"];
-            if asset["role"] != "product_display"
-                || asset["state"] != "adopted"
-                || asset["sync_scope"] != "workspace"
-                || asset["mime"] != "image/webp"
-                || !asset["bytes"]
-                    .as_u64()
-                    .is_some_and(|n| n > 0 && n <= MAX_ASSET as u64)
-                || !index["chunks"]
-                    .as_array()
-                    .is_some_and(|c| !c.is_empty() && c.len() <= MAX_ASSET / CHUNK)
-            {
-                return Err(error("sync_invalid"));
-            }
-            let id = string(asset, "id")?;
-            self.connection.execute("INSERT INTO sync_asset_queue VALUES(?1,?2,'pending') ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,index.to_string()])?;
         }
         Ok(())
     }

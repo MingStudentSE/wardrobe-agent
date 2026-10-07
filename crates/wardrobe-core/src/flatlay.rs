@@ -71,8 +71,20 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({"name":"flatlay.generate","description":"明确发送保存版本的全部商品展示图，创建仅本地AI搭配图；可能使用供应商额度，不产生穿着","effect":{"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]},"examples":[{"request":{"member_id":"<已授权成员ID>","outfit_id":"<搭配ID>","version":1,"provider_id":"<已配置图片供应商ID>","operation_key":"<唯一操作标识>","upload_images":true},"prerequisites":["明确发送保存版本全部商品展示图创建AI搭配图；真实提交消耗额度","失败保留已存搭配与离线拼贴；不产生穿着；本示例不自动执行"]}],"inputSchema":{"type":"object","required":["member_id","outfit_id","version","provider_id","operation_key","upload_images"],"properties":{"member_id":{"type":"string"},"outfit_id":{"type":"string"},"version":{"type":"integer","minimum":1},"provider_id":{"type":"string"},"operation_key":{"type":"string"},"upload_images":{"const":true}},"additionalProperties":false},"outputSchema":crate::jobs::output_schema()}),
     ];
     for name in ["flatlay.process", "flatlay.save", "flatlay.preview"] {
-        let (effect,examples)=match name {
-            "flatlay.process"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配图任务ID>"},"prerequisites":["推进搭配图任务；首次真实提交发送保存版本全部商品展示图并消耗额度","失败保留已存搭配与离线拼贴；本示例不自动执行"]}])),"flatlay.save"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配图任务ID>"},"prerequisites":["显式保存AI搭配图，仅本地；不改变搭配模板或穿着"]}])),"flatlay.preview"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配图任务ID>"},"prerequisites":["预览仅本地AI搭配图或离线拼贴；不改变衣物、搭配模板或穿着"]}])),_=>unreachable!()
+        let (effect, examples) = match name {
+            "flatlay.process" => (
+                json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),
+                json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配图任务ID>"},"prerequisites":["推进搭配图任务；首次真实提交发送保存版本全部商品展示图并消耗额度","失败保留已存搭配与离线拼贴；本示例不自动执行"]}]),
+            ),
+            "flatlay.save" => (
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配图任务ID>"},"prerequisites":["显式保存AI搭配图，仅本地；不改变搭配模板或穿着"]}]),
+            ),
+            "flatlay.preview" => (
+                json!({"kind":"mutation","network":"none","local_files":true,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","id":"<搭配图任务ID>"},"prerequisites":["预览仅本地AI搭配图或离线拼贴；不改变衣物、搭配模板或穿着"]}]),
+            ),
+            _ => unreachable!(),
         };
         result.push(json!({"name":name,"effect":effect,"examples":examples,"description":"处理/预览/明确保存仅本地AI搭配图，不改变衣物、搭配模板或穿着","inputSchema":{"type":"object","required":["member_id","id"],"properties":{"member_id":{"type":"string"},"id":{"type":"string"}},"additionalProperties":false},"outputSchema":if name=="flatlay.preview"{json!({"type":"object","required":["schema_version","id","data_url","role","sync_scope","source_outfit_id","source_version","inputs","width","height","adopted"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"data_url":{"type":"string"},"role":{"const":"outfit"},"sync_scope":{"const":"local_only"},"source_outfit_id":{"type":"string"},"source_version":{"type":"integer","minimum":1},"inputs":{"type":"array","minItems":1,"maxItems":10},"width":{"type":"integer"},"height":{"type":"integer"},"adopted":{"type":"boolean"}}})}else{crate::jobs::output_schema()}}));
     }
