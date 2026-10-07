@@ -703,6 +703,37 @@ impl Application {
                     .ok_or_else(|| error("sync_invalid"))?
             )
         };
+        // Only local outstanding facts can require a new namespace. Received
+        // members must never generate a synthetic local echo or observed clock.
+        let tx = self.begin_write()?;
+        let mut namespaces=tx.prepare("SELECT DISTINCT m.id,json_object('id',m.id,'name',m.name) FROM members m JOIN (SELECT json_extract(after_doc,'$.member_id') AS member FROM sync_journal j WHERE entity_type!='members' AND NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) ORDER BY id LIMIT 256) needed ON needed.member=m.id WHERE NOT EXISTS(SELECT 1 FROM sync_journal WHERE entity_type='members' AND entity_id=m.id) AND NOT EXISTS(SELECT 1 FROM sync_inbox WHERE json_extract(document,'$.entity_type')='members' AND json_extract(document,'$.entity_id')=m.id) LIMIT 32")?;
+        let roots = namespaces
+            .query_map([&target_key], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(namespaces);
+        for (id, document) in roots {
+            let base: String = tx.query_row(
+                "SELECT COALESCE(json_group_object(device,seq),'{}') FROM sync_clock",
+                [],
+                |r| r.get(0),
+            )?;
+            let device = string(&identity, "device_id")?;
+            tx.execute(
+                "INSERT INTO sync_clock VALUES(?1,1) ON CONFLICT(device) DO UPDATE SET seq=seq+1",
+                [device],
+            )?;
+            let clock: String = tx.query_row(
+                "SELECT json_group_object(device,seq) FROM sync_clock",
+                [],
+                |r| r.get(0),
+            )?;
+            let op_id = uuid::Uuid::now_v7().to_string();
+            tx.execute("INSERT INTO sync_journal(op_id,device,entity_type,entity_id,after_doc,base,clock) VALUES(?1,?2,'members',?3,?4,?5,?6)",params![op_id,device,id,document,base,clock])?;
+            tx.execute("INSERT INTO sync_bootstrap_ids VALUES(?1)", [op_id])?;
+        }
+        tx.commit()?;
         self.sync_publish_assets(&storage, &identity)?;
         self.sync_discover_assets(&storage, &identity)?;
         let mut stmt=self.connection.prepare("SELECT id,op_id,device,entity_type,entity_id,before_doc,after_doc,base,clock,EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0 ORDER BY id LIMIT 256")?;

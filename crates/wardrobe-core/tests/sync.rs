@@ -2100,3 +2100,74 @@ fn pairing_later_device_preserves_authenticated_same_epoch_history() {
         "not_found"
     );
 }
+
+#[test]
+#[ignore = "requires actual OS credential store"]
+fn first_fact_after_empty_peer_configuration_publishes_its_member_namespace() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    let ap = a.path().join("db");
+    let bp = b.path().join("db");
+    let owner = Application::open(&ap).unwrap();
+    let peer = Application::open(&bp).unwrap();
+    let _cleanup = [Cleanup(ap), Cleanup(bp)];
+    owner
+        .execute(
+            "encryption.create",
+            json!({"password":"generated namespace fixture","device_name":"namespace owner"}),
+        )
+        .unwrap();
+    let offer = owner
+        .execute(
+            "encryption.pair.offer",
+            json!({"device_name":"initially empty peer"}),
+        )
+        .unwrap();
+    let receipt=peer.execute("encryption.pair.accept",json!({"invitation":offer["invitation"],"pairing_secret":offer["pairing_secret"],"password":"generated peer fixture"})).unwrap();
+    let confirmed = owner
+        .execute(
+            "encryption.pair.confirm",
+            json!({"receipt":receipt["receipt"]}),
+        )
+        .unwrap();
+    peer.execute(
+        "encryption.device.apply",
+        json!({"manifest":confirmed["manifest"]}),
+    )
+    .unwrap();
+    let owner_default = owner.execute("space.default", json!({})).unwrap()["member_id"].clone();
+    let peer_default = peer.execute("space.default", json!({})).unwrap()["member_id"].clone();
+    for app in [&owner, &peer] {
+        app.execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    }
+    owner.sync_batch().unwrap();
+    peer.sync_batch().unwrap();
+    let garment=peer.execute("clothing.create",json!({"member_id":peer_default,"name":"first garment on previously empty peer","category":"top"})).unwrap();
+    peer.sync_batch().unwrap();
+    owner.sync_batch().unwrap();
+    assert_eq!(
+        owner
+            .execute(
+                "clothing.get",
+                json!({"member_id":peer_default,"id":garment["id"]})
+            )
+            .unwrap()["name"],
+        "first garment on previously empty peer"
+    );
+    assert_eq!(
+        owner.execute("space.default", json!({})).unwrap()["member_id"],
+        owner_default,
+        "incoming member must not replace existing owner default"
+    );
+    assert_eq!(
+        peer.execute("space.default", json!({})).unwrap()["member_id"],
+        peer_default,
+        "a peer with local facts retains its member identity"
+    );
+    assert_eq!(owner.sync_batch().unwrap()["pending"], 0);
+}
