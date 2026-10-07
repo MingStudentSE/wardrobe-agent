@@ -1860,3 +1860,71 @@ fn images_family_effects_examples_and_runtime_output_contract() {
     );
     // remaining：cutout/model.download运行时需真实模型文件，由既有行为测试覆盖；本测试不联网下载
 }
+
+#[test]
+fn media_provider_families_effects_examples_and_runtime_contract() {
+    // recognition/product/flatlay/tryon：条件供应商语义 + 本地可运行操作的运行时对照
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("mp.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let listed = app.execute("recognition.list", json!({"member_id":member})).unwrap();
+    assert_eq!(listed["items"], json!([]), "无建议时返回空容器");
+    assert_result_matches_schema(&schema_of("recognition.list"), &listed, "recognition.list");
+    let missing = app
+        .execute("recognition.get", json!({"member_id":member,"id":"<不存在>"}))
+        .unwrap_err();
+    assert_eq!(missing.code, "not_found");
+
+    let family = [
+        ("recognition.create", "mutation", true),
+        ("recognition.process", "mutation", true),
+        ("recognition.get", "query", false),
+        ("recognition.list", "query", false),
+        ("recognition.review", "mutation", false),
+        ("recognition.dismiss", "mutation", false),
+        ("product.generate", "mutation", true),
+        ("product.process", "mutation", true),
+        ("product.adopt", "mutation", false),
+        ("flatlay.generate", "mutation", true),
+        ("flatlay.process", "mutation", true),
+        ("flatlay.save", "mutation", false),
+        ("flatlay.preview", "mutation", true),
+        ("tryon.person.import", "mutation", true),
+        ("tryon.person.preview", "mutation", true),
+        ("tryon.preview", "mutation", true),
+        ("tryon.process", "mutation", true),
+        ("tryon.save", "mutation", false),
+        ("tryon.generate", "mutation", true),
+        ("tryon.compare", "query", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    // 供应商条件语义：提交挂起时才真实联网消耗额度
+    for op in ["recognition.create", "product.generate", "flatlay.generate", "tryon.generate"] {
+        let d = descriptors.iter().find(|d| d["name"] == json!(op)).unwrap();
+        let conditional = d["effect"]["conditional_effects"].as_array().expect(op);
+        assert!(
+            conditional.iter().any(|c| c["effect"]["network"] == json!("explicit-provider")),
+            "{op} 须声明条件供应商网络"
+        );
+    }
+    // remaining：供应商流程的运行时输出对照由既有行为套件覆盖（recognition 8、product_display 6、flatlay、tryon，
+    // 均使用本地HTTP fixture）；本测试不发起真实供应商调用。
+}
