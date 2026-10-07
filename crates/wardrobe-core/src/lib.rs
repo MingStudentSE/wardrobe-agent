@@ -343,7 +343,10 @@ impl Application {
             "assets.sync_manifest" => self.asset_sync_manifest(input),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
         }.map(|mut result| {
-            if operation.starts_with("backup.") || operation.starts_with("data_directory.") {
+            if operation.starts_with("backup.")
+                || operation.starts_with("data_directory.")
+                || operation.starts_with("schedule.")
+            {
                 result["schema_version"] = json!(1);
             }
             result

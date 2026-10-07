@@ -676,6 +676,16 @@ fn execution_schema() -> Value {
 fn notification_schema() -> Value {
     json!({"type":"object","required":["id","member_id","job_id","title","body","status","created_at"],"properties":{"id":{"type":"string"},"member_id":{"type":"string"},"job_id":{"type":"string"},"title":{"type":"string"},"body":{"type":"string"},"status":{"enum":["pending","submitting","submitted","unknown","failed","cancelled"]},"created_at":{"type":"string","format":"date-time"},"error":{"type":["string","null"]}}})
 }
+/// Top-level notification retry output is normalized with schema_version at execute_current;
+/// nested notification items (see above) never carry that field, so they keep the bare schema.
+fn notification_output_schema() -> Value {
+    let mut schema = notification_schema();
+    let mut required = vec![json!("schema_version")];
+    required.extend(schema["required"].as_array().unwrap().iter().cloned());
+    schema["required"] = json!(required);
+    schema["properties"]["schema_version"] = json!({"const":1});
+    schema
+}
 pub(super) fn descriptors() -> Vec<Value> {
     ["device","runtime.get","runtime.configure","create","update","list","history","tick","pending","worker.run","notifications","notification.retry"].into_iter().map(|op|{
  let mut properties=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
@@ -687,16 +697,16 @@ pub(super) fn descriptors() -> Vec<Value> {
  }
  if op=="runtime.configure" {properties=json!({"expected_revision":{"type":"integer","minimum":1},"background_enabled":{"type":"boolean"},"notifications_enabled":{"type":"boolean"}});required.push("expected_revision");}
  let output=match op {
- "device"=>json!({"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}),
- "runtime.get"|"runtime.configure"=>json!({"type":"object","required":["revision","background_enabled","notifications_enabled"],"properties":{"revision":{"type":"integer","minimum":1},"background_enabled":{"type":"boolean"},"notifications_enabled":{"type":"boolean"},"last_error":{"type":["object","null"]}}}),
+ "device"=>json!({"type":"object","required":["schema_version","id"],"properties":{"schema_version":{"const":1},"id":{"type":"string"}}}),
+ "runtime.get"|"runtime.configure"=>json!({"type":"object","required":["schema_version","revision","background_enabled","notifications_enabled"],"properties":{"schema_version":{"const":1},"revision":{"type":"integer","minimum":1},"background_enabled":{"type":"boolean"},"notifications_enabled":{"type":"boolean"},"last_error":{"type":["object","null"]}}}),
  "create"|"update"=>plan_schema(),
  "worker.run"=>crate::jobs::output_schema(),
- "notification.retry"=>notification_schema(),
- "list"=>json!({"type":"object","required":["plans"],"properties":{"plans":{"type":"array","items":plan_schema()}}}),
- "history"=>json!({"type":"object","required":["executions"],"properties":{"executions":{"type":"array","items":execution_schema()}}}),
- "tick"=>json!({"type":"object","required":["queued"],"properties":{"queued":{"type":"array","items":execution_schema()}}}),
- "pending"=>json!({"type":"object","required":["items"],"properties":{"items":{"type":"array","items":crate::jobs::output_schema()}}}),
- _=>json!({"type":"object","required":["items"],"properties":{"items":{"type":"array","items":notification_schema()}}}),
+ "notification.retry"=>notification_output_schema(),
+ "list"=>json!({"type":"object","required":["schema_version","plans"],"properties":{"schema_version":{"const":1},"plans":{"type":"array","items":plan_schema()}}}),
+ "history"=>json!({"type":"object","required":["schema_version","executions"],"properties":{"schema_version":{"const":1},"executions":{"type":"array","items":execution_schema()}}}),
+ "tick"=>json!({"type":"object","required":["schema_version","queued"],"properties":{"schema_version":{"const":1},"queued":{"type":"array","items":execution_schema()}}}),
+ "pending"=>json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":crate::jobs::output_schema()}}}),
+ _=>json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":notification_schema()}}}),
  };
  json!({"name":format!("schedule.{op}"),"description":"成员持久计划与执行记录；worker须原业务scope；生成不记录穿着；原生系统显示需桌面宿主","inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},"outputSchema":output})
  }).collect()

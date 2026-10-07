@@ -756,6 +756,142 @@ fn restoring_same_space_does_not_silently_lose_a_queued_unsent_care_execution() 
 }
 
 #[test]
+fn public_schedule_outputs_declare_schema_version_and_descriptors_agree() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let app = Application::open(&path).unwrap();
+    let device = app.execute("schedule.device", json!({})).unwrap();
+    assert_eq!(device["schema_version"], 1, "{device}");
+    let runtime = app.execute("schedule.runtime.get", json!({})).unwrap();
+    assert_eq!(runtime["schema_version"], 1, "{runtime}");
+    let configured = app
+        .execute(
+            "schedule.runtime.configure",
+            json!({"expected_revision":runtime["revision"],"notifications_enabled":true}),
+        )
+        .unwrap();
+    assert_eq!(configured["schema_version"], 1, "{configured}");
+    // Public API and trusted clock seam only: a plan due two minutes from now is
+    // queued by schedule_tick_at(due) without mutating internal tables.
+    let due = chrono::Utc::now() + chrono::Duration::minutes(2);
+    app.execute("schedule.create",json!({"member_id":"default","name":"护理","kind":"care","local_time":due.format("%H:%M").to_string(),"timezone":"UTC","weekdays":[1,2,3,4,5,6,7],"execution_device_id":device["id"],"occasion":"daily","target_day_offset":0,"enabled":true})).unwrap();
+    let ticked = app.schedule_tick_at(due).unwrap();
+    assert_eq!(ticked["queued"].as_array().unwrap().len(), 1, "{ticked}");
+    let job_id = ticked["queued"][0]["job_id"].clone();
+    let pending = app
+        .execute("schedule.pending", json!({"member_id":"default"}))
+        .unwrap();
+    assert_eq!(pending["schema_version"], 1, "{pending}");
+    assert!(
+        !pending["items"].as_array().unwrap().is_empty(),
+        "{pending}"
+    );
+    app.execute(
+        "schedule.worker.run",
+        json!({"member_id":"default","id":job_id}),
+    )
+    .unwrap();
+    let plans = app
+        .execute("schedule.list", json!({"member_id":"default"}))
+        .unwrap();
+    assert_eq!(plans["schema_version"], 1, "{plans}");
+    let history = app
+        .execute(
+            "schedule.history",
+            json!({"member_id":"default","id":plans["plans"][0]["id"]}),
+        )
+        .unwrap();
+    assert_eq!(history["schema_version"], 1, "{history}");
+    assert!(!history["executions"].as_array().unwrap().is_empty());
+    assert_eq!(history["executions"][0]["schema_version"], 1);
+    let notices = app
+        .execute("schedule.notifications", json!({"member_id":"default"}))
+        .unwrap();
+    assert_eq!(notices["schema_version"], 1, "{notices}");
+    assert!(!notices["items"].as_array().unwrap().is_empty());
+    // Real failed-notice lifecycle via trusted host seams, then public retry:
+    // the retry return must carry the same wrapper schema_version as the listing.
+    let claimed = app.schedule_claim_notification("default").unwrap().unwrap();
+    assert_eq!(claimed["id"], notices["items"][0]["id"], "{claimed}");
+    let failed = app
+        .schedule_finish_notification(
+            "default",
+            claimed["id"].as_str().unwrap(),
+            claimed["claim_token"].as_str().unwrap(),
+            "failed",
+            Some("受控桌面提交失败"),
+        )
+        .unwrap();
+    assert_eq!(failed["status"], "failed", "{failed}");
+    let failed_listed = app
+        .execute("schedule.notifications", json!({"member_id":"default"}))
+        .unwrap();
+    assert_eq!(failed_listed["schema_version"], 1, "{failed_listed}");
+    assert_eq!(failed_listed["items"][0]["status"], "failed");
+    let retried = app
+        .execute(
+            "schedule.notification.retry",
+            json!({"member_id":"default","id":failed_listed["items"][0]["id"]}),
+        )
+        .unwrap();
+    assert_eq!(retried["schema_version"], 1, "{retried}");
+    assert_eq!(retried["id"], failed["id"]);
+    assert_eq!(retried["status"], "pending", "{retried}");
+    // The public tick wrapper normalizes like the trusted schedule_tick_at seam.
+    let tick = app
+        .execute("schedule.tick", json!({"member_id":"default"}))
+        .unwrap();
+    assert_eq!(tick["schema_version"], 1, "{tick}");
+    assert!(tick["queued"].is_array(), "{tick}");
+    let capabilities = app.execute("capabilities", json!({})).unwrap();
+    for name in [
+        "schedule.device",
+        "schedule.runtime.get",
+        "schedule.runtime.configure",
+        "schedule.list",
+        "schedule.history",
+        "schedule.tick",
+        "schedule.pending",
+        "schedule.notifications",
+        "schedule.notification.retry",
+    ] {
+        let schema = &capabilities["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["name"] == name)
+            .unwrap_or_else(|| panic!("{name} missing"))["outputSchema"];
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("schema_version")),
+            "{name}: {schema}"
+        );
+        assert_eq!(
+            schema["properties"]["schema_version"]["const"], 1,
+            "{name}: {schema}"
+        );
+    }
+    let nested = &capabilities["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["name"] == "schedule.notifications")
+        .unwrap()["outputSchema"]["properties"]["items"]["items"];
+    // Extra properties are harmless, so the item is not required to lack any
+    // field; the nested schema must not require fields the real item lacks.
+    let item = &notices["items"][0];
+    for field in nested["required"].as_array().unwrap() {
+        let field = field.as_str().unwrap();
+        assert!(
+            item.get(field).is_some(),
+            "nested required {field} absent from {item}"
+        );
+    }
+}
+
+#[test]
 fn submitted_scheduled_ai_restored_during_real_http_wait_is_not_resubmitted() {
     use std::io::{Read, Write};
     let dir = tempfile::tempdir().unwrap();
