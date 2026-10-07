@@ -1620,7 +1620,7 @@ fn jobs_weather_client_capabilities_family_contract() {
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("jw.sqlite")).unwrap();
     // space.default 初始化工作空间；本测试只检查契约描述，不使用成员ID。
-    let _member = app.execute("space.default", json!({})).unwrap()["member_id"]
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -1798,7 +1798,7 @@ fn imports_family_effects_examples_and_runtime_output_contract() {
         .unwrap();
     let app = Application::open(&dir.path().join("db")).unwrap();
     // space.default 初始化工作空间；本测试只检查契约描述，不使用成员ID。
-    let _member = app.execute("space.default", json!({})).unwrap()["member_id"]
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -1990,7 +1990,7 @@ fn media_provider_families_effects_examples_and_runtime_contract() {
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("mp.sqlite")).unwrap();
     // space.default 初始化工作空间；本测试只检查契约描述，不使用成员ID。
-    let _member = app.execute("space.default", json!({})).unwrap()["member_id"]
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
         .as_str()
         .unwrap()
         .to_string();
