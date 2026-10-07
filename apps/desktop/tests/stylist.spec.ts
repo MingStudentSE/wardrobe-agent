@@ -9,7 +9,7 @@ import {createServer,IncomingMessage,ServerResponse,Server} from 'node:http';
 let fixture:Server;let fixturePort=0;let posts=0;
 const requests:string[]=[];
 const replies=[
- {kind:'tool',operation:'clothing.list',arguments:{member_id:'default',limit:24}},
+ {kind:'tool',operation:'clothing.list',arguments:{member_id:'MEMBER',limit:24}},
  {kind:'answer',facts:[{call_id:0,path:'/items/0/id'}],explanation:'以上是当前可用衣物'},
 ];
 function startFixture():Promise<number>{return new Promise(resolve=>{
@@ -40,7 +40,11 @@ test('stylist tab completes a grounded tool loop through the real bridge',async(
  // Seed through the real public operations, like any trusted local user.
  const space=await api('space.default',{});
  const member=space.result.member_id as string;
- const item=await api('clothing.create',{member_id:member,name:'羊毛毛衣',category:'top'});
+ // The fixture must cite this workspace's actual member id — the "default"
+ // alias resolves against the persisted selection, which earlier specs in a
+ // shared dev server may have changed.
+ replies[0].arguments.member_id=member;
+ await api('clothing.create',{member_id:member,name:'羊毛毛衣',category:'top'});
  await api('clothing.create',{member_id:member,name:'直筒牛仔裤',category:'bottom'});
  const provider=await api('provider.save',{name:'stylist spec fixture',endpoint:`http://127.0.0.1:${fixturePort}/v1`,model:'fixture-text',capabilities:['text'],authentication:'none'});
  expect(provider.result.id).toBeTruthy();
@@ -59,13 +63,17 @@ test('stylist tab completes a grounded tool loop through the real bridge',async(
  // the actual inventory, never a fabricated id.
  await expect(panel.getByText('任务').first()).toContainText('已完成', {timeout:30000});
  await expect(panel.getByText('以上是当前可用衣物')).toBeVisible();
- const itemId=item.result.id as string;
- await expect(panel.locator('.stylist-facts')).toContainText(itemId);
+ // The grounding fact must be a real id from THIS member's inventory — the
+ // shared dev server may hold items seeded by earlier specs on the same member.
+ const factValue=await panel.locator('.stylist-facts li span').first().textContent();
+ const inventory=await api('clothing.list',{member_id:member,limit:24});
+ const inventoryIds=(inventory.result.items as {id:string}[]).map(v=>v.id);
+ expect(inventoryIds).toContain(factValue);
  await expect(panel.locator('.stylist-budget')).toContainText('工具 1 次');
  // Model contract: one POST per turn, and the follow-up carries the real item id.
  expect(posts).toBe(2);
  expect(requests[0]).toContain('今天穿什么');
- expect(requests[1]).toContain(itemId);
+ expect(requests[1]).toContain(factValue);
  // Read-only: no wear events recorded as a side effect.
  const wears=await api('wear.list',{member_id:member});
  expect(wears.result.items).toEqual([]);
