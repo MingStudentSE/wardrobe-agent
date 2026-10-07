@@ -20,3 +20,7 @@
 ### UI design
 
 UI 设计、实现、审查与重设计使用 `ui-ux-pro-max` 技能。以用户指定的 `ui-ux-pro-max` 技能为准；参见 `docs/04-UI设计与跨端适配.md`。Beta 只交付桌面端，但共享视觉语言和组件必须兼顾后续 Android；不得依赖 hover、拖拽或桌面窗口宽度完成关键流程。既有产品要求优先于技能默认值，已有视觉系统建立后保持全应用一致。
+
+### Build storage
+
+所有构建、缓存与构建临时文件必须在 1TB 备份盘运行；先检查挂载，不得回落系统盘。参见 `docs/agents/build-storage.md`。
