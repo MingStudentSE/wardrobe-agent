@@ -196,6 +196,16 @@ pub(super) fn validate_stored_document(
     }
     Ok(())
 }
+fn require_unique_receipt(tx: &Transaction<'_>, member: &str, key: &str) -> Result<(), ApiError> {
+    let count: u64 = tx.query_row("SELECT count(*) FROM sync_immutable WHERE entity_type='feedback_receipts' AND entity_id=?1", [format!("{member}:{key}")], |row| row.get(0))?;
+    if count > 1 {
+        return Err(ApiError::new(
+            "idempotency_conflict",
+            "操作标识存在不同反馈结果，请审核历史并使用新的操作标识",
+        ));
+    }
+    Ok(())
+}
 impl Application {
     fn feedback_require_resolved(&self, member: &str) -> Result<(), ApiError> {
         crate::sync::require_resolved_events(&self.connection, "feedback_events", member)
@@ -260,6 +270,7 @@ impl Application {
         }
         let request = json!({"operation":op,"input":input}).to_string();
         let tx = self.begin_write()?;
+        require_unique_receipt(&tx, &member, key)?;
         if let Some((old,result))=tx.query_row("SELECT request,result FROM feedback_receipts WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?{if old!=request{return Err(ApiError::new("idempotency_conflict","同操作标识不能改变反馈"));}return parse(result);}
         let root = string(&input, "root_id")?;
         let parents: u64 = tx.query_row("SELECT count(*) FROM feedback_events WHERE member_id=?1 AND root_id=?2 AND revision=(SELECT max(revision) FROM feedback_events WHERE member_id=?1 AND root_id=?2)", params![member, root], |row| row.get(0))?;
@@ -533,6 +544,7 @@ impl Application {
         let scores = scores(input.get("scores").unwrap_or(&json!({})))?;
         let request = input.to_string();
         let tx = self.begin_write()?;
+        require_unique_receipt(&tx, &member, key)?;
         if let Some((old,result))=tx.query_row("SELECT request,result FROM feedback_receipts WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?{if old!=request{return Err(ApiError::new("idempotency_conflict","同操作标识不能改变反馈"));}return parse(result);}
         let intent = self.recommendation_execute(
             "recommendation.get",

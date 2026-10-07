@@ -1499,10 +1499,17 @@ fn new_paired_installation_receives_original_remote_histories_on_a_new_target() 
     let branch_root = origin.execute("feedback.record", branch_input).unwrap();
     drain(&origin);
     drain(&owner);
-    let origin_branch = origin.execute("feedback.correct", json!({"member_id":member,"operation_key":"origin concurrent feedback correction","root_id":branch_root["root_id"],"expected_revision":1,"reaction":"dislike"})).unwrap();
-    let relay_branch = owner.execute("feedback.correct", json!({"member_id":member,"operation_key":"relay concurrent feedback correction","root_id":branch_root["root_id"],"expected_revision":1,"reaction":"skip"})).unwrap();
+    let origin_correction_input = json!({"member_id":member,"operation_key":"colliding feedback correction receipt","root_id":branch_root["root_id"],"expected_revision":1,"reaction":"dislike"});
+    let origin_branch = origin
+        .execute("feedback.correct", origin_correction_input.clone())
+        .unwrap();
+    let relay_correction_input = json!({"member_id":member,"operation_key":"colliding feedback correction receipt","root_id":branch_root["root_id"],"expected_revision":1,"reaction":"skip"});
+    let relay_branch = owner
+        .execute("feedback.correct", relay_correction_input.clone())
+        .unwrap();
     drain(&origin);
     drain(&owner);
+    drain(&origin); // Observe the other immutable receipt before checking replay.
     let conflicts = owner
         .execute("sync.conflicts", json!({"member_id":member}))
         .unwrap();
@@ -1514,6 +1521,14 @@ fn new_paired_installation_receives_original_remote_histories_on_a_new_target() 
             item["entity_type"] == "feedback_events" && item["entity_id"] == branch_root["root_id"]
         })
         .expect("concurrent feedback revisions require explicit branch review");
+    assert_eq!(owner.execute("feedback.correct", relay_correction_input.clone()).expect_err("an ambiguous portable receipt cannot return the installation's first cached result").code, "idempotency_conflict");
+    assert_eq!(
+        origin
+            .execute("feedback.correct", origin_correction_input.clone())
+            .expect_err("both devices must reject a collided logical receipt")
+            .code,
+        "idempotency_conflict"
+    );
     let unresolved_plan = owner.execute("recommendation.generate", json!({"member_id":member,"operation_key":"ambiguous feedback cannot guide recommendation","timezone":"UTC"}));
     assert_eq!(
         unresolved_plan
