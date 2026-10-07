@@ -1,0 +1,45 @@
+   Compiling wardrobe-core v0.1.0 (/Users/links/.codex/external-workspace-volume/codex/wardrobe-execution/worktrees/ticket-23-scenarios/crates/wardrobe-core)
+   Compiling wardrobe-cli v0.1.0 (/Users/links/.codex/external-workspace-volume/codex/wardrobe-execution/worktrees/ticket-23-scenarios/crates/wardrobe-cli)
+warning: unused variable: `stale_code`
+   --> crates/wardrobe-cli/tests/scenario_entrypoints.rs:183:10
+    |
+183 |     let (stale_code, stale) = cli(
+    |          ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_stale_code`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `missing_code`
+   --> crates/wardrobe-cli/tests/scenario_entrypoints.rs:195:10
+    |
+195 |     let (missing_code, missing) = cli(&path, "scenario.get", json!({"member_id":member,"id":"none"}));
+    |          ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_missing_code`
+
+warning: unused variable: `bogus_code`
+   --> crates/wardrobe-cli/tests/scenario_entrypoints.rs:197:10
+    |
+197 |     let (bogus_code, bogus) = cli(
+    |          ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bogus_code`
+
+warning: unused variable: `conflict_code`
+   --> crates/wardrobe-cli/tests/scenario_entrypoints.rs:239:10
+    |
+239 |     let (conflict_code, conflict) = cli(
+    |          ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_conflict_code`
+
+warning: unused variable: `dirty_code`
+   --> crates/wardrobe-cli/tests/scenario_entrypoints.rs:254:10
+    |
+254 |     let (dirty_code, dirty) = cli(
+    |          ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dirty_code`
+
+warning: `wardrobe-cli` (test "scenario_entrypoints") generated 5 warnings (run `cargo fix --test "scenario_entrypoints" -p wardrobe-cli` to apply 5 suggestions)
+    Finished `test` profile [unoptimized] target(s) in 8.72s
+     Running tests/scenario_entrypoints.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/scenario_entrypoints-d8909570bc95c4b1)
+
+running 3 tests
+test cli_reports_shortage_and_constraint_conflicts_with_typed_errors ... ok
+test mcp_tools_list_exposes_scenario_operations ... ok
+test scenario_operations_are_discoverable_and_plan_travel_through_cli ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+

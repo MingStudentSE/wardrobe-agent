@@ -103,7 +103,6 @@
 - **条件写入能力探针（Conditional-Write Capability Probe）**：WebDAV 等外部传输在连接与配置期用真实条件写入握手验证服务器确实执行防覆盖判定；未执行的服务器被明确以 storage_unsupported 拒绝，不静默降级。
 - **传输条件令牌（Transport Conditional Token）**：WebDAV 适配器用服务器 ETag（If-None-Match/RFC 4918 If 头）做条件写的唯一依据；ETag 只是透明令牌，绝不当作内容摘要，内容完整性始终由 sha256 发布标记判定。
 
-
 ## S3-compatible sync backend
 
 - **同步传输适配器（Sync Transport Adapter）**：实现统一 `SyncStorage` 契约（能力声明、分页列举、stat/get/put/delete）的传输后端；本地文件夹与 S3-compatible 对象存储共用同一契约，切换适配器不改变加密协议、包白名单与领域结果。
@@ -118,3 +117,13 @@
 - **候选属性建议（Candidate Suggestion）**：候选商品图经视觉供应商的未核实描述与保守规范化候选；写入候选 provenance 供人工对照，绝不自动覆盖人工事实；提交前须明确确认发送图片，提交结果未知时持久化待核实，不盲重发。
 - **候选纠错（Candidate Correction）**：人工逐项核对后显式写入候选事实的动作（confirm_confirmation）；人工值优先，建议值保留在 provenance 供对照。
 - **购买适配分析（Purchase Fit Analysis）**：对候选的一次确定性只读分析——搭配潜力（候选固定占据其角色、覆盖角色只来自当前可用的真实库存，组合总数为各覆盖槽位库存数的精确乘积）、重复购买风险（同类别库存逐项按颜色/风格/场合/季节 Jaccard 加权，千分制权重 400/250/200/150，≥700 且≥2 维度可比记高度重合）与缺口分析（内置类别与四场景的可用库存计数，数量为 0 即空洞；候选填补声明只在精确相等时作出）。结果版本化保留，缺失事实如实列为不确定性；creates_wear=false、counts_toward_inventory=false、不自动购买。
+
+## Scenario & travel plans（场景与旅行计划，issue #23）
+
+- **场景计划（Scenario Plan）**：成员事实，婚礼/面试单事件或多日旅行的持久化搭配安排（scenario_plans）；基于当时真实可用库存逐天生成的领域工件，`creates_wear` 恒为 false，结构性不进入 wear 面——计划、查看、修改与保存都不记实际穿着。
+- **单事件计划（Event Plan）**：一个当地日期的完整方案，场合为婚礼或面试，按正式场合规则适配；只采用单品已记录的场合标签，不推断未知事实。
+- **旅行计划（Travel Plan）**：2–14 天的逐日方案；贴身/主要衣物类别（top、bottom、dress、one_piece、sportswear、underwear）不连续两天重复，鞋、外层、包、配饰可跨天复用。
+- **去重打包清单（Deduped Packing List）**：全部逐天方案按衣物聚合的清单，每件衣物只出现一次并列出实际使用的天；跨天复用带 `reused` 标记，相邻天重复带 `consecutive_repeat` 标记，绝不重复计数或虚构库存。
+- **计划固定/排除（Plan Fixed/Excluded）**：固定单品必须真实落位（归属、active 生命周期与洗护可用性服务端校验，落位失败如实说明），排除单品永不出现；修改计划时显式排除自动解除同单品的固定。
+- **逐天轮换降级（Day Rotation Fallback）**：库存不足以维持「不连续重复」时，允许贴身衣物连续穿着并把「库存不足：…需连续两天重复穿着」写入短缺原因；缺少角色/无解给明确原因，不静默重复或虚构。
+- **计划模型辅助（Plan Model Assist）**：strategy=ai 时先持久化 scenario_plan 任务并返回回执，再由本机 worker 经共享 provider 文本通道请求模型；模型逐天指派须通过与离线规则相同的服务端校验（真实ID、归属可用、固定/排除、逐天轮换、基础覆盖），失败最多三次尝试后按本地规则降级并如实写入失败码与模型反馈；提交结果未知进入等待核对，不盲重发。

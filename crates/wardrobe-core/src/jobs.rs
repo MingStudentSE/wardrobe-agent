@@ -214,6 +214,7 @@ impl Application {
                 "virtual_tryon",
                 "text_recommendation",
                 "stylist_query",
+                "scenario_plan",
             ]
             .contains(&doc["kind"].as_str().unwrap_or(""))
                 && doc["submitted_at"].is_string())

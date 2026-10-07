@@ -987,6 +987,34 @@ pub(super) fn role(category: &str) -> (&str, i32) {
         _ => ("other", 0),
     }
 }
+
+/// 场景计划（#23）复用同一规划器：单套（limit=1）完整方案搜索。
+/// recent 恒为空——跨天轮换由场景层控制候选池；replacement 不适用。
+/// 调用方保证 clothes 已按期望优先序排序（plan 内部按序号评分）。
+pub(super) fn plan_single(
+    clothes: &[Value],
+    pair_weights: &crate::pair_search::PairWeights,
+    fixed: &[String],
+    cold: bool,
+    occasion: &str,
+    priority: &std::collections::HashSet<String>,
+    forbidden: &std::collections::BTreeSet<Vec<String>>,
+) -> (Vec<Value>, bool) {
+    let recent = std::collections::BTreeSet::new();
+    let rules = PlanningRules {
+        pair_weights,
+        fixed,
+        limit: 1,
+        recent: &recent,
+        forbidden,
+        cold,
+        occasion,
+        priority,
+        replacement: None,
+    };
+    plan(clothes, &rules)
+}
+
 pub(super) fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
     if input
         .as_object()
