@@ -932,10 +932,14 @@ impl Application {
                     return Err(ApiError::new("backup_invalid", "备份数据库版本不匹配"));
                 }
                 let names=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")?.query_map([],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
-                let expected_tables:Vec<&str>=TABLES.iter().copied().filter(|table| {
-                    (*table!="wardrobe_categories"||actual_version>=21)&&
-                    (actual_version>=20||!table.starts_with("learning_"))
-                }).collect();
+                let expected_tables: Vec<&str> = TABLES
+                    .iter()
+                    .copied()
+                    .filter(|table| {
+                        (*table != "wardrobe_categories" || actual_version >= 21)
+                            && (actual_version >= 20 || !table.starts_with("learning_"))
+                    })
+                    .collect();
                 if names.len() != expected_tables.len()
                     || names
                         .iter()
@@ -960,7 +964,7 @@ impl Application {
                         ("request".into(), "TEXT".into(), 0),
                         ("result".into(), "TEXT".into(), 0),
                     ];
-                    let legacy_receipts = *table == "feedback_receipts"
+                    let legacy_receipts = table == "feedback_receipts"
                         && actual_version <= 21
                         && incoming_columns == legacy_receipt_columns;
                     if (!legacy_receipts && incoming_columns != current_columns)

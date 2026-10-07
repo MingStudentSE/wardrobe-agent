@@ -2274,3 +2274,501 @@ fn existing_inventory_bootstrap_runs_in_durable_bounded_worker_steps() {
         "bounded durable bootstrap retains every actual preexisting garment"
     );
 }
+
+#[test]
+#[ignore = "requires actual OS credential store"]
+fn epoch_change_republishes_adopted_product_displays_to_a_fresh_paired_installation() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let c = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    let ap = a.path().join("db");
+    let bp = b.path().join("db");
+    let cp = c.path().join("db");
+    let owner = Application::open(&ap).unwrap();
+    let temporary = Application::open(&bp).unwrap();
+    let fresh = Application::open(&cp).unwrap();
+    let _cleanup = [
+        Cleanup(ap.clone()),
+        Cleanup(bp.clone()),
+        Cleanup(cp.clone()),
+    ];
+    owner
+        .execute(
+            "encryption.create",
+            json!({"password":"generated epoch display fixture","device_name":"epoch display owner"}),
+        )
+        .unwrap();
+    let member = owner.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let garment = owner
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"轮换蓝衬衫","category":"top"}),
+        )
+        .unwrap();
+    let source = a.path().join("epoch-display-source.png");
+    let mut image = image::RgbImage::new(640, 640);
+    let mut seed = 7u32;
+    for pixel in image.pixels_mut() {
+        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        *pixel = image::Rgb([(seed >> 16) as u8, (seed >> 8) as u8, seed as u8]);
+    }
+    image.save(&source).unwrap();
+    let imported = owner
+        .execute("assets.import", json!({"member_id":member,"path":source}))
+        .unwrap();
+    owner
+        .execute(
+            "assets.adopt",
+            json!({"member_id":member,"clothing_id":garment["id"],"asset_id":imported["id"]}),
+        )
+        .unwrap();
+    let offer = owner
+        .execute(
+            "encryption.pair.offer",
+            json!({"device_name":"temporary epoch peer"}),
+        )
+        .unwrap();
+    let temporary_device = offer["invitation"]["device_id"].clone();
+    let receipt = temporary
+        .execute(
+            "encryption.pair.accept",
+            json!({"invitation":offer["invitation"],"pairing_secret":offer["pairing_secret"],"password":"generated peer fixture"}),
+        )
+        .unwrap();
+    let confirmed = owner
+        .execute(
+            "encryption.pair.confirm",
+            json!({"receipt":receipt["receipt"]}),
+        )
+        .unwrap();
+    temporary
+        .execute(
+            "encryption.device.apply",
+            json!({"manifest":confirmed["manifest"]}),
+        )
+        .unwrap();
+    for app in [&owner, &temporary] {
+        app.execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    }
+    owner.sync_batch().unwrap();
+    let received = temporary.sync_batch().unwrap();
+    assert_eq!(
+        received["missing_assets"],
+        0,
+        "{}",
+        temporary.execute("sync.status", json!({})).unwrap()
+    );
+    let before = temporary
+        .execute(
+            "assets.preview",
+            json!({"member_id":member,"id":imported["id"],"variant":"thumbnail"}),
+        )
+        .unwrap();
+    assert!(before["data_url"]
+        .as_str()
+        .unwrap()
+        .starts_with("data:image/webp;base64,"));
+    // 公开的换纪流程：撤销已配对设备会推进工作区纪元。
+    owner
+        .execute(
+            "encryption.device.revoke",
+            json!({"device_id":temporary_device,"password":"generated epoch display fixture"}),
+        )
+        .unwrap();
+    assert_eq!(
+        owner.execute("encryption.status", json!({})).unwrap()["state"]["epoch"],
+        2,
+        "revoking a paired device is the public epoch-change workflow"
+    );
+    let fresh_offer = owner
+        .execute(
+            "encryption.pair.offer",
+            json!({"device_name":"fresh epoch device"}),
+        )
+        .unwrap();
+    let fresh_receipt = fresh
+        .execute(
+            "encryption.pair.accept",
+            json!({"invitation":fresh_offer["invitation"],"pairing_secret":fresh_offer["pairing_secret"],"password":"generated peer fixture"}),
+        )
+        .unwrap();
+    let fresh_confirmed = owner
+        .execute(
+            "encryption.pair.confirm",
+            json!({"receipt":fresh_receipt["receipt"]}),
+        )
+        .unwrap();
+    let applied = fresh
+        .execute(
+            "encryption.device.apply",
+            json!({"manifest":fresh_confirmed["manifest"]}),
+        )
+        .unwrap();
+    assert_eq!(applied["state"]["epoch"], 2);
+    fresh
+        .execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    owner
+        .sync_batch()
+        .expect("an epoch change must not strand already adopted product displays");
+    let rotated = fresh.sync_batch().unwrap();
+    assert_eq!(
+        rotated["missing_assets"],
+        0,
+        "{}",
+        fresh.execute("sync.status", json!({})).unwrap()
+    );
+    let display = fresh
+        .execute(
+            "assets.get",
+            json!({"member_id":member,"id":imported["id"]}),
+        )
+        .unwrap();
+    assert_eq!(display["display"]["state"], "adopted");
+    assert!(
+        display["original"].is_null(),
+        "synced product displays must not carry private original bytes to the fresh installation"
+    );
+    for variant in ["display", "thumbnail"] {
+        let view = fresh
+            .execute(
+                "assets.preview",
+                json!({"member_id":member,"id":imported["id"],"variant":variant}),
+            )
+            .unwrap();
+        assert!(
+            view["data_url"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("data:image/webp;base64,"),
+            "a fresh installation must be able to render the adopted product {variant} after the epoch change"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires actual OS credential store"]
+fn legacy_flat_epoch2_blob_commits_still_reach_a_fresh_peer_with_historical_wear_and_care_displays()
+{
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let c = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    let ap = a.path().join("db");
+    let bp = b.path().join("db");
+    let cp = c.path().join("db");
+    let owner = Application::open(&ap).unwrap();
+    let temporary = Application::open(&bp).unwrap();
+    let fresh = Application::open(&cp).unwrap();
+    let _cleanup = [
+        Cleanup(ap.clone()),
+        Cleanup(bp.clone()),
+        Cleanup(cp.clone()),
+    ];
+    owner
+        .execute(
+            "encryption.create",
+            json!({"password":"generated legacy transport fixture","device_name":"legacy transport owner"}),
+        )
+        .unwrap();
+    let member = owner.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let garment = owner
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"历史展示夹克","category":"outerwear"}),
+        )
+        .unwrap();
+    // Generated media only; each product display gets distinctive pixels.
+    let mut sources: Vec<std::path::PathBuf> = Vec::new();
+    for (name, seed) in [
+        ("legacy-display-current.png", 11u32),
+        ("legacy-display-worn.png", 22),
+        ("legacy-display-cared.png", 33),
+    ] {
+        let path = a.path().join(name);
+        let mut image = image::RgbImage::new(640, 640);
+        let mut seed = seed;
+        for pixel in image.pixels_mut() {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            *pixel = image::Rgb([(seed >> 16) as u8, (seed >> 8) as u8, seed as u8]);
+        }
+        image.save(&path).unwrap();
+        sources.push(path);
+    }
+    let current = owner
+        .execute(
+            "assets.import",
+            json!({"member_id":member,"path":sources[0]}),
+        )
+        .unwrap();
+    let worn = owner
+        .execute(
+            "assets.import",
+            json!({"member_id":member,"path":sources[1]}),
+        )
+        .unwrap();
+    let cared = owner
+        .execute(
+            "assets.import",
+            json!({"member_id":member,"path":sources[2]}),
+        )
+        .unwrap();
+    owner
+        .execute(
+            "assets.adopt",
+            json!({"member_id":member,"clothing_id":garment["id"],"asset_id":current["id"]}),
+        )
+        .unwrap();
+    owner
+        .execute(
+            "assets.adopt",
+            json!({"member_id":member,"clothing_id":garment["id"],"asset_id":worn["id"]}),
+        )
+        .unwrap();
+    let wear = owner
+        .execute(
+            "wear.record",
+            json!({"member_id":member,"clothing_ids":[garment["id"]],"local_date":"2026-10-02","timezone":"Asia/Shanghai","operation_key":"legacy transport wear"}),
+        )
+        .unwrap();
+    owner
+        .execute(
+            "assets.adopt",
+            json!({"member_id":member,"clothing_id":garment["id"],"asset_id":cared["id"]}),
+        )
+        .unwrap();
+    owner
+        .execute(
+            "care.configure",
+            json!({"member_id":member,"clothing_id":garment["id"],"wash_after_wears":3,"expected_revision":0,"operation_key":"legacy transport care config"}),
+        )
+        .unwrap();
+    let care = owner
+        .execute(
+            "care.record",
+            json!({"member_id":member,"clothing_id":garment["id"],"action":"wash","local_date":"2026-10-03","timezone":"Asia/Shanghai","operation_key":"legacy transport care"}),
+        )
+        .unwrap();
+    // 展示图随后被更换或移除，仅历史穿着/护理引用仍指向它们。
+    owner
+        .execute(
+            "assets.detach",
+            json!({"member_id":member,"clothing_id":garment["id"],"asset_id":worn["id"]}),
+        )
+        .unwrap();
+    owner
+        .execute(
+            "assets.detach",
+            json!({"member_id":member,"clothing_id":garment["id"],"asset_id":cared["id"]}),
+        )
+        .unwrap();
+    let offer = owner
+        .execute(
+            "encryption.pair.offer",
+            json!({"device_name":"temporary legacy peer"}),
+        )
+        .unwrap();
+    let temporary_device = offer["invitation"]["device_id"].clone();
+    let receipt = temporary
+        .execute(
+            "encryption.pair.accept",
+            json!({"invitation":offer["invitation"],"pairing_secret":offer["pairing_secret"],"password":"generated peer fixture"}),
+        )
+        .unwrap();
+    let confirmed = owner
+        .execute(
+            "encryption.pair.confirm",
+            json!({"receipt":receipt["receipt"]}),
+        )
+        .unwrap();
+    temporary
+        .execute(
+            "encryption.device.apply",
+            json!({"manifest":confirmed["manifest"]}),
+        )
+        .unwrap();
+    for app in [&owner, &temporary] {
+        app.execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    }
+    owner.sync_batch().unwrap();
+    let epoch1 = temporary.sync_batch().unwrap();
+    assert_eq!(
+        epoch1["missing_assets"],
+        0,
+        "{}",
+        temporary.execute("sync.status", json!({})).unwrap()
+    );
+    // 公开换纪流程：撤销临时设备推进纪元。
+    owner
+        .execute(
+            "encryption.device.revoke",
+            json!({"device_id":temporary_device,"password":"generated legacy transport fixture"}),
+        )
+        .unwrap();
+    assert_eq!(
+        owner.execute("encryption.status", json!({})).unwrap()["state"]["epoch"],
+        2
+    );
+    owner
+        .sync_batch()
+        .expect("epoch-2 publication must succeed for adopted and historical displays");
+    // 旧版本传输把纪元2的 blob commit 写进扁平 {space}/blobs。仅搬运生成的有效
+    // epoch2 commit 对象；epoch1 的既有对象保持原位，chunk 对象按索引键留在新纪元目录。
+    let space = owner.execute("encryption.status", json!({})).unwrap()["state"]["space_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let epoch2_blobs = remote.path().join(format!("{space}/epochs/2/blobs"));
+    let legacy_blobs = remote.path().join(format!("{space}/blobs"));
+    std::fs::create_dir_all(&legacy_blobs).unwrap();
+    let mut relocated = 0;
+    for entry in std::fs::read_dir(&epoch2_blobs).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.ends_with(".commit") {
+            continue;
+        }
+        std::fs::rename(entry.path(), legacy_blobs.join(&name)).unwrap();
+        relocated += 1;
+    }
+    assert_eq!(
+        relocated, 3,
+        "three adopted/historical displays must have been published for epoch 2"
+    );
+    let fresh_offer = owner
+        .execute(
+            "encryption.pair.offer",
+            json!({"device_name":"fresh legacy peer"}),
+        )
+        .unwrap();
+    let fresh_receipt = fresh
+        .execute(
+            "encryption.pair.accept",
+            json!({"invitation":fresh_offer["invitation"],"pairing_secret":fresh_offer["pairing_secret"],"password":"generated peer fixture"}),
+        )
+        .unwrap();
+    let fresh_confirmed = owner
+        .execute(
+            "encryption.pair.confirm",
+            json!({"receipt":fresh_receipt["receipt"]}),
+        )
+        .unwrap();
+    let applied = fresh
+        .execute(
+            "encryption.device.apply",
+            json!({"manifest":fresh_confirmed["manifest"]}),
+        )
+        .unwrap();
+    assert_eq!(applied["state"]["epoch"], 2);
+    fresh
+        .execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    // 源设备此后不再同步：全新安装只能依赖共享目录里已有的对象。
+    let received = fresh.sync_batch().unwrap();
+    assert_eq!(
+        received["missing_assets"],
+        0,
+        "{}",
+        fresh.execute("sync.status", json!({})).unwrap()
+    );
+    assert_eq!(
+        fresh
+            .execute(
+                "wear.history",
+                json!({"member_id":member,"root_event_id":wear["root_event_id"]})
+            )
+            .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "historical wear facts must reach the fresh epoch-2 peer"
+    );
+    assert_eq!(
+        fresh
+            .execute(
+                "care.history",
+                json!({"member_id":member,"root_event_id":care["root_event_id"]})
+            )
+            .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "historical care facts must reach the fresh epoch-2 peer"
+    );
+    for asset in [&current, &worn, &cared] {
+        let document = fresh
+            .execute("assets.get", json!({"member_id":member,"id":asset["id"]}))
+            .unwrap();
+        assert_eq!(document["display"]["state"], "adopted");
+        assert!(
+            document["original"].is_null(),
+            "synced product displays must not carry original bytes"
+        );
+        for variant in ["display", "thumbnail"] {
+            let view = fresh
+                .execute(
+                    "assets.preview",
+                    json!({"member_id":member,"id":asset["id"],"variant":variant}),
+                )
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "fresh peer must render {} of asset {} through the public preview API after epoch rotation: {}",
+                        variant, asset["id"], e.code
+                    )
+                });
+            assert!(
+                view["data_url"]
+                    .as_str()
+                    .unwrap_or("")
+                    .starts_with("data:image/webp;base64,"),
+                "fresh peer preview {} of asset {} must be a webp data url",
+                variant,
+                asset["id"]
+            );
+        }
+    }
+    let originals: Vec<Vec<u8>> = sources
+        .iter()
+        .map(|path| std::fs::read(path).unwrap())
+        .collect();
+    fn scan_originals(path: &std::path::Path, originals: &[Vec<u8>]) {
+        for entry in std::fs::read_dir(path).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                scan_originals(&path, originals);
+            } else {
+                let bytes = std::fs::read(&path).unwrap_or_default();
+                for original in originals {
+                    assert!(
+                        !bytes.windows(original.len()).any(|v| v == original),
+                        "personal original bytes must never reach the fresh installation"
+                    );
+                }
+            }
+        }
+    }
+    scan_originals(c.path(), &originals);
+}

@@ -145,6 +145,28 @@ impl Application {
 }
 
 impl Application {
+    /// Durable publisher-index cursor persistence. Overlapping local workers may
+    /// hold superseded snapshots, so the live row is advanced inside the write
+    /// statement itself: observed heads never move backwards, and the previous
+    /// page digest is only replaced together with a forward cursor move so the
+    /// authenticated page chain stays verifiable. A genuinely rolled-back remote
+    /// head is rejected earlier by the freshly-read frontier check.
+    fn sync_persist_index_read(
+        &self,
+        target: &str,
+        epoch: u64,
+        publisher: &str,
+        next_page: u64,
+        observed_head: u64,
+        previous_digest: Option<&str>,
+    ) -> Result<(), ApiError> {
+        self.connection.execute(
+            "INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET observed_head=max(observed_head,excluded.observed_head), next_page=CASE WHEN excluded.next_page>next_page THEN excluded.next_page ELSE next_page END, previous_digest=CASE WHEN excluded.next_page>next_page THEN excluded.previous_digest ELSE previous_digest END",
+            params![target, epoch, publisher, next_page, observed_head, previous_digest],
+        )?;
+        Ok(())
+    }
+
     /// Read authenticated publisher pages by ordinal, retaining only one bounded
     /// batch. Missing index support uses the explicitly supported legacy flat path.
     pub(super) fn sync_index_objects(
@@ -260,12 +282,21 @@ impl Application {
                 }
                 let prior: Option<(u64,u64,Option<String>)> = self.connection.query_row("SELECT next_page,observed_head,previous_digest FROM sync_index_read WHERE target_id=?1 AND epoch=?2 AND publisher=?3",params![target,epoch,publisher],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
                 let (mut number, observed, mut previous) = prior.unwrap_or((1, 0, None));
+                #[cfg(test)]
+                crate::sync::schedule::after_prior_read_point();
                 if pages < observed {
                     return Err(error("storage_corrupt"));
                 }
                 // Head observation is durable even while a page still has pending facts.
                 // Consumed page position remains independent from the advertised frontier.
-                self.connection.execute("INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET observed_head=excluded.observed_head",params![target,epoch,publisher,number,pages,previous])?;
+                self.sync_persist_index_read(
+                    target,
+                    epoch,
+                    publisher,
+                    number,
+                    pages,
+                    previous.as_deref(),
+                )?;
                 let mut read_pages = 0;
                 let mut consumed_prefix = true;
                 while number <= pages {
@@ -354,7 +385,14 @@ impl Application {
                     previous = Some(digest(page.to_string().as_bytes()));
                     number += 1;
                     if consumed_prefix {
-                        self.connection.execute("INSERT INTO sync_index_read(target_id,epoch,publisher,next_page,observed_head,previous_digest) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(target_id,epoch,publisher) DO UPDATE SET next_page=excluded.next_page,observed_head=excluded.observed_head,previous_digest=excluded.previous_digest",params![target,epoch,publisher,number,pages,previous])?;
+                        self.sync_persist_index_read(
+                            target,
+                            epoch,
+                            publisher,
+                            number,
+                            pages,
+                            previous.as_deref(),
+                        )?;
                     }
                 }
                 Ok(())

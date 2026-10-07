@@ -3,9 +3,13 @@ mod assets;
 mod bootstrap;
 mod branches;
 mod conflicts;
+#[cfg(test)]
+mod cursor_contract;
 mod index;
 mod pending;
 mod publication;
+#[cfg(test)]
+pub(crate) mod schedule;
 mod schema;
 pub mod storage;
 mod worker;

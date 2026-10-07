@@ -3,6 +3,22 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use std::fs;
 const CHUNK: usize = 128 * 1024;
 const MAX_ASSET: usize = 16 * 1024 * 1024;
+// Blob envelopes are sealed with their epoch's key and the decoder requires the
+// current epoch, so each epoch publishes into its own folder and older folders
+// are never re-read; epoch 1 keeps the legacy `{space}/blobs` folder.
+fn blobs_prefix(identity: &Value) -> Result<String, ApiError> {
+    let space = string(identity, "space_id")?;
+    if identity["epoch"].as_u64().unwrap_or(1) == 1 {
+        Ok(format!("{space}/blobs"))
+    } else {
+        Ok(format!(
+            "{space}/epochs/{}/blobs",
+            identity["epoch"]
+                .as_u64()
+                .ok_or_else(|| error("sync_invalid"))?
+        ))
+    }
+}
 impl Application {
     pub(super) fn sync_publish_assets(
         &self,
@@ -27,7 +43,7 @@ impl Application {
                     string(entry, "id")?,
                     string(entry, "blob_hash")?
                 ))?;
-                let prefix = format!("{}/blobs", string(identity, "space_id")?);
+                let prefix = blobs_prefix(identity)?;
                 let index_key = format!("{prefix}/{name}.commit");
                 if storage.stat(&index_key).is_ok() {
                     continue;
@@ -98,38 +114,62 @@ impl Application {
         storage: &dyn SyncStorage,
         identity: &Value,
     ) -> Result<(), ApiError> {
-        let prefix = format!("{}/blobs", string(identity, "space_id")?);
-        let mut cursor = None;
-        loop {
-            let page = storage.list(&prefix, cursor.as_deref(), 64)?;
-            for entry in page.items {
-                if !entry.key.ends_with(".commit") {
-                    continue;
-                }
-                let cipher: Value = serde_json::from_slice(&bounded(storage, &entry.key)?)
-                    .map_err(|_| error("storage_corrupt"))?;
-                let index = self.sync_decrypt("blobs", &cipher)?;
-                let asset = &index["asset"];
-                if asset["role"] != "product_display"
-                    || asset["state"] != "adopted"
-                    || asset["sync_scope"] != "workspace"
-                    || asset["mime"] != "image/webp"
-                    || !asset["bytes"]
-                        .as_u64()
-                        .is_some_and(|n| n > 0 && n <= MAX_ASSET as u64)
-                    || !index["chunks"]
-                        .as_array()
-                        .is_some_and(|c| !c.is_empty() && c.len() <= MAX_ASSET / CHUNK)
-                {
-                    return Err(error("sync_invalid"));
-                }
-                let id = string(asset, "id")?;
-                self.connection.execute("INSERT INTO sync_asset_queue VALUES(?1,?2,'pending') ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,index.to_string()])?;
+        let epoch = identity["epoch"].as_u64().unwrap_or(1);
+        let prefix = blobs_prefix(identity)?;
+        // Old-version transports published current-epoch blob commits into the
+        // legacy flat `{space}/blobs` folder instead of the epoch folder. Scan
+        // it as a fallback so a fresh peer survives when the original source
+        // stops syncing. Fallback entries are gated by their plaintext envelope
+        // identity and other-epoch envelopes are never decrypted; every
+        // accepted commit still passes the full decoder, publisher-signature
+        // and revoked-device validation below.
+        let legacy = format!("{}/blobs", string(identity, "space_id")?);
+        let mut commits = vec![];
+        for (folder, fallback) in [(prefix.as_str(), false), (legacy.as_str(), true)] {
+            if fallback && folder == prefix.as_str() {
+                continue;
             }
-            cursor = page.cursor;
-            if cursor.is_none() {
-                break;
+            let mut cursor = None;
+            loop {
+                let page = storage.list(folder, cursor.as_deref(), 64)?;
+                for entry in page.items {
+                    if entry.key.ends_with(".commit") {
+                        commits.push((entry.key, fallback));
+                    }
+                }
+                cursor = page.cursor;
+                if cursor.is_none() {
+                    break;
+                }
             }
+        }
+        for (key, fallback) in commits {
+            let raw = bounded(storage, &key)?;
+            let cipher: Value = match serde_json::from_slice(&raw) {
+                Ok(value) => value,
+                Err(_) if fallback => continue,
+                Err(_) => return Err(error("storage_corrupt")),
+            };
+            if fallback && cipher["identity"]["epoch"].as_u64() != Some(epoch) {
+                continue;
+            }
+            let index = self.sync_decrypt("blobs", &cipher)?;
+            let asset = &index["asset"];
+            if asset["role"] != "product_display"
+                || asset["state"] != "adopted"
+                || asset["sync_scope"] != "workspace"
+                || asset["mime"] != "image/webp"
+                || !asset["bytes"]
+                    .as_u64()
+                    .is_some_and(|n| n > 0 && n <= MAX_ASSET as u64)
+                || !index["chunks"]
+                    .as_array()
+                    .is_some_and(|c| !c.is_empty() && c.len() <= MAX_ASSET / CHUNK)
+            {
+                return Err(error("sync_invalid"));
+            }
+            let id = string(asset, "id")?;
+            self.connection.execute("INSERT INTO sync_asset_queue VALUES(?1,?2,'pending') ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,index.to_string()])?;
         }
         Ok(())
     }
