@@ -102,3 +102,13 @@
 - **发布标记门槛（Publication Marker Gate）**：只有 `.commit` 标记可见的对象才会被对端发现；对象损坏或被截断时同步整体失败，不应用该对象的部分字节，修复后同一日志继续收敛。
 - **条件写入能力探针（Conditional-Write Capability Probe）**：WebDAV 等外部传输在连接与配置期用真实条件写入握手验证服务器确实执行防覆盖判定；未执行的服务器被明确以 storage_unsupported 拒绝，不静默降级。
 - **传输条件令牌（Transport Conditional Token）**：WebDAV 适配器用服务器 ETag（If-None-Match/RFC 4918 If 头）做条件写的唯一依据；ETag 只是透明令牌，绝不当作内容摘要，内容完整性始终由 sha256 发布标记判定。
+
+## Scenario & travel plans（场景与旅行计划，issue #23）
+
+- **场景计划（Scenario Plan）**：成员事实，婚礼/面试单事件或多日旅行的持久化搭配安排（scenario_plans）；基于当时真实可用库存逐天生成的领域工件，`creates_wear` 恒为 false，结构性不进入 wear 面——计划、查看、修改与保存都不记实际穿着。
+- **单事件计划（Event Plan）**：一个当地日期的完整方案，场合为婚礼或面试，按正式场合规则适配；只采用单品已记录的场合标签，不推断未知事实。
+- **旅行计划（Travel Plan）**：2–14 天的逐日方案；贴身/主要衣物类别（top、bottom、dress、one_piece、sportswear、underwear）不连续两天重复，鞋、外层、包、配饰可跨天复用。
+- **去重打包清单（Deduped Packing List）**：全部逐天方案按衣物聚合的清单，每件衣物只出现一次并列出实际使用的天；跨天复用带 `reused` 标记，相邻天重复带 `consecutive_repeat` 标记，绝不重复计数或虚构库存。
+- **计划固定/排除（Plan Fixed/Excluded）**：固定单品必须真实落位（归属、active 生命周期与洗护可用性服务端校验，落位失败如实说明），排除单品永不出现；修改计划时显式排除自动解除同单品的固定。
+- **逐天轮换降级（Day Rotation Fallback）**：库存不足以维持「不连续重复」时，允许贴身衣物连续穿着并把「库存不足：…需连续两天重复穿着」写入短缺原因；缺少角色/无解给明确原因，不静默重复或虚构。
+- **计划模型辅助（Plan Model Assist）**：strategy=ai 时先持久化 scenario_plan 任务并返回回执，再由本机 worker 经共享 provider 文本通道请求模型；模型逐天指派须通过与离线规则相同的服务端校验（真实ID、归属可用、固定/排除、逐天轮换、基础覆盖），失败最多三次尝试后按本地规则降级并如实写入失败码与模型反馈；提交结果未知进入等待核对，不盲重发。

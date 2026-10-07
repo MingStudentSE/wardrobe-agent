@@ -26,6 +26,7 @@ mod providers;
 mod recognition;
 mod recommendations;
 mod schedules;
+mod scenarios;
 pub mod sync;
 mod stylist;
 mod tryon;
@@ -150,6 +151,7 @@ impl Application {
         recommendations::migrate(&tx)?;
         weather::migrate(&tx)?;
         schedules::migrate(&tx)?;
+        scenarios::migrate(&tx)?;
         feedback::migrate(&tx)?;
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
@@ -337,6 +339,7 @@ impl Application {
             op if op.starts_with("feedback.") => self.feedback_execute(op, input),
             op if op.starts_with("weather.") => self.weather_execute(op, input),
             op if op.starts_with("schedule.") => self.schedule_execute(op, input),
+            op if op.starts_with("scenario.") => self.scenario_execute(op, input),
             op if op.starts_with("recommendation.") => self.recommendation_execute(op, input),
             op if op.starts_with("pairing.") => self.pairing_execute(op, input),
             "insights.summary" => self.insights_summary(input),
@@ -492,6 +495,7 @@ pub fn operations() -> Value {
     descriptors.extend(pairing::descriptors());
     descriptors.extend(weather::descriptors());
     descriptors.extend(schedules::descriptors());
+    descriptors.extend(scenarios::descriptors());
     descriptors.extend(feedback::descriptors());
     descriptors.extend(learning::descriptors());
     descriptors.extend(stylist::descriptors());

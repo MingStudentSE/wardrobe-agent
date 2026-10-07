@@ -1,0 +1,94 @@
+   Compiling wardrobe-core v0.1.0 (/Users/links/.codex/external-workspace-volume/codex/wardrobe-execution/worktrees/ticket-23-scenarios/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 3.20s
+     Running tests/scenarios.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/scenarios-ab54d521a6845705)
+
+running 11 tests
+test scenario_operations_are_registered_with_schemas_and_scope ... FAILED
+test interview_plan_reports_shortage_instead_of_fabricating ... FAILED
+test weather_is_optional_reference_and_failure_degrades_to_manual_notes ... FAILED
+test model_failure_falls_back_to_rules_with_explicit_feedback ... FAILED
+test travel_shortage_is_reported_with_reasons_when_inventory_cannot_rotate ... FAILED
+test unknown_model_outcome_waits_for_input_and_never_blind_resends ... FAILED
+test plans_can_be_viewed_updated_with_optimistic_lock_and_deleted ... FAILED
+test wedding_event_plan_completes_from_real_inventory_and_never_records_wear ... FAILED
+test fixed_and_excluded_and_ownership_are_server_validated ... FAILED
+test travel_plan_rotates_days_and_dedupes_packing_list ... FAILED
+test ai_strategy_receipts_before_http_and_worker_adopts_validated_plan ... FAILED
+
+failures:
+
+---- scenario_operations_are_registered_with_schemas_and_scope stdout ----
+
+thread 'scenario_operations_are_registered_with_schemas_and_scope' (2239900) panicked at crates/wardrobe-core/tests/scenarios.rs:965:9:
+RED(ticket-23): scenario.plan 必须经共享注册源暴露
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- interview_plan_reports_shortage_instead_of_fabricating stdout ----
+
+thread 'interview_plan_reports_shortage_instead_of_fabricating' (2239897) panicked at crates/wardrobe-core/tests/scenarios.rs:212:10:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "unsupported_operation", message: "此操作尚不可用" }
+
+---- weather_is_optional_reference_and_failure_degrades_to_manual_notes stdout ----
+
+thread 'weather_is_optional_reference_and_failure_degrades_to_manual_notes' (2239904) panicked at crates/wardrobe-core/tests/scenarios.rs:566:10:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "unsupported_operation", message: "此操作尚不可用" }
+
+---- model_failure_falls_back_to_rules_with_explicit_feedback stdout ----
+
+thread 'model_failure_falls_back_to_rules_with_explicit_feedback' (2239898) panicked at crates/wardrobe-core/tests/scenarios.rs:850:10:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "unsupported_operation", message: "此操作尚不可用" }
+
+---- travel_shortage_is_reported_with_reasons_when_inventory_cannot_rotate stdout ----
+
+thread 'travel_shortage_is_reported_with_reasons_when_inventory_cannot_rotate' (2239902) panicked at crates/wardrobe-core/tests/scenarios.rs:432:10:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "unsupported_operation", message: "此操作尚不可用" }
+
+---- unknown_model_outcome_waits_for_input_and_never_blind_resends stdout ----
+
+thread 'unknown_model_outcome_waits_for_input_and_never_blind_resends' (2239903) panicked at crates/wardrobe-core/tests/scenarios.rs:916:10:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "unsupported_operation", message: "此操作尚不可用" }
+
+---- plans_can_be_viewed_updated_with_optimistic_lock_and_deleted stdout ----
+
+thread 'plans_can_be_viewed_updated_with_optimistic_lock_and_deleted' (2239899) panicked at crates/wardrobe-core/tests/scenarios.rs:476:10:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "unsupported_operation", message: "此操作尚不可用" }
+
+---- wedding_event_plan_completes_from_real_inventory_and_never_records_wear stdout ----
+
+thread 'wedding_event_plan_completes_from_real_inventory_and_never_records_wear' (2239905) panicked at crates/wardrobe-core/tests/scenarios.rs:104:10:
+RED(ticket-23): scenario.plan 尚未实现，这是预期的真实失败点: ApiError { code: "unsupported_operation", message: "此操作尚不可用" }
+
+---- fixed_and_excluded_and_ownership_are_server_validated stdout ----
+
+thread 'fixed_and_excluded_and_ownership_are_server_validated' (2239896) panicked at crates/wardrobe-core/tests/scenarios.rs:258:5:
+assertion `left == right` failed: 固定单品不能同时排除
+  left: "unsupported_operation"
+ right: "constraint_conflict"
+
+---- travel_plan_rotates_days_and_dedupes_packing_list stdout ----
+
+thread 'travel_plan_rotates_days_and_dedupes_packing_list' (2239901) panicked at crates/wardrobe-core/tests/scenarios.rs:328:10:
+RED(ticket-23): 多日旅行计划尚未实现: ApiError { code: "unsupported_operation", message: "此操作尚不可用" }
+
+---- ai_strategy_receipts_before_http_and_worker_adopts_validated_plan stdout ----
+
+thread 'ai_strategy_receipts_before_http_and_worker_adopts_validated_plan' (2239895) panicked at crates/wardrobe-core/tests/scenarios.rs:774:10:
+RED(ticket-23): strategy=ai 尚未实现: ApiError { code: "unsupported_operation", message: "此操作尚不可用" }
+
+
+failures:
+    ai_strategy_receipts_before_http_and_worker_adopts_validated_plan
+    fixed_and_excluded_and_ownership_are_server_validated
+    interview_plan_reports_shortage_instead_of_fabricating
+    model_failure_falls_back_to_rules_with_explicit_feedback
+    plans_can_be_viewed_updated_with_optimistic_lock_and_deleted
+    scenario_operations_are_registered_with_schemas_and_scope
+    travel_plan_rotates_days_and_dedupes_packing_list
+    travel_shortage_is_reported_with_reasons_when_inventory_cannot_rotate
+    unknown_model_outcome_waits_for_input_and_never_blind_resends
+    weather_is_optional_reference_and_failure_degrades_to_manual_notes
+    wedding_event_plan_completes_from_real_inventory_and_never_records_wear
+
+test result: FAILED. 0 passed; 11 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+error: test failed, to rerun pass `-p wardrobe-core --test scenarios`

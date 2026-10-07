@@ -1,0 +1,48 @@
+/* ScenarioPlanner · ticket-23 · 复用既有 Atelier tokens，不引入新主题。 */
+.scenarios{margin-top:3rem;padding-top:2rem;border-top:1px solid var(--color-rule);scroll-margin-top:1rem}
+.scenarios>header{display:flex;gap:1rem;justify-content:space-between;align-items:start}
+.scenarios fieldset{border:1px solid var(--color-rule);border-radius:var(--radius);padding:.75rem;display:grid;gap:.6rem}
+.scenarios legend{padding:0 .4rem;color:var(--color-muted)}
+.scenario-form{display:grid;gap:1rem;max-width:44rem;margin-top:1.25rem}
+.scenario-form label{display:grid;gap:.4rem}
+.scenario-chips{display:flex;flex-wrap:wrap;gap:.5rem}
+.scenario-chips button[aria-pressed="true"]{background:var(--color-action);border-color:var(--color-accent)}
+.scenario-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.75rem}
+.scenario-fields label{display:grid;gap:.4rem;min-width:0}
+.scenario-items summary,.scenario-update summary{min-height:48px;cursor:pointer;display:flex;align-items:center;gap:.5rem}
+.scenario-stock{list-style:none;margin:.5rem 0;padding:0;display:grid;gap:.4rem;max-height:16rem;overflow:auto}
+.scenario-stock li{display:flex;gap:.75rem;justify-content:space-between;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--color-rule);padding:.4rem 0}
+.scenario-stock-actions{display:flex;gap:.9rem;align-items:center}
+.scenario-stock-actions label{display:flex;gap:.3rem;align-items:center;white-space:nowrap}
+.scenario-unavailable{color:var(--color-muted)}
+.scenario-note{color:var(--color-muted);overflow-wrap:anywhere}
+.scenario-shortage,.scenario-shortage li,.scenario-plan-list li,.scenario-packing-list li,.scenario-feedback li{overflow-wrap:anywhere}
+.scenarios button[aria-busy]{min-height:48px}
+.scenario-result{margin-top:1.75rem;display:grid;gap:1rem;max-width:56rem}
+.scenario-plan-head{display:flex;gap:1rem;justify-content:space-between;align-items:start;flex-wrap:wrap}
+.scenario-plan-head h3{margin:0}
+.scenario-plan-head small{display:block;color:var(--color-muted);margin-top:.25rem}
+.scenario-feedback{border:1px solid var(--color-rule);border-left:4px solid var(--color-accent);border-radius:var(--radius);padding:.75rem;overflow-wrap:anywhere}
+.scenario-shortage{border:1px solid var(--color-rule);border-left:4px solid var(--color-error);border-radius:var(--radius);padding:.75rem}
+.scenario-shortage ul{margin:.4rem 0 0;padding-left:1.25rem}
+.scenario-days{display:grid;gap:.9rem}
+.scenario-day{border:1px solid var(--color-rule);border-radius:var(--radius-card);padding:1rem;display:grid;gap:.6rem;background:var(--color-surface)}
+.scenario-day header{display:flex;gap:.75rem;justify-content:space-between;align-items:baseline;flex-wrap:wrap}
+.scenario-day h4{margin:0}
+.scenario-ok{color:var(--color-success)}
+.scenario-missing{color:var(--color-error)}
+.scenario-day-items{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(10rem,1fr));gap:.4rem}
+.scenario-day-items li{display:grid;border:1px solid var(--color-rule);border-radius:var(--radius);padding:.4rem .6rem;min-width:0}
+.scenario-day-items span{color:var(--color-muted)}
+.scenario-packing h4,.scenario-archive h4{margin:.25rem 0}
+.scenario-packing-list{list-style:none;margin:.4rem 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(15rem,1fr));gap:.5rem}
+.scenario-packing-list li{display:grid;gap:.2rem;border:1px solid var(--color-rule);border-radius:var(--radius);padding:.5rem .7rem;min-width:0;background:var(--color-surface)}
+.scenario-packing-list span{color:var(--color-muted)}
+.scenario-packing-list em{color:var(--color-accent);font-style:normal}
+.scenario-update{display:grid;gap:.75rem;border:1px solid var(--color-rule);border-radius:var(--radius-card);padding:.85rem}
+.scenario-update label{display:grid;gap:.4rem}
+.scenario-plan-list{list-style:none;margin:.4rem 0;padding:0;display:grid;gap:.4rem}
+.scenario-plan-list li{display:flex;gap:.75rem;justify-content:space-between;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--color-rule);padding:.4rem 0}
+.scenario-update details{margin:.25rem 0}
+@media(max-width:600px){.scenarios>header{flex-direction:column}.scenario-form{max-width:none}.scenario-days{grid-template-columns:1fr}}
+@media(min-width:601px) and (max-width:900px){.scenario-days{grid-template-columns:repeat(auto-fit,minmax(16rem,1fr))}}

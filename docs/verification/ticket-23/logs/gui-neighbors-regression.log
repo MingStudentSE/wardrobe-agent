@@ -1,0 +1,14 @@
+npm notice run wardrobe-desktop@0.1.0 npx
+npm notice run 'playwright' test tests/outfits.spec.ts tests/stylist.spec.ts --reporter=line
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5232 --strictPort
+
+
+Running 4 tests using 1 worker
+
+[1/4] tests/outfits.spec.ts:2:1 › saved outfit preserves roles and layers across edits, favorites and cloning
+[2/4] tests/outfits.spec.ts:10:1 › library shows real loading state and routes creation back to clothing selection
+[3/4] tests/stylist.spec.ts:53:1 › stylist tab completes a grounded tool loop through the real bridge
+[4/4] tests/stylist.spec.ts:97:1 › explicit instruction records an actual wear with server-owned idempotency
+  4 passed (6.1s)
