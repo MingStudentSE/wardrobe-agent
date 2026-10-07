@@ -12,6 +12,7 @@ mod publication;
 pub(crate) mod schedule;
 mod schema;
 pub mod storage;
+mod webdav;
 mod worker;
 use crate::{string, ApiError, Application};
 use rusqlite::{params, OptionalExtension, Transaction};
@@ -604,7 +605,14 @@ impl Application {
     }
     pub(crate) fn sync_operation(&self, op: &str, input: Value) -> Result<Value, ApiError> {
         let allowed: &[&str] = match op {
-            "sync.configure" => &["provider_kind", "directory"],
+            "sync.configure" => &[
+                "provider_kind",
+                "directory",
+                "url",
+                "root",
+                "username",
+                "password",
+            ],
             "sync.run" => &["operation_key"],
             "sync.process" => &["id"],
             "sync.status" => &[],
@@ -653,31 +661,66 @@ impl Application {
                 Ok(json!({"schema_version":1,"items":items}))
             }
             "sync.configure" => {
-                if input["provider_kind"] != "local_folder" {
-                    return Err(error("storage_unsupported"));
-                }
-                let directory = std::fs::canonicalize(string(&input, "directory")?)
-                    .map_err(|_| error("storage_not_found"))?;
-                let local = std::fs::canonicalize(
-                    self.asset_root
-                        .parent()
-                        .ok_or_else(|| error("storage_error"))?,
-                )
-                .map_err(|_| error("storage_error"))?;
-                if directory.starts_with(local) {
-                    return Err(error("invalid_input"));
-                }
                 let identity = self.sync_identity()?;
-                LocalFolder::new(&directory)?;
+                let space = string(&identity, "space_id")?;
+                let target = match input["provider_kind"].as_str() {
+                    Some("local_folder") => {
+                        let directory = std::fs::canonicalize(string(&input, "directory")?)
+                            .map_err(|_| error("storage_not_found"))?;
+                        let local = std::fs::canonicalize(
+                            self.asset_root
+                                .parent()
+                                .ok_or_else(|| error("storage_error"))?,
+                        )
+                        .map_err(|_| error("storage_error"))?;
+                        if directory.starts_with(local) {
+                            return Err(error("invalid_input"));
+                        }
+                        LocalFolder::new(&directory)?;
+                        json!({"id":"primary","target_key":digest(json!({"directory":directory,"space_id":space}).to_string().as_bytes()),"provider_kind":"local_folder","directory":directory})
+                    }
+                    Some("webdav") => {
+                        let url = string(&input, "url")?.trim_end_matches('/').to_string();
+                        let root = input["root"]
+                            .as_str()
+                            .map(str::trim)
+                            .map(|r| r.trim_matches('/').to_string())
+                            .unwrap_or_default();
+                        let username = string(&input, "username")?;
+                        if url.is_empty() || root.is_empty() || username.is_empty() {
+                            return Err(error("invalid_input"));
+                        }
+                        let target_key = digest(
+                            json!({"provider":"webdav","url":url,"root":root,"username":username,"space_id":space})
+                                .to_string()
+                                .as_bytes(),
+                        );
+                        let password = match input["password"].as_str() {
+                            Some(password) if !password.is_empty() => password.to_string(),
+                            _ => sync_webdav_password(&target_key)?,
+                        };
+                        // 配置期即做真实连接 + 条件写入能力探针：认证失败、
+                        // 能力缺失（明确拒绝）在这里就暴露，而不是留给worker。
+                        storage::WebDav::connect(storage::WebDavConfig {
+                            url: url.clone(),
+                            root: root.clone(),
+                            username: username.to_string(),
+                            password: password.clone(),
+                            timeout: std::time::Duration::from_secs(30),
+                        })?;
+                        sync_store_webdav_password(&target_key, &password)?;
+                        // 密码只进 OS 安全存储；目标文档仅含连接描述。
+                        json!({"id":"primary","target_key":target_key,"provider_kind":"webdav","url":url,"root":root,"username":username})
+                    }
+                    _ => return Err(error("storage_unsupported")),
+                };
                 let tx = self.begin_write()?;
                 for table in TABLES {
                     tx.execute(
                         "INSERT OR IGNORE INTO sync_bootstrap(space_id,table_name) VALUES(?1,?2)",
-                        params![string(&identity, "space_id")?, table],
+                        params![space, table],
                     )?;
                 }
-
-                let target = json!({"id":"primary","target_key":digest(json!({"directory":directory,"space_id":identity["space_id"]}).to_string().as_bytes()),"provider_kind":"local_folder","directory":directory});
                 tx.execute("INSERT INTO sync_targets VALUES('primary',?1) ON CONFLICT(id) DO UPDATE SET document=excluded.document",[target.to_string()])?;
                 tx.commit()?;
                 Ok(json!({"schema_version":1,"target":target}))
@@ -748,7 +791,6 @@ impl Application {
             )
             .map_err(|_| error("sync_not_configured"))?;
         let target: Value = serde_json::from_str(&target).map_err(|_| error("storage_error"))?;
-        let storage = LocalFolder::new(Path::new(string(&target, "directory")?))?;
         let target_key = target["target_key"]
             .as_str()
             .map(str::to_owned)
@@ -759,6 +801,17 @@ impl Application {
                         .as_bytes(),
                 )
             });
+        let storage: Box<dyn SyncStorage> = match target["provider_kind"].as_str() {
+            Some("webdav") => Box::new(storage::WebDav::connect(storage::WebDavConfig {
+                url: string(&target, "url")?.to_string(),
+                root: target["root"].as_str().unwrap_or_default().to_string(),
+                username: string(&target, "username")?.to_string(),
+                password: sync_webdav_password(&target_key)?,
+                timeout: std::time::Duration::from_secs(30),
+            })?),
+            _ => Box::new(LocalFolder::new(Path::new(string(&target, "directory")?))?),
+        };
+        let storage: &dyn SyncStorage = storage.as_ref();
         let prefix = if identity["epoch"].as_u64().unwrap_or(0) == 1 {
             format!("{}/changes", string(&identity, "space_id")?)
         } else {
@@ -802,8 +855,8 @@ impl Application {
             tx.execute("INSERT INTO sync_bootstrap_ids VALUES(?1)", [op_id])?;
         }
         tx.commit()?;
-        self.sync_publish_assets(&storage, &identity)?;
-        self.sync_discover_assets(&storage, &identity)?;
+        self.sync_publish_assets(storage, &identity)?;
+        self.sync_discover_assets(storage, &identity)?;
         let mut stmt=self.connection.prepare("SELECT id,op_id,device,entity_type,entity_id,before_doc,after_doc,base,clock,EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0 ORDER BY id LIMIT 256")?;
         let rows = stmt
             .query_map([&target_key], |r| {
@@ -852,7 +905,7 @@ impl Application {
             self.connection
                 .execute("UPDATE sync_journal SET registered=1 WHERE id=?1", [row])?;
             if !published {
-                self.sync_publish_operation(&storage, &prefix, &target_key, &op)?;
+                self.sync_publish_operation(storage, &prefix, &target_key, &op)?;
                 sent += 1;
             }
         }
@@ -863,12 +916,12 @@ impl Application {
         drop(forwarded);
         for document in original_ops {
             let op: Value = serde_json::from_str(&document).map_err(|_| error("sync_invalid"))?;
-            self.sync_publish_operation(&storage, &prefix, &target_key, &op)?;
+            self.sync_publish_operation(storage, &prefix, &target_key, &op)?;
             sent += 1;
         }
-        self.sync_publish_index(&storage, &identity, &target_key, &prefix)?;
+        self.sync_publish_index(storage, &identity, &target_key, &prefix)?;
         let (indexed_objects, indexed_more) =
-            self.sync_index_objects(&storage, &identity, &target_key, &prefix)?;
+            self.sync_index_objects(storage, &identity, &target_key, &prefix)?;
         let mut received = 0;
         let mut quarantined = 0;
         let mut incoming_count = 0usize;
@@ -901,10 +954,10 @@ impl Application {
                         break 'incoming;
                     }
                     incoming_count += 1;
-                    let marker: Value = serde_json::from_slice(&bounded(&storage, &object.key)?)
+                    let marker: Value = serde_json::from_slice(&bounded(storage, &object.key)?)
                         .map_err(|_| error("storage_corrupt"))?;
                     let marker = self.sync_decrypt("changes", &marker)?;
-                    let bytes = bounded(&storage, string(&marker, "key")?)?;
+                    let bytes = bounded(storage, string(&marker, "key")?)?;
                     if marker["sha256"] != digest(&bytes) || marker["bytes"] != bytes.len() {
                         return Err(error("storage_corrupt"));
                     }
@@ -974,7 +1027,7 @@ impl Application {
         )?;
         received += replayed;
         quarantined += replay_quarantined;
-        let missing_assets = self.sync_fetch_assets(&storage)?;
+        let missing_assets = self.sync_fetch_assets(storage)?;
         let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0) OR EXISTS(SELECT 1 FROM sync_inbox i WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=i.op_id)) OR EXISTS(SELECT 1 FROM sync_publications p JOIN sync_inbox i ON i.op_id=p.op_id WHERE p.target_id=?1 AND p.locally_published=1 AND NOT EXISTS(SELECT 1 FROM sync_index_entries e WHERE e.target_id=?1 AND e.epoch=?2 AND e.op_id=p.op_id))", params![target_key,identity["epoch"].as_u64().ok_or_else(||error("sync_invalid"))?],|r|r.get(0))?;
         Ok(
             json!({"schema_version":1,"sent":sent,"received":received,"pending":pending + missing_markers,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":bootstrap_more || has_more || incoming_more || (pending > 0 && (incoming_count == 256 || replayed + replay_quarantined > 0))}),
@@ -982,17 +1035,50 @@ impl Application {
     }
 }
 
+/// WebDAV 密码的 OS 安全存储：按目标键隔离，永不进入明文配置、审计或日志。
+fn sync_webdav_password_entry(target_key: &str) -> Result<keyring::Entry, ApiError> {
+    keyring::Entry::new("wardrobe-agent.sync", target_key)
+        .map_err(|_| ApiError::new("storage_error", "无法访问 OS 安全存储"))
+}
+fn sync_webdav_password(target_key: &str) -> Result<String, ApiError> {
+    sync_webdav_password_entry(target_key)?
+        .get_password()
+        .map_err(|_| {
+            ApiError::new(
+                "storage_unauthorized",
+                "OS 安全存储中没有该 WebDAV 目标的密码，请重新配置同步",
+            )
+        })
+}
+fn sync_store_webdav_password(target_key: &str, password: &str) -> Result<(), ApiError> {
+    sync_webdav_password_entry(target_key)?
+        .set_password(password)
+        .map_err(|_| ApiError::new("storage_error", "无法把密码写入 OS 安全存储"))
+}
+
 pub(crate) fn descriptors() -> Vec<Value> {
     ["configure","run","process","status","history","conflicts","resolve"].into_iter().map(|op|{
-        let mut properties=json!({});let mut required=vec![];
+        let mut properties=json!({});let mut required=vec![];let mut schema_extra_oneof=serde_json::Value::Null;
         if op=="run" {properties=json!({"operation_key":{"type":"string","minLength":1}});}
         if op=="process" {properties=json!({"id":{"type":"string","minLength":1}});required.push("id");}
-        if op=="configure" {properties=json!({"provider_kind":{"const":"local_folder"},"directory":{"type":"string","minLength":1}});required.extend(["provider_kind","directory"]);}
+        if op=="configure" {properties=json!({
+            "provider_kind":{"enum":["local_folder","webdav"]},
+            "directory":{"type":"string","minLength":1,"description":"local_folder 目标目录"},
+            "url":{"type":"string","minLength":1,"description":"webdav 服务器地址"},
+            "root":{"type":"string","minLength":1,"description":"webdav 服务器上已存在的目录前缀"},
+            "username":{"type":"string","minLength":1},
+            "password":{"type":"string","description":"只写入 OS 安全存储，不进入配置或日志"}
+        });required.push("provider_kind");
+        schema_extra_oneof=json!([
+            {"required":["directory"],"not":{"required":["url","root","username"]}},
+            {"required":["url","root","username"],"not":{"required":["directory"]}}
+        ]);}
         if ["history","conflicts","resolve"].contains(&op) {properties["member_id"]=json!({"type":"string"});required.push("member_id");}
         if ["history","resolve"].contains(&op) {for key in ["entity_type","entity_id"] {properties[key]=json!({"type":"string"});required.push(key);}}
         if op=="resolve" {for key in ["field","expected_token","operation_key"] {properties[key]=json!({"type":"string","minLength":1});required.push(key);}properties["value"]=json!({});properties["branch_id"]=json!({"type":"string"});}
         let mut schema=json!({"type":"object","additionalProperties":false,"required":required,"properties":properties});
         if op=="resolve" {schema["oneOf"]=json!([{"required":["value"],"not":{"required":["branch_id"]}},{"required":["branch_id"],"not":{"required":["value"]}}]);}
+        if !schema_extra_oneof.is_null() {schema["oneOf"]=schema_extra_oneof;}
         let output=match op {"run"=>json!({"type":"object","required":["schema_version","job_id","member_id","state"],"properties":{"schema_version":{"const":1},"job_id":{"type":"string"},"member_id":{"type":"string"},"state":{"type":"string"}}}),"process"=>crate::jobs::output_schema(),_=>json!({"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}})};
         json!({"name":format!("sync.{op}"),"description":"同步已配对加密空间：run立即返回持久job_id，process执行有限worker批次；空间级操作需要全部成员授权，冲突选择保留旧历史","inputSchema":schema,"outputSchema":output})
     }).collect()
