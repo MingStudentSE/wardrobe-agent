@@ -38,3 +38,7 @@ coverage/
 # Python verification helper bytecode
 __pycache__/
 *.pyc
+
+# Local design reference images and rendered verification screenshots
+/design/preview/assets/
+/design/verification/**/*.png
