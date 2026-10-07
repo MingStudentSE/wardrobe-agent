@@ -208,6 +208,7 @@ impl Application {
                 "outfit_flatlay",
                 "virtual_tryon",
                 "text_recommendation",
+                "stylist_query",
             ]
             .contains(&doc["kind"].as_str().unwrap_or(""))
                 && doc["submitted_at"].is_string())

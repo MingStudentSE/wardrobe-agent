@@ -1,7 +1,6 @@
 use crate::{string, ApiError, Application};
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
-use std::io::Read;
 impl Application {
     pub(super) fn recommendation_weather(
         &self,
@@ -377,11 +376,6 @@ impl Application {
                 "需要配置兼容聊天接口的文本模型",
             ));
         }
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|_| ApiError::new("provider_network", "模型连接不可用"))?;
         let mut body = json!({"model":p["model"],"messages":[{"role":"system","content":"You are a wardrobe planner. Follow exact physical IDs and return only the requested JSON object."},{"role":"user","content":prompt.to_string()}],"max_tokens":2048,"temperature":0});
         let format = prompt["output_format"]
             .as_str()
@@ -409,18 +403,7 @@ impl Application {
             _ => return Err(ApiError::new("invalid_input", "文本输出格式不可用")),
         }
 
-        let mut request = client
-            .post(format!(
-                "{}/chat/completions",
-                p["endpoint"].as_str().unwrap()
-            ))
-            .json(&body);
-        if p["authentication"] == "bearer" {
-            let key = crate::providers::credential_entry_for(&p)?
-                .get_password()
-                .map_err(|_| ApiError::new("credential_missing", "文本模型凭据不可用"))?;
-            request = request.bearer_auth(key);
-        }
+        let request = self.provider_text_request(&p, &body)?;
         let response = loop {
             self.text_submitted(member, job, lease, attempt)?;
             let response = request
@@ -471,16 +454,7 @@ impl Application {
             }
             break response;
         };
-        let mut bytes = vec![];
-        response
-            .take(1048577)
-            .read_to_end(&mut bytes)
-            .map_err(|_| ApiError::new("provider_response", "模型响应读取失败"))?;
-        if bytes.len() > 1048576 {
-            return Err(ApiError::new("provider_response", "模型响应过大"));
-        }
-        let response: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| ApiError::new("provider_response", "模型响应不是JSON"))?;
+        let response = crate::providers::read_chat_response(response)?;
         self.text_usage(member, job, lease, &response)?;
         let content = response["choices"][0]["message"]["content"]
             .as_str()
@@ -598,7 +572,7 @@ impl Application {
     }
 }
 
-fn retry_after_ms(header: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> i64 {
+pub(crate) fn retry_after_ms(header: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> i64 {
     if let Some(value) = header {
         if let Ok(seconds) = value.trim().parse::<u64>() {
             return seconds.saturating_mul(1000).min(i64::MAX as u64) as i64;
