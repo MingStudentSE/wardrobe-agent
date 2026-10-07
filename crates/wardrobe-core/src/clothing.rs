@@ -563,13 +563,6 @@ pub(super) fn apply_facts(doc: &mut Value, input: &Value) -> Result<(), ApiError
         }
         doc["category"] = value.clone();
     }
-    if !doc["sub_category"].is_null()
-        && !SUBCATEGORIES
-            .iter()
-            .any(|(id, category)| doc["sub_category"] == *id && doc["category"] == *category)
-    {
-        return Err(ApiError::new("invalid_input", "小类不属于所选类别"));
-    }
     if doc["color"].as_array().is_some_and(|values| {
         values
             .iter()
