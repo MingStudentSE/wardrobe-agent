@@ -80,8 +80,9 @@ const SCHEDULE_TABLES: &[&str] = &["schedule_plans", "schedule_executions"];
 // version admits exactly the known table sets below; anything else (unknown
 // tables, arbitrary subsets, or mixed variants) is rejected rather than
 // inferred from the version number alone.
-//  - pre-20 legacy: base without categories/learning/schedules
-//  - 20: base without categories plus learning
+//  - pre-20 legacy: base without categories/learning/schedules, or with the
+//    schedule families alone (dual-device line evidence)
+//  - 20: base plus learning without categories, with or without schedules
 //  - 21: category-only (published), schedule-only (unreleased), or both
 //  - 22: sync historical baseline (28) or post-category (29)
 //  - 23: combined category+schedules
@@ -100,9 +101,14 @@ fn known_archive_table_sets(version: u32) -> Option<Vec<std::collections::HashSe
     let combined: std::collections::HashSet<&str> = core.union(&schedule).copied().collect();
     let schedule_only: std::collections::HashSet<&str> =
         core_without_categories.union(&schedule).copied().collect();
+    let schedule_without_categories: std::collections::HashSet<&str> =
+        without_categories.union(&schedule).copied().collect();
     match version {
-        v if v < 20 => Some(vec![without_categories]),
-        20 => Some(vec![core_without_categories.clone()]),
+        v if v < 20 => Some(vec![without_categories, schedule_without_categories]),
+        20 => Some(vec![
+            core_without_categories.clone(),
+            core_without_categories.union(&schedule).copied().collect(),
+        ]),
         21 => Some(vec![core, schedule_only, combined.clone()]),
         22 => Some(vec![core_without_categories, core]),
         23 => Some(vec![combined]),
@@ -112,27 +118,38 @@ fn known_archive_table_sets(version: u32) -> Option<Vec<std::collections::HashSe
 
 // The strict legacy versioned shapes carried a composite outfit_versions key
 // and per-root revision uniqueness; schema22+ relaxed them so lawful branch
-// records survive. Archives are validated against the source-derived unique
-// index signatures of the live schema, extended with the legacy signature for
-// schema21-and-older versioned families.
-fn expected_unique_index_signatures(
+// records survive. Historical archives (<=21) may therefore carry EITHER the
+// strict legacy signatures OR the relaxed live ones (relaxed builds stamped
+// by the dual-device line), and feedback_receipts may carry the former
+// two-column primary key. Any of those variants is accepted; anything else
+// is rejected.
+fn acceptable_unique_signature_sets(
     live: &std::collections::HashSet<String>,
     actual_version: u32,
     table: &str,
-) -> std::collections::HashSet<String> {
-    let mut expected = live.clone();
+    schedule_lineage: bool,
+) -> Vec<std::collections::HashSet<String>> {
+    let mut acceptable = vec![live.clone()];
     if actual_version <= 21 {
         if matches!(
             table,
             "outfit_versions" | "wear_events" | "care_events" | "feedback_events"
         ) {
-            expected.insert(crate::legacy_branch_signature(table).to_string());
+            let mut legacy = live.clone();
+            legacy.insert(crate::legacy_branch_signature(table).to_string());
+            acceptable.push(legacy);
+            if !schedule_lineage {
+                // 非同步谱系的 <=21 档案只承认历史严格形状：schema21 当时
+                // 要求版本化事件表带每根修订唯一约束，放宽形状按篡改拒绝。
+                acceptable
+                    .retain(|set| set.contains(&crate::legacy_branch_signature(table).to_string()));
+            }
         }
-        if table == "feedback_receipts" {
-            expected.insert("member_id|operation_key".to_string());
+        if table == "feedback_receipts" && schedule_lineage {
+            acceptable.push(std::iter::once("member_id|operation_key".to_string()).collect());
         }
     }
-    expected
+    acceptable
 }
 
 pub(super) fn migrate(tx: &rusqlite::Transaction<'_>) -> Result<(), ApiError> {
@@ -472,8 +489,13 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
                 }
             }
             if *table == "feedback_events" {
-                crate::feedback::validate_stored_document(db, &document)
-                    .map_err(|_| ApiError::new("backup_invalid", "反馈领域格式或事实引用不支持"))?;
+                crate::feedback::validate_stored_document(db, &document).map_err(|e| {
+                    eprintln!(
+                        "PROBE feedback validate: {} | {} DOC={}",
+                        e.code, e.message, document
+                    );
+                    ApiError::new("backup_invalid", "反馈领域格式或事实引用不支持")
+                })?;
             }
             if *table == "schedule_plans" {
                 crate::schedules::validate_portable_plan(&document)
@@ -1056,27 +1078,35 @@ impl Application {
                 }
                 let mut expected_tables: Vec<&str> = matched.iter().copied().collect();
                 expected_tables.sort_unstable();
+                // 双设备谱系（<=21 档案仍带 schedule 家族）允许现代放宽形状；
+                // 纯历史谱系按当时的严格形状校验。
+                let schedule_lineage = matched.contains("schedule_plans");
                 for table in expected_tables {
-                    let mut expected_columns = columns(&self.connection, table)?;
-                    if actual_version <= 21 && table == "outfit_versions" {
-                        for (name, _, pk) in expected_columns.iter_mut() {
+                    let live_columns = columns(&self.connection, table)?;
+                    let mut acceptable_columns = vec![live_columns.clone()];
+                    if actual_version <= 21 && table == "outfit_versions" && !schedule_lineage {
+                        let mut legacy_columns = live_columns.clone();
+                        for (name, _, pk) in legacy_columns.iter_mut() {
                             if name == "outfit_id" {
                                 *pk = 1;
                             } else if name == "version" {
                                 *pk = 2;
                             }
                         }
+                        acceptable_columns = vec![legacy_columns];
+                    } else if actual_version <= 21 && table == "outfit_versions" {
+                        let mut legacy_columns = live_columns.clone();
+                        for (name, _, pk) in legacy_columns.iter_mut() {
+                            if name == "outfit_id" {
+                                *pk = 1;
+                            } else if name == "version" {
+                                *pk = 2;
+                            }
+                        }
+                        acceptable_columns.push(legacy_columns);
                     }
-                    let expected_unique = expected_unique_index_signatures(
-                        &unique_index_signatures(&self.connection, table)?,
-                        actual_version,
-                        table,
-                    );
                     let incoming_columns = columns(&db, table)?;
-                    // <=21 的历史档 feedback_receipts 是两列主键的旧形
-                    // （request/result 未参与主键）；恢复时由迁移升级为四列
-                    // 形状，列结构容忍该 legacy 形状（唯一性由
-                    // expected_unique_index_signatures 扩展承接）。
+                    let incoming_unique = unique_index_signatures(&db, table)?;
                     let legacy_receipt_columns = vec![
                         ("member_id".into(), "TEXT".into(), 1),
                         ("operation_key".into(), "TEXT".into(), 2),
@@ -1085,10 +1115,22 @@ impl Application {
                     ];
                     let legacy_receipts = table == "feedback_receipts"
                         && actual_version <= 21
+                        && schedule_lineage
                         && incoming_columns == legacy_receipt_columns;
-                    if (!legacy_receipts && incoming_columns != expected_columns)
+                    let acceptable_unique = acceptable_unique_signature_sets(
+                        &unique_index_signatures(&self.connection, table)?,
+                        actual_version,
+                        table,
+                        schedule_lineage,
+                    );
+                    let columns_ok = legacy_receipts
+                        || acceptable_columns
+                            .iter()
+                            .any(|cols| incoming_columns == *cols);
+                    let unique_ok = acceptable_unique.iter().any(|set| *set == incoming_unique);
+                    if !columns_ok
                         || foreign_keys(&db, table)? != foreign_keys(&self.connection, table)?
-                        || unique_index_signatures(&db, table)? != expected_unique
+                        || !unique_ok
                     {
                         return Err(ApiError::new("backup_invalid", "备份字段结构不支持"));
                     }
