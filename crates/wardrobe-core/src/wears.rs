@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS wear_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_event_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL,UNIQUE(root_event_id,revision)); CREATE INDEX IF NOT EXISTS wear_member_root ON wear_events(member_id,root_event_id,revision); CREATE TABLE IF NOT EXISTS wear_receipts(member_id TEXT NOT NULL REFERENCES members(id),operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS wear_asset_refs(event_id TEXT NOT NULL REFERENCES wear_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS wear_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_event_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL); CREATE INDEX IF NOT EXISTS wear_member_root ON wear_events(member_id,root_event_id,revision); CREATE TABLE IF NOT EXISTS wear_receipts(member_id TEXT NOT NULL REFERENCES members(id),operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS wear_asset_refs(event_id TEXT NOT NULL REFERENCES wear_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
     Ok(())
 }
 fn invalid(message: &str) -> ApiError {

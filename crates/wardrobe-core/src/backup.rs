@@ -1,5 +1,7 @@
 //! Portable facts: credentials and device trust are deliberately installation-local.
-use crate::{string, ApiError, Application, DATABASE_SCHEMA_VERSION};
+use crate::{
+    string, unique_index_signatures, ApiError, Application, DATABASE_SCHEMA_VERSION,
+};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -41,6 +43,99 @@ const TABLES: &[&str] = &[
     "schedule_plans",
     "schedule_executions",
 ];
+const BASE_TABLES: &[&str] = &[
+    "members",
+    "workspace",
+    "clothing",
+    "wardrobe_categories",
+    "audit",
+    "outbox",
+    "assets",
+    "outfits",
+    "outfit_items",
+    "outfit_versions",
+    "wear_events",
+    "wear_receipts",
+    "wear_asset_refs",
+    "care_config",
+    "care_events",
+    "care_receipts",
+    "care_asset_refs",
+    "insights_preferences",
+    "recommendation_intents",
+    "recommendation_saves",
+    "weather_preferences",
+    "feedback_events",
+    "feedback_receipts",
+    "feedback_asset_refs",
+];
+const LEARNING_TABLES: &[&str] = &[
+    "learning_memories",
+    "learning_profiles",
+    "learning_state",
+    "learning_history",
+    "learning_receipts",
+];
+const SCHEDULE_TABLES: &[&str] = &["schedule_plans", "schedule_executions"];
+
+// Explicit historical portable archive shapes. Every supported database
+// version admits exactly the known table sets below; anything else (unknown
+// tables, arbitrary subsets, or mixed variants) is rejected rather than
+// inferred from the version number alone.
+//  - pre-20 legacy: base without categories/learning/schedules
+//  - 20: base without categories plus learning
+//  - 21: category-only (published), schedule-only (unreleased), or both
+//  - 22: sync historical baseline (28) or post-category (29)
+//  - 23: combined category+schedules
+fn known_archive_table_sets(
+    version: u32,
+) -> Option<Vec<std::collections::HashSet<&'static str>>> {
+    let base: std::collections::HashSet<&str> = BASE_TABLES.iter().copied().collect();
+    let learning: std::collections::HashSet<&str> = LEARNING_TABLES.iter().copied().collect();
+    let schedule: std::collections::HashSet<&str> = SCHEDULE_TABLES.iter().copied().collect();
+    let without_categories: std::collections::HashSet<&str> = base
+        .iter()
+        .copied()
+        .filter(|table| *table != "wardrobe_categories")
+        .collect();
+    let core: std::collections::HashSet<&str> = base.union(&learning).copied().collect();
+    let core_without_categories: std::collections::HashSet<&str> =
+        without_categories.union(&learning).copied().collect();
+    let combined: std::collections::HashSet<&str> = core.union(&schedule).copied().collect();
+    let schedule_only: std::collections::HashSet<&str> =
+        core_without_categories.union(&schedule).copied().collect();
+    match version {
+        v if v < 20 => Some(vec![without_categories]),
+        20 => Some(vec![core_without_categories.clone()]),
+        21 => Some(vec![core, schedule_only, combined.clone()]),
+        22 => Some(vec![core_without_categories, core]),
+        23 => Some(vec![combined]),
+        _ => None,
+    }
+}
+
+// The strict legacy versioned shapes carried a composite outfit_versions key
+// and per-root revision uniqueness; schema22+ relaxed them so lawful branch
+// records survive. Archives are validated against the source-derived unique
+// index signatures of the live schema, extended with the legacy signature for
+// schema21-and-older versioned families.
+fn expected_unique_index_signatures(
+    live: &std::collections::HashSet<String>,
+    actual_version: u32,
+    table: &str,
+) -> std::collections::HashSet<String> {
+    let mut expected = live.clone();
+    if actual_version <= 21 {
+        if matches!(
+            table,
+            "outfit_versions" | "wear_events" | "care_events" | "feedback_events"
+        ) {
+            expected.insert(crate::legacy_branch_signature(table).to_string());
+        }
+    }
+    expected
+}
+
 pub(super) fn migrate(tx: &rusqlite::Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS backup_preferences(id INTEGER PRIMARY KEY CHECK(id=1),document TEXT NOT NULL);CREATE TABLE IF NOT EXISTS local_installation_state(id INTEGER PRIMARY KEY CHECK(id=1),generation INTEGER NOT NULL);INSERT OR IGNORE INTO local_installation_state VALUES(1,0);CREATE TABLE IF NOT EXISTS local_submission_guards(space_id TEXT NOT NULL,member_id TEXT NOT NULL,kind TEXT NOT NULL,operation_key TEXT NOT NULL,payload_hash TEXT NOT NULL,submitted_at TEXT NOT NULL,submission_count INTEGER NOT NULL,last_outcome TEXT NOT NULL,PRIMARY KEY(space_id,member_id,kind,operation_key));")?;
     Ok(())
@@ -943,24 +1038,15 @@ impl Application {
                 {
                     return Err(ApiError::new("backup_invalid", "备份数据库版本不匹配"));
                 }
-                let names=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")?.query_map([],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
-                let expected_tables: Vec<&str> = TABLES
+                let names: std::collections::HashSet<String> = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")?.query_map([],|r|r.get::<_,String>(0))?.collect::<Result<std::collections::HashSet<_>,_>>()?;
+                let known = known_archive_table_sets(actual_version)
+                    .ok_or_else(|| ApiError::new("backup_invalid", "备份格式或版本不支持"))?;
+                let matched = known
                     .iter()
-                    .copied()
-                    .filter(|table| {
-                        !(*table == "wardrobe_categories" && actual_version < 21)
-                            && !(actual_version < 20 && table.starts_with("learning_"))
-                            && !(actual_version < 21
-                                && matches!(*table, "schedule_plans" | "schedule_executions"))
+                    .find(|set| {
+                        set.len() == names.len() && set.iter().all(|table| names.contains(*table))
                     })
-                    .collect();
-                if names.len() != expected_tables.len()
-                    || names
-                        .iter()
-                        .any(|name| !expected_tables.contains(&name.as_str()))
-                {
-                    return Err(ApiError::new("backup_invalid", "备份包含非法表结构"));
-                }
+                    .ok_or_else(|| ApiError::new("backup_invalid", "备份包含非法表结构"))?;
                 let dangerous: bool = db.query_row(
                     "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type IN ('trigger','view'))",
                     [],
@@ -969,9 +1055,27 @@ impl Application {
                 if dangerous {
                     return Err(ApiError::new("backup_invalid", "备份包含非法执行结构"));
                 }
+                let mut expected_tables: Vec<&str> = matched.iter().copied().collect();
+                expected_tables.sort_unstable();
                 for table in expected_tables {
-                    if columns(&db, table)? != columns(&self.connection, table)?
+                    let mut expected_columns = columns(&self.connection, table)?;
+                    if actual_version <= 21 && table == "outfit_versions" {
+                        for (name, _, pk) in expected_columns.iter_mut() {
+                            if name == "outfit_id" {
+                                *pk = 1;
+                            } else if name == "version" {
+                                *pk = 2;
+                            }
+                        }
+                    }
+                    let expected_unique = expected_unique_index_signatures(
+                        &unique_index_signatures(&self.connection, table)?,
+                        actual_version,
+                        table,
+                    );
+                    if columns(&db, table)? != expected_columns
                         || foreign_keys(&db, table)? != foreign_keys(&self.connection, table)?
+                        || unique_index_signatures(&db, table)? != expected_unique
                     {
                         return Err(ApiError::new("backup_invalid", "备份字段结构不支持"));
                     }

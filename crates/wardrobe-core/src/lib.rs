@@ -33,7 +33,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 21;
+pub const DATABASE_SCHEMA_VERSION: u32 = 23;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -152,6 +152,7 @@ impl Application {
         encryption::migrate(&tx)?;
         backup::migrate(&tx)?;
         maintenance::migrate(&tx)?;
+        upgrade_branch_shapes(&tx)?;
         tx.execute_batch(&format!(
             "PRAGMA user_version={};",
             version.max(DATABASE_SCHEMA_VERSION)
@@ -358,6 +359,99 @@ impl Application {
             result
         })
     }
+}
+// Source-derived unique index signatures for one table: every unique index
+// (unique constraints, primary keys, and unique created indexes) reduced to
+// its sorted column list, so name variations and nonunique helper indexes are
+// ignored. Unique expression indexes and partial unique indexes map to an
+// unmatchable signature so they can never masquerade as a known constraint.
+pub(crate) fn unique_index_signatures(
+    db: &Connection,
+    table: &str,
+) -> Result<std::collections::HashSet<String>, ApiError> {
+    const UNMATCHABLE: &str = "!expression-or-partial";
+    let quoted_table = table.replace('"', "\"\"");
+    let indexes: Vec<(String, i64, i64)> = db
+        .prepare(&format!("PRAGMA index_list(\"{quoted_table}\")"))?
+        .query_map([], |row| Ok((row.get(1)?, row.get(2)?, row.get(4)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut signatures = std::collections::HashSet::new();
+    for (name, unique, partial) in indexes {
+        if unique != 1 {
+            continue;
+        }
+        if partial != 0 {
+            signatures.insert(UNMATCHABLE.to_string());
+            continue;
+        }
+        let quoted_index = name.replace('"', "\"\"");
+        let mut columns: Vec<Option<String>> = db
+            .prepare(&format!("PRAGMA index_info(\"{quoted_index}\")"))?
+            .query_map([], |row| row.get::<_, Option<String>>(2))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if columns.iter().any(Option::is_none) {
+            signatures.insert(UNMATCHABLE.to_string());
+            continue;
+        }
+        columns.sort();
+        signatures.insert(
+            columns
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join("|"),
+        );
+    }
+    Ok(signatures)
+}
+
+// The extra unique signature a legacy strict versioned family carries on top
+// of the relaxed schema23 shape. Signatures join the index columns after
+// sorting them lexically.
+pub(crate) fn legacy_branch_signature(table: &str) -> &'static str {
+    match table {
+        "outfit_versions" => "outfit_id|version",
+        "feedback_events" => "revision|root_id",
+        _ => "revision|root_event_id",
+    }
+}
+
+// Schema23 adopts the final branch-capable relational shapes: outfit_versions
+// carries no composite (outfit_id,version) primary key and the event histories
+// carry no revision uniqueness, so lawful historical branch records survive
+// upgrades and restores. Legacy tables still carrying the old constraints are
+// rebuilt transactionally with their asset-ref children reattached; the check
+// is idempotent and copies rows losslessly (old constraints guaranteed no
+// duplicate branch keys).
+fn upgrade_branch_shapes(tx: &rusqlite::Transaction<'_>) -> Result<(), ApiError> {
+    for (table, refs, root) in [
+        ("wear_events", Some("wear_asset_refs"), "root_event_id"),
+        ("care_events", Some("care_asset_refs"), "root_event_id"),
+        ("feedback_events", Some("feedback_asset_refs"), "root_id"),
+        ("outfit_versions", None, ""),
+    ] {
+        if !unique_index_signatures(tx, table)?.contains(legacy_branch_signature(table)) {
+            continue;
+        }
+        if let Some(refs) = refs {
+            tx.execute_batch(&format!("ALTER TABLE {refs} RENAME TO {refs}_legacy"))?;
+        }
+        tx.execute_batch(&format!("ALTER TABLE {table} RENAME TO {table}_legacy"))?;
+        if table == "outfit_versions" {
+            tx.execute_batch("CREATE TABLE outfit_versions(outfit_id TEXT NOT NULL REFERENCES outfits(id),version INTEGER NOT NULL,document TEXT NOT NULL)")?;
+        } else {
+            tx.execute_batch(&format!("CREATE TABLE {table}(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),{root} TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL)"))?;
+        }
+        tx.execute_batch(&format!(
+            "INSERT INTO {table} SELECT * FROM {table}_legacy"
+        ))?;
+        if let Some(refs) = refs {
+            tx.execute_batch(&format!("CREATE TABLE {refs}(event_id TEXT NOT NULL REFERENCES {table}(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));INSERT INTO {refs} SELECT * FROM {refs}_legacy;DROP TABLE {refs}_legacy"))?;
+        }
+        tx.execute_batch(&format!("DROP TABLE {table}_legacy"))?;
+    }
+    tx.execute_batch("CREATE INDEX IF NOT EXISTS wear_member_root ON wear_events(member_id,root_event_id,revision);CREATE INDEX IF NOT EXISTS care_member_root ON care_events(member_id,root_event_id,revision);CREATE INDEX IF NOT EXISTS feedback_member_root ON feedback_events(member_id,root_id,revision);CREATE INDEX IF NOT EXISTS outfit_versions_branch ON outfit_versions(outfit_id,version)")?;
+    Ok(())
 }
 fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
     input

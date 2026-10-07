@@ -4,7 +4,7 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS feedback_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL,UNIQUE(root_id,revision)); CREATE INDEX IF NOT EXISTS feedback_member_root ON feedback_events(member_id,root_id,revision); CREATE TABLE IF NOT EXISTS feedback_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS feedback_asset_refs(event_id TEXT NOT NULL REFERENCES feedback_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS feedback_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL); CREATE INDEX IF NOT EXISTS feedback_member_root ON feedback_events(member_id,root_id,revision); CREATE TABLE IF NOT EXISTS feedback_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS feedback_asset_refs(event_id TEXT NOT NULL REFERENCES feedback_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
     Ok(())
 }
 fn parse(s: String) -> Result<Value, ApiError> {
