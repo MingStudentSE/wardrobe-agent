@@ -20,8 +20,14 @@ impl WaitsApplication for Application {
                 Ok(job["result"].clone())
             } else {
                 Err(wardrobe_core::ApiError {
-                    code: job["error"]["code"].as_str().unwrap_or("job_cancelled").into(),
-                    message: job["error"]["message"].as_str().unwrap_or("任务未完成").into(),
+                    code: job["error"]["code"]
+                        .as_str()
+                        .unwrap_or("job_cancelled")
+                        .into(),
+                    message: job["error"]["message"]
+                        .as_str()
+                        .unwrap_or("任务未完成")
+                        .into(),
                 })
             }
         } else {
@@ -87,7 +93,8 @@ fn rebuild_family(db: &std::path::Path, table: &str, strict: bool) {
         return;
     }
     let (refs, root) = family(table);
-    conn.execute_batch("PRAGMA foreign_keys=OFF;BEGIN;").unwrap();
+    conn.execute_batch("PRAGMA foreign_keys=OFF;BEGIN;")
+        .unwrap();
     if !refs.is_empty() {
         conn.execute_batch(&format!("ALTER TABLE {refs} RENAME TO {refs}_legacy"))
             .unwrap();
@@ -104,10 +111,8 @@ fn rebuild_family(db: &std::path::Path, table: &str, strict: bool) {
         event_ddl(root, strict).replace("{table}", table)
     };
     conn.execute_batch(&ddl).unwrap();
-    conn.execute_batch(&format!(
-        "INSERT INTO {table} SELECT * FROM {table}_legacy"
-    ))
-    .unwrap();
+    conn.execute_batch(&format!("INSERT INTO {table} SELECT * FROM {table}_legacy"))
+        .unwrap();
     if !refs.is_empty() {
         conn.execute_batch(&format!("CREATE TABLE {refs}(event_id TEXT NOT NULL REFERENCES {table}(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));INSERT INTO {refs} SELECT * FROM {refs}_legacy;DROP TABLE {refs}_legacy"))
             .unwrap();
@@ -141,7 +146,8 @@ fn reshape_all_families(db: &std::path::Path, strict: bool) {
 fn relax_to_sync22_shape_and_add_branches(db: &std::path::Path, stamp: u32) {
     reshape_all_families(db, false);
     let conn = rusqlite::Connection::open(db).unwrap();
-    conn.execute_batch("PRAGMA foreign_keys=OFF;BEGIN;").unwrap();
+    conn.execute_batch("PRAGMA foreign_keys=OFF;BEGIN;")
+        .unwrap();
     let outfit_rows: Vec<(String, i64, String)> = conn
         .prepare("SELECT outfit_id,version,document FROM outfit_versions")
         .unwrap()
@@ -161,13 +167,7 @@ fn relax_to_sync22_shape_and_add_branches(db: &std::path::Path, stamp: u32) {
             .prepare(&query)
             .unwrap()
             .query_row([], |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                ))
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
             })
             .optional()
             .unwrap();
@@ -240,9 +240,7 @@ fn setup() -> Ready {
     let archive_parent = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("facts.sqlite")).unwrap();
     app.execute("space.default", json!({})).unwrap();
-    let member_id: String = app
-        .execute("member.list", json!({}))
-        .unwrap()["items"][0]["member_id"]
+    let member_id: String = app.execute("member.list", json!({})).unwrap()["items"][0]["member_id"]
         .as_str()
         .unwrap()
         .into();
@@ -255,10 +253,7 @@ fn setup() -> Ready {
     let image = dir.path().join("fixture-image.png");
     std::fs::write(&image, ONE_PIXEL_PNG).unwrap();
     let asset = app
-        .execute(
-            "assets.import",
-            json!({"member_id":"default","path":image}),
-        )
+        .execute("assets.import", json!({"member_id":"default","path":image}))
         .unwrap();
     app.execute(
         "assets.adopt",
@@ -302,8 +297,11 @@ fn setup() -> Ready {
             json!({"member_id":"default","name":"历史护理","kind":"care","local_time":"21:30","timezone":"Asia/Shanghai","weekdays":[1,2,3,4,5,6,7],"execution_device_id":device["id"],"occasion":"daily","target_day_offset":0,"enabled":true}),
         )
         .unwrap();
-    app.execute("category.create", json!({"member_id":"default","name":"出行的衣"}))
-        .unwrap();
+    app.execute(
+        "category.create",
+        json!({"member_id":"default","name":"出行的衣"}),
+    )
+    .unwrap();
     let base = archive_parent.path().join("base23");
     app.wait(
         "backup.create",
@@ -403,11 +401,7 @@ fn user_version(db: &std::path::Path) -> u32 {
         .unwrap()
 }
 
-fn exported_documents(
-    db: &rusqlite::Connection,
-    query: &str,
-    param: &str,
-) -> Vec<Value> {
+fn exported_documents(db: &rusqlite::Connection, query: &str, param: &str) -> Vec<Value> {
     db.prepare(query)
         .unwrap()
         .query_map([param], |r| {
@@ -446,22 +440,14 @@ fn assert_exact_refs(
             "SELECT event_id,asset_id,member_id FROM {table} ORDER BY event_id"
         ))
         .unwrap()
-        .query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?))
-        })
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?)))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     actual.sort();
     let mut expected: Vec<(String, String, String)> = expected
         .iter()
-        .map(|(event, asset, member)| {
-            (
-                event.to_string(),
-                asset.to_string(),
-                member.to_string(),
-            )
-        })
+        .map(|(event, asset, member)| (event.to_string(), asset.to_string(), member.to_string()))
         .collect();
     expected.sort();
     assert_eq!(actual, expected, "{label}资产引用须逐行精确保留");
@@ -478,7 +464,11 @@ fn combined_schema23_is_the_portable_baseline() {
     assert_eq!(preview["valid"], true);
     assert_eq!(preview["manifest"]["database_version"], 23);
     assert_eq!(preview["incoming"]["assets"], 1);
-    assert_eq!(media_checksums(&ready.base).len(), 2, "展示图与缩略图须入备份");
+    assert_eq!(
+        media_checksums(&ready.base).len(),
+        2,
+        "展示图与缩略图须入备份"
+    );
 }
 
 #[test]
@@ -725,7 +715,12 @@ fn sync22_archives_import_with_branch_records_preserved() {
         } else {
             (care_docs[0].clone(), care_docs[1].clone())
         };
-        assert_branch_pair(care_original, care_branch, BRANCH_CARE_EVENT_ID, &format!("{name} 护理"));
+        assert_branch_pair(
+            care_original,
+            care_branch,
+            BRANCH_CARE_EVENT_ID,
+            &format!("{name} 护理"),
+        );
         let feedback_docs = exported_documents(
             &exported,
             "SELECT document FROM feedback_events WHERE root_id=?1 ORDER BY id",
@@ -1049,8 +1044,11 @@ fn application_open_upgrades_known_historical_local_databases() {
         .unwrap();
     assert_eq!(plans["plans"][0]["id"], ready.plan["id"]);
     assert!(
-        app.execute("category.create", json!({"member_id":"default","name":"补充分类"}))
-            .is_ok(),
+        app.execute(
+            "category.create",
+            json!({"member_id":"default","name":"补充分类"})
+        )
+        .is_ok(),
         "升级后分类注册表必须可用"
     );
     drop(app);
@@ -1093,11 +1091,7 @@ fn application_open_upgrades_known_historical_local_databases() {
     );
     drop(app);
     let db = keep.path().join("facts.sqlite");
-    assert_eq!(
-        user_version(&db),
-        23,
-        "sync22 打开须升级到23且不得降级"
-    );
+    assert_eq!(user_version(&db), 23, "sync22 打开须升级到23且不得降级");
     let conn =
         rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .unwrap();
@@ -1109,6 +1103,86 @@ fn application_open_upgrades_known_historical_local_databases() {
         )
         .unwrap();
     assert_eq!(receipts, 1, "sync22 本地回执必须在升级后保留");
+}
+
+// Strict21 local upgrade rebuilds the versioned families inside the SAME open
+// instance; the learning source-invalidation triggers must survive onto the
+// relaxed tables so new public event writes immediately mark learned profiles
+// stale. Each versioned family gets an independent recompute→write→stale
+// cycle through public learning seams only, never private triggers.
+#[test]
+fn strict21_upgrade_keeps_learning_source_invalidation_live() {
+    let ready = setup();
+    let live_db = ready._dir.path().join("facts.sqlite");
+    drop(ready.app);
+    let (app, _keep) = open_local_variant(&live_db, |db| {
+        reshape_all_families(db, true);
+        let conn = rusqlite::Connection::open(db).unwrap();
+        conn.pragma_update(None, "user_version", 21).unwrap();
+    });
+    fn recompute(app: &Application, member: &str, key: &str) {
+        let submitted = app
+            .execute(
+                "learning.recompute",
+                json!({"member_id":member,"operation_key":key}),
+            )
+            .unwrap();
+        let job = app
+            .execute(
+                "learning.worker.run",
+                json!({"member_id":member,"job_id":submitted["job_id"]}),
+            )
+            .unwrap();
+        assert_eq!(job["state"], "succeeded", "重算任务须完成");
+    }
+    fn fresh(app: &Application, member: &str) {
+        let profile = app
+            .execute("learning.get", json!({"member_id":member}))
+            .unwrap();
+        assert_eq!(
+            profile["source_stale"],
+            json!(false),
+            "重算后学习源须为最新"
+        );
+    }
+    // Cycle 1: wear_events family invalidation.
+    recompute(&app, &ready.member_id, "trigger-recompute-wear");
+    fresh(&app, &ready.member_id);
+    app.wait(
+        "wear.record",
+        json!({"member_id":ready.member_id,"clothing_ids":[ready.garment_id],"local_date":"2020-01-03","timezone":"UTC","operation_key":"wear-after-upgrade"}),
+    )
+    .unwrap();
+    let wear_stale = app
+        .execute("learning.get", json!({"member_id":ready.member_id}))
+        .unwrap();
+    assert_eq!(
+        wear_stale["source_stale"],
+        json!(true),
+        "升级实例内的穿着写入必须立即使学习源失效"
+    );
+    // Cycle 2: feedback_events family invalidation, independently fresh again.
+    recompute(&app, &ready.member_id, "trigger-recompute-feedback");
+    fresh(&app, &ready.member_id);
+    let intent = app
+        .wait(
+            "recommendation.generate",
+            json!({"member_id":ready.member_id,"operation_key":"trigger-intent","limit":1,"timezone":"UTC"}),
+        )
+        .unwrap();
+    app.wait(
+        "feedback.record",
+        json!({"member_id":ready.member_id,"operation_key":"feedback-after-upgrade","intent_id":intent["id"],"proposal_index":0,"reaction":"like"}),
+    )
+    .unwrap();
+    let feedback_stale = app
+        .execute("learning.get", json!({"member_id":ready.member_id}))
+        .unwrap();
+    assert_eq!(
+        feedback_stale["source_stale"],
+        json!(true),
+        "升级实例内的反馈写入必须立即使学习源失效"
+    );
 }
 
 #[test]

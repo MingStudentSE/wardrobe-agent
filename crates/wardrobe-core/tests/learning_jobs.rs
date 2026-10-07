@@ -440,7 +440,27 @@ fn accepted_db19_archive_restores_empty_learning_without_relaxing_current_schema
     let package = d.path().join("legacy");
     maintenance(&a, "backup.create", json!({"directory":package}));
     let db = rusqlite::Connection::open(package.join("facts.sqlite")).unwrap();
-    db.execute_batch("DROP TABLE learning_memories;DROP TABLE learning_profiles;DROP TABLE learning_state;DROP TABLE learning_history;DROP TABLE learning_receipts;DROP TABLE IF EXISTS schedule_executions;DROP TABLE IF EXISTS schedule_plans;PRAGMA user_version=19;").unwrap();
+    db.execute_batch("DROP TABLE learning_memories;DROP TABLE learning_profiles;DROP TABLE learning_state;DROP TABLE learning_history;DROP TABLE learning_receipts;DROP TABLE IF EXISTS wardrobe_categories;DROP TABLE IF EXISTS schedule_executions;DROP TABLE IF EXISTS schedule_plans;").unwrap();
+    // A genuine db19 archive predates the learning tables, the category
+    // dictionary, and the schedule tables; its versioned families still carry
+    // the strict legacy constraints (composite outfit_versions key and
+    // per-root revision uniqueness) that schema22 relaxed. Rebuild them so the
+    // fixture is an authentic historical shape instead of relaxing the
+    // production validator (reference: bd4668e).
+    for (table, refs, ddl, index) in [
+        ("wear_events", "wear_asset_refs", "CREATE TABLE wear_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_event_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL,UNIQUE(root_event_id,revision))", "CREATE INDEX wear_member_root ON wear_events(member_id,root_event_id,revision);"),
+        ("care_events", "care_asset_refs", "CREATE TABLE care_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_event_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL,UNIQUE(root_event_id,revision))", "CREATE INDEX care_member_root ON care_events(member_id,root_event_id,revision);"),
+        ("feedback_events", "feedback_asset_refs", "CREATE TABLE feedback_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL,UNIQUE(root_id,revision))", "CREATE INDEX feedback_member_root ON feedback_events(member_id,root_id,revision);"),
+        ("outfit_versions", "", "CREATE TABLE outfit_versions(outfit_id TEXT NOT NULL REFERENCES outfits(id),version INTEGER NOT NULL,document TEXT NOT NULL,PRIMARY KEY(outfit_id,version))", ""),
+    ] {
+        let mut batch = format!("BEGIN;ALTER TABLE {table} RENAME TO {table}_legacy;{ddl};INSERT INTO {table} SELECT * FROM {table}_legacy;");
+        if !refs.is_empty() {
+            batch.push_str(&format!("ALTER TABLE {refs} RENAME TO {refs}_legacy;CREATE TABLE {refs}(event_id TEXT NOT NULL REFERENCES {table}(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));INSERT INTO {refs} SELECT * FROM {refs}_legacy;DROP TABLE {refs}_legacy;"));
+        }
+        batch.push_str(&format!("DROP TABLE {table}_legacy;{index}COMMIT;"));
+        db.execute_batch(&batch).unwrap();
+    }
+    db.execute_batch("PRAGMA user_version=19;").unwrap();
     drop(db);
     let bytes = std::fs::read(package.join("facts.sqlite")).unwrap();
     let mut manifest: serde_json::Value =

@@ -153,6 +153,11 @@ impl Application {
         backup::migrate(&tx)?;
         maintenance::migrate(&tx)?;
         upgrade_branch_shapes(&tx)?;
+        // The rebuild renames/drops the legacy versioned families, and SQLite
+        // drops their attached learning source-invalidation triggers with
+        // them; recreate the (idempotent) triggers so the SAME open instance
+        // keeps marking learned profiles stale on new event writes.
+        learning::migrate(&tx)?;
         tx.execute_batch(&format!(
             "PRAGMA user_version={};",
             version.max(DATABASE_SCHEMA_VERSION)
