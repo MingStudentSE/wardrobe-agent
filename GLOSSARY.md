@@ -89,3 +89,5 @@
 - **受保护分类删除（Protected Category Delete）**：默认分类不可删除；删除自定义分类先在同一事务把引用它的单品迁入其他并保留审计，再写分类墓碑。对端按序收到迁移与墓碑后分类列表与源端一致。
 - **资产发现预算（Asset Discovery Budget）**：每次同步批对每个 blob 目录最多消费固定页数的列举，位置持久化并在耗尽时回卷；已登记的 blob commit 键不再重复解密。已处理提交事后损坏不阻塞后续同步，未处理提交损坏仍整体失败。
 - **发布标记门槛（Publication Marker Gate）**：只有 `.commit` 标记可见的对象才会被对端发现；对象损坏或被截断时同步整体失败，不应用该对象的部分字节，修复后同一日志继续收敛。
+- **条件写入能力探针（Conditional-Write Capability Probe）**：WebDAV 等外部传输在连接与配置期用真实条件写入握手验证服务器确实执行防覆盖判定；未执行的服务器被明确以 storage_unsupported 拒绝，不静默降级。
+- **传输条件令牌（Transport Conditional Token）**：WebDAV 适配器用服务器 ETag（If-None-Match/RFC 4918 If 头）做条件写的唯一依据；ETag 只是透明令牌，绝不当作内容摘要，内容完整性始终由 sha256 发布标记判定。

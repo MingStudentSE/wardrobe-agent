@@ -1,4 +1,5 @@
 //! Transport-only contract. Adapters never interpret encrypted objects.
+pub use super::webdav::{WebDav, WebDavConfig};
 use crate::ApiError;
 use sha2::{Digest, Sha256};
 use std::{

@@ -9,7 +9,11 @@ const openSyncPanel=async(page:import('@playwright/test').Page)=>{
  await page.getByRole('button',{name:/同步.*连接本地同步目标/}).click();
  await page.getByText('跨设备同步',{exact:true}).click();
 };
-test('同步目标无配置时真实Application状态与窄屏手工配置入口',async({page})=>{
+test('同步目标无配置时真实Application状态与窄屏手工配置入口',async({page,request})=>{
+ // 本用例要求全新安装（未配置任何同步目标）。同一数据目录里先跑过其他
+ // 同步 spec（如 sync-webdav）会留下目标配置，此时跳过而不是误报。
+ const pristine=await (await request.post('/__wardrobe_dev_api',{data:{operation:'sync.status',input:{}}})).json();
+ test.skip(pristine.result?.target,'requires an installation without a configured sync target');
  await page.goto('/');
  await openSyncPanel(page);
  const panel=page.locator('#sync-settings');
