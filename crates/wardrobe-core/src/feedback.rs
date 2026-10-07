@@ -633,11 +633,52 @@ impl Application {
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
+    let scores_schema=json!({"type":"object","required":["overall","comfort","style"],"properties":{"overall":{"type":["integer","null"],"minimum":1,"maximum":5},"comfort":{"type":["integer","null"],"minimum":1,"maximum":5},"style":{"type":["integer","null"],"minimum":1,"maximum":5}}});
+    // record/correct/revoke/get共享同一事件文档；correct/revoke追加supersedes_event_id，revoke另有reason
+    let event=json!({"type":"object","required":["schema_version","member_id","id","root_id","revision","revoked","intent_id","proposal_index","proposal","inventory_snapshots","inventory_observed_at","controls","reaction","wear_event_id","day_scope","clothing_ids","scores","created_at"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"id":{"type":"string"},"root_id":{"type":"string"},"revision":{"type":"integer","minimum":1},"revoked":{"type":"boolean"},"intent_id":{"type":"string"},"proposal_index":{"type":"integer","minimum":0},"proposal":{"type":"object"},"inventory_snapshots":{"type":"array"},"inventory_observed_at":{"type":"string"},"controls":{"type":"object"},"reaction":{"enum":["like","dislike","skip","day_exclude","actual_wore","changed"]},"wear_event_id":{"type":["string","null"]},"day_scope":{"type":["object","null"]},"clothing_ids":{"type":"array","items":{"type":"string"}},"scores":scores_schema,"created_at":{"type":"string"},"supersedes_event_id":{"type":"string"},"reason":{"type":"string"}}});
+    // try_another内嵌recommendation.change结果，输出schema直接复用共享注册表来源，不复制第二份
+    let generate_union=crate::recommendations::descriptors().into_iter().find(|d| d["name"]=="recommendation.generate").map(|d| d["outputSchema"].clone()).unwrap_or(json!({}));
     ["record","get","list","correct","revoke","history","try_another"].into_iter().map(|op|{
  let mut props=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
  match op {"try_another"=>{required.extend(["operation_key","intent_id","proposal_index"]);props["operation_key"]=json!({"type":"string"});props["intent_id"]=json!({"type":"string"});props["proposal_index"]=json!({"type":"integer","minimum":0});},"record"=>{for f in ["operation_key","intent_id"]{props[f]=json!({"type":"string"});required.push(f);}required.extend(["proposal_index","reaction"]);props["proposal_index"]=json!({"type":"integer","minimum":0});props["reaction"]=json!({"enum":["like","dislike","skip","day_exclude","actual_wore","changed"]});props["wear"]=json!({"type":"object","additionalProperties":false,"required":["confirmed","local_date","timezone"],"properties":{"confirmed":{"const":true},"local_date":{"type":"string"},"timezone":{"type":"string"},"local_time":{"type":"string"},"notes":{"type":"string"},"clothing_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":100,"uniqueItems":true}}});props["timezone"]=json!({"type":"string"});props["clothing_ids"]=json!({"type":"array","minItems":1,"maxItems":100,"uniqueItems":true,"items":{"type":"string"}});props["scores"]=json!({"type":"object","additionalProperties":false,"properties":{"overall":{"type":["integer","null"],"minimum":1,"maximum":5},"comfort":{"type":["integer","null"],"minimum":1,"maximum":5},"style":{"type":["integer","null"],"minimum":1,"maximum":5}}});},"correct"|"revoke"=>{required.extend(["root_id","operation_key","expected_revision"]);props["root_id"]=json!({"type":"string"});props["operation_key"]=json!({"type":"string"});props["expected_revision"]=json!({"type":"integer","minimum":1});if op=="revoke"{required.push("reason");props["reason"]=json!({"type":"string"});}else{props["reaction"]=json!({"enum":["like","dislike","skip"]});props["scores"]=json!({"type":"object","additionalProperties":false,"properties":{"overall":{"type":["integer","null"],"minimum":1,"maximum":5},"comfort":{"type":["integer","null"],"minimum":1,"maximum":5},"style":{"type":["integer","null"],"minimum":1,"maximum":5}}});}},
  "history"=>{required.push("root_id");props["root_id"]=json!({"type":"string"});props["limit"]=json!({"type":"integer","minimum":1,"maximum":100});props["cursor"]=json!({"type":"integer","minimum":0});},
  "get"=>{required.push("id");props["id"]=json!({"type":"string"});},_=>{props["limit"]=json!({"type":"integer","minimum":1,"maximum":100});props["cursor"]=json!({"type":"string"});props["include_revoked"]=json!({"type":"boolean"});}}
- json!({"name":format!("feedback.{op}"),"description":"显式推荐反馈，不隐式记录穿着","inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","member_id"]}})
+ let output=match op {
+            "list"=>json!({"type":"object","required":["schema_version","member_id","items","next_cursor"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"items":{"type":"array","items":event},"next_cursor":{"type":["string","null"]}}}),
+            "history"=>json!({"type":"object","required":["schema_version","member_id","items","next_cursor"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"items":{"type":"array","items":event},"next_cursor":{"type":["integer","null"]}}}),
+            "try_another"=>json!({"type":"object","required":["schema_version","member_id","feedback","recommendation"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"feedback":event,"recommendation":generate_union}}),
+            _=>event.clone(),
+        };
+        let (effect,examples)=match op {
+            "record"=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null,"conditional_effects":[{"when":{"reaction":"actual_wore"},"effect":{"kind":"mutation","wear":"wear.record"}},{"when":{"reaction":"changed"},"effect":{"kind":"mutation","wear":"wear.record"}}]}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","intent_id":"<推荐意图ID>","proposal_index":0,"reaction":"like"},"prerequisites":["显式反馈不隐式记录穿着","reaction=day_exclude须提供IANA时区；actual_wore/changed须wear.confirmed并真实产生WearEvent","幂等键防止重复提交"]}]),
+            ),
+            "get"=>(
+                json!({"kind":"query","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","id":"<feedback.record返回的事件ID>"},"prerequisites":["按事件ID读取反馈事件及其修订与撤销状态"]}]),
+            ),
+            "list"=>(
+                json!({"kind":"query","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按事件ID倒序返回每根反馈的最新修订；默认不含已撤销","游标为最后一条事件ID字符串"]}]),
+            ),
+            "correct"=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","root_id":"<反馈根ID>","operation_key":"<唯一操作标识>","expected_revision":1,"reaction":"skip"},"prerequisites":["乐观并发：expected_revision不符报version_conflict","当天排除/实际穿着不能改为普通意见，请撤销后新增","不删除历史修订"]}]),
+            ),
+            "revoke"=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","root_id":"<反馈根ID>","operation_key":"<唯一操作标识>","expected_revision":1,"reason":"<1-2000字撤销原因>"},"prerequisites":["撤销保留全部历史修订并记录原因","已撤销反馈不能再次更正或撤销"]}]),
+            ),
+            "history"=>(
+                json!({"kind":"query","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","root_id":"<反馈根ID>"},"prerequisites":["按修订升序返回反馈修订链","next_cursor为整数修订游标，无更多页时为null"]}]),
+            ),
+            _=>(
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","intent_id":"<推荐意图ID>","proposal_index":0},"prerequisites":["组合动作：先保存skip反馈再按同方案换一套（recommendation.change）","须同时具备feedback.record与recommendation.change授权；换套失败时反馈已保存并在错误信息中说明","原意图为ai策略时会重新入队并由recommendation.worker.run处理"]}]),
+            ),
+        };
+ json!({"name":format!("feedback.{op}"),"description":"显式推荐反馈，不隐式记录穿着","effect":effect,"examples":examples,"inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"outputSchema":output})
 }).collect()
 }

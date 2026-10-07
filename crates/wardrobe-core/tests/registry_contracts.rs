@@ -1270,3 +1270,275 @@ fn recommendation_family_effects_examples_and_runtime_output_contract() {
     );
     // remaining：worker.run(strategy=ai) 真实供应商运行时证明需本地假供应商，未在本测试覆盖
 }
+
+#[test]
+fn feedback_family_effects_examples_and_runtime_output_contract() {
+    // 真实运行时输出：反馈全生命周期；普通反馈永不产生穿着，actual_wore显式确认才产生
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("fb.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let _top = app
+        .execute("clothing.create", json!({"member_id":member,"name":"上衣","category":"top"}))
+        .unwrap();
+    let _bottom = app
+        .execute("clothing.create", json!({"member_id":member,"name":"裤子","category":"bottom"}))
+        .unwrap();
+    let generated = app
+        .execute(
+            "recommendation.generate",
+            json!({"member_id":member,"operation_key":"fb-rec-1","timezone":"UTC","strategy":"rules","limit":3,"occasion":"daily"}),
+        )
+        .unwrap();
+    assert!(!generated["proposals"].as_array().unwrap().is_empty());
+    let intent_id = generated["id"].as_str().unwrap().to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let recorded = app
+        .execute(
+            "feedback.record",
+            json!({"member_id":member,"operation_key":"fb-1","intent_id":intent_id,"proposal_index":0,"reaction":"like"}),
+        )
+        .unwrap();
+    assert_eq!(recorded["revoked"], json!(false));
+    assert_eq!(recorded["wear_event_id"], Value::Null, "普通反馈不产生穿着");
+    assert_result_matches_schema(&schema_of("feedback.record"), &recorded, "record");
+    let got = app
+        .execute("feedback.get", json!({"member_id":member,"id":recorded["id"]}))
+        .unwrap();
+    assert_eq!(got["id"], recorded["id"]);
+    assert_result_matches_schema(&schema_of("feedback.get"), &got, "get");
+    let listed = app.execute("feedback.list", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("feedback.list"), &listed, "list");
+    assert_eq!(listed["items"].as_array().unwrap().len(), 1);
+
+    let corrected = app
+        .execute(
+            "feedback.correct",
+            json!({"member_id":member,"root_id":recorded["root_id"],"operation_key":"fb-2","expected_revision":1,"reaction":"skip"}),
+        )
+        .unwrap();
+    assert_eq!(corrected["revision"], json!(2));
+    assert_eq!(corrected["supersedes_event_id"], recorded["id"]);
+    assert_result_matches_schema(&schema_of("feedback.correct"), &corrected, "correct");
+    let history = app
+        .execute("feedback.history", json!({"member_id":member,"root_id":recorded["root_id"]}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("feedback.history"), &history, "history");
+    assert_eq!(history["items"].as_array().unwrap().len(), 2);
+    assert_eq!(history["next_cursor"], Value::Null);
+    let conflict = app
+        .execute(
+            "feedback.correct",
+            json!({"member_id":member,"root_id":recorded["root_id"],"operation_key":"fb-3","expected_revision":1,"reaction":"like"}),
+        )
+        .unwrap_err();
+    assert_eq!(conflict.code, "version_conflict", "过期修订必须拒绝");
+    let revoked = app
+        .execute(
+            "feedback.revoke",
+            json!({"member_id":member,"root_id":recorded["root_id"],"operation_key":"fb-4","expected_revision":2,"reason":"不再喜欢"}),
+        )
+        .unwrap();
+    assert_eq!(revoked["revoked"], json!(true));
+    assert_eq!(revoked["revision"], json!(3));
+    assert_result_matches_schema(&schema_of("feedback.revoke"), &revoked, "revoke");
+    let listed_after = app.execute("feedback.list", json!({"member_id":member})).unwrap();
+    assert_eq!(
+        listed_after["items"].as_array().unwrap().len(),
+        0,
+        "默认列表不含已撤销反馈"
+    );
+
+    let generated2 = app
+        .execute(
+            "recommendation.generate",
+            json!({"member_id":member,"operation_key":"fb-rec-2","timezone":"UTC","strategy":"rules","limit":3,"occasion":"work"}),
+        )
+        .unwrap();
+    let another = app
+        .execute(
+            "feedback.try_another",
+            json!({"member_id":member,"operation_key":"fb-5","intent_id":generated2["id"],"proposal_index":0}),
+        )
+        .unwrap();
+    assert_eq!(another["feedback"]["reaction"], json!("skip"));
+    assert_result_matches_schema(&schema_of("feedback.try_another"), &another, "try_another");
+
+    let wore = app
+        .execute(
+            "feedback.record",
+            json!({"member_id":member,"operation_key":"fb-6","intent_id":intent_id,"proposal_index":0,"reaction":"actual_wore","wear":{"confirmed":true,"local_date":"2026-10-07","timezone":"UTC"}}),
+        )
+        .unwrap();
+    assert!(wore["wear_event_id"].is_string(), "actual_wore显式确认才产生WearEvent");
+    assert_result_matches_schema(&schema_of("feedback.record"), &wore, "record-actual_wore");
+    let wears = app.execute("wear.list", json!({"member_id":member})).unwrap();
+    assert_eq!(wears["items"].as_array().unwrap().len(), 1, "只有实际穿着产生WearEvent");
+
+    let family = [
+        ("feedback.record", "mutation", false),
+        ("feedback.get", "query", false),
+        ("feedback.list", "query", false),
+        ("feedback.correct", "mutation", false),
+        ("feedback.revoke", "mutation", false),
+        ("feedback.history", "query", false),
+        ("feedback.try_another", "mutation", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    let record = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("feedback.record"))
+        .unwrap();
+    let conditional = record["effect"]["conditional_effects"]
+        .as_array()
+        .expect("record 须声明穿着条件效果");
+    assert!(conditional.iter().any(|c| {
+        c["when"]["reaction"] == json!("actual_wore") && c["effect"]["wear"] == json!("wear.record")
+    }));
+}
+
+#[test]
+fn learning_family_effects_examples_and_runtime_output_contract() {
+    // 真实运行时输出：显式偏好全生命周期；recompute异步入队由worker本地完成；事实不变
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("lr.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let top = app
+        .execute("clothing.create", json!({"member_id":member,"name":"上衣","category":"top"}))
+        .unwrap();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let set = app
+        .execute(
+            "learning.set",
+            json!({"member_id":member,"operation_key":"lr-1","dimension":"color","value":"藏青","weight":3,"note":"喜欢"}),
+        )
+        .unwrap();
+    assert_eq!(set["source"]["kind"], json!("explicit_user"));
+    assert_result_matches_schema(&schema_of("learning.set"), &set, "set");
+    let dup = app
+        .execute(
+            "learning.set",
+            json!({"member_id":member,"operation_key":"lr-2","dimension":"color","value":"藏青","weight":1}),
+        )
+        .unwrap_err();
+    assert_eq!(dup.code, "preference_exists", "同特征重复须拒绝");
+    let profile = app.execute("learning.get", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("learning.get"), &profile, "get");
+    assert_eq!(profile["explicit"].as_array().unwrap().len(), 1);
+    let edited = app
+        .execute(
+            "learning.edit",
+            json!({"member_id":member,"operation_key":"lr-3","root_id":set["root_id"],"expected_revision":1,"weight":-1}),
+        )
+        .unwrap();
+    assert_eq!(edited["revision"], json!(2));
+    assert_result_matches_schema(&schema_of("learning.edit"), &edited, "edit");
+    let stale = app
+        .execute(
+            "learning.edit",
+            json!({"member_id":member,"operation_key":"lr-4","root_id":set["root_id"],"expected_revision":1,"weight":2}),
+        )
+        .unwrap_err();
+    assert_eq!(stale.code, "stale_revision", "过期修订必须拒绝");
+    let history = app.execute("learning.history", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("learning.history"), &history, "history");
+
+    let rec = app
+        .execute("learning.recompute", json!({"member_id":member,"operation_key":"lr-5"}))
+        .unwrap();
+    assert_eq!(rec["state"], json!("queued"), "recompute返回任务收据而非画像");
+    assert_result_matches_schema(&schema_of("learning.recompute"), &rec, "recompute");
+    let job_id = rec["job_id"].as_str().unwrap().to_string();
+    let job = app
+        .execute("learning.worker.run", json!({"member_id":member,"job_id":job_id}))
+        .unwrap();
+    assert_eq!(job["kind"], json!("learning_recompute"));
+    assert_eq!(job["state"], json!("succeeded"));
+    assert_result_matches_schema(&schema_of("learning.worker.run"), &job, "worker.run");
+    let profile2 = app.execute("learning.get", json!({"member_id":member})).unwrap();
+    assert_eq!(profile2["source_stale"], json!(false), "重算后画像不再滞后");
+
+    let deleted = app
+        .execute(
+            "learning.delete",
+            json!({"member_id":member,"operation_key":"lr-6","dimension":"color","value":"藏青"}),
+        )
+        .unwrap();
+    assert_eq!(deleted["operation"], json!("learning.delete"));
+    assert_result_matches_schema(&schema_of("learning.delete"), &deleted, "delete");
+    let profile3 = app.execute("learning.get", json!({"member_id":member})).unwrap();
+    assert_eq!(profile3["explicit"].as_array().unwrap().len(), 0, "删除后显式偏好消失");
+    let reset = app
+        .execute(
+            "learning.reset",
+            json!({"member_id":member,"operation_key":"lr-7","scope":"inferred"}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("learning.reset"), &reset, "reset");
+    let unchanged = app
+        .execute("clothing.get", json!({"member_id":member,"id":top["id"]}))
+        .unwrap();
+    assert_eq!(unchanged["name"], json!("上衣"), "学习操作不改变衣物事实");
+
+    let family = [
+        ("learning.get", "query", false),
+        ("learning.set", "mutation", false),
+        ("learning.edit", "mutation", false),
+        ("learning.delete", "mutation", false),
+        ("learning.reset", "mutation", false),
+        ("learning.history", "query", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    let recompute = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("learning.recompute"))
+        .unwrap();
+    let async_meta = recompute["effect"]["async"]
+        .as_object()
+        .expect("recompute 须声明无条件异步入队");
+    assert_eq!(async_meta["job_kind"], json!("learning_recompute"));
+    assert_eq!(async_meta["process"], json!("learning.worker.run"));
+    let worker = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("learning.worker.run"))
+        .unwrap();
+    assert_eq!(worker["effect"]["kind"], json!("mutation"));
+    assert_eq!(worker["effect"]["network"], json!("none"), "画像重算纯本地");
+    assert_eq!(
+        worker["outputSchema"]["properties"]["kind"]["const"],
+        json!("learning_recompute")
+    );
+}
