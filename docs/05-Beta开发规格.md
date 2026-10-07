@@ -36,7 +36,7 @@
 
 单品必填：id、member_id、name、category、status；name 去首尾空白，1–120 字符，缺名称的草稿默认“未命名单品”。无照片可保存，展示占位图。必填不代表必须手工输入 ID。category 未知可选 other，status 默认 active。
 
-- category 固定为 top、bottom、outerwear、dress、one_piece、shoes、bag、accessory、underwear、sportswear、other。sub_category 为版本化分类表中的可选 ID；用户自定义标签不改变核心 category 枚举。
+- category 使用成员自己的分类注册表；默认提供 top、bottom、outerwear、dress、one_piece、shoes、bag、accessory、underwear、sportswear、other，允许通过 category.create / category.delete 新增和删除。新增分类使用稳定 custom_UUID ID；删除分类将已有单品转入 other，保留历史穿搭快照；other 不可删除。sub_category 为可选自由文本。参见 docs/api/categories.md。
 - seasons 固定 spring/summer/autumn/winter 多选，空数组表示未知或未设；“四季”展开为四项。
 - color、pattern、material、style、occasion、tags 为可编辑多值；颜色使用稳定 ID + 可选用户描述。数组按规范化键去重，保留展示文本。
 - brand、size_label、fit、description、notes 为可选文本；notes 上限 10000 字符。尺寸数值使用独立 measurement + unit，不让 LLM 从图片推断真实尺寸。
@@ -125,6 +125,6 @@ API 支持：文本/视觉 OpenAI-compatible 可配置端点、模型和安全�
 - 隐私：扫描本地普通配置、日志、导出和同步包，无 API key、密码或被禁止同步的资产/EXIF/GPS；模型上传对象与用户操作一致。
 - 性能：每平台记录测试机器；在 4 核 CPU、8 GB RAM、SSD 基线及 10000 单品/100000 穿着事件 fixture 下，冷启动到衣橱可交互 ≤5秒，本地搜索/筛选首屏 p95 ≤500ms，普通实体保存 p95 ≤300ms（不含图片/网络）。各采样至少 30 次，记录实测与环境，不把云模型响应纳入本地性能保证。
 - 图片：固定至少 20 张含白衣、细纹、印花、旋转和大图的样本；压缩前后并排人工检查，不损坏可辨细节；遵循架构的软体积阈值，原图字节不变。
-- UI：Hallmark 审查及 04 文档全部视口、键盘、触摸等价入口、空/加载/失败状态验收；不只检查静态首页。
+- UI：`ui-ux-pro-max` 审查及 04 文档全部视口、键盘、触摸等价入口、空/加载/失败状态验收；不只检查静态首页。
 - 平台：各目标系统真实安装/升级/恢复，GUI/CLI/MCP 可独立运行；Android 仅验证适配基础，不计为真机完成。
 - 发布：F01–F30 全通过、有可下载三平台产物、许可与依赖清单、已知限制、迁移说明和测试报告后才能标记 Beta 完成。凭据不可用的 UI 提示不替代云 AI 的真实成功验证。
