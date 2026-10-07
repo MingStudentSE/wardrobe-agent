@@ -1,0 +1,5 @@
+
+# web e2e runtime artifacts
+apps/desktop/tests-web/.auth/
+apps/desktop/test-results/
+apps/desktop/playwright-report/
