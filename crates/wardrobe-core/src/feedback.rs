@@ -13,6 +13,189 @@ fn parse(s: String) -> Result<Value, ApiError> {
 fn invalid(s: &str) -> ApiError {
     ApiError::new("invalid_input", s)
 }
+fn reaction(value: &Value) -> Result<&str, ApiError> {
+    let value = value.as_str().ok_or_else(|| invalid("反馈须为文字"))?;
+    if ![
+        "like",
+        "dislike",
+        "skip",
+        "day_exclude",
+        "actual_wore",
+        "changed",
+    ]
+    .contains(&value)
+    {
+        return Err(invalid("反馈类型不支持"));
+    }
+    Ok(value)
+}
+fn scores(value: &Value) -> Result<Value, ApiError> {
+    let obj = value.as_object().ok_or_else(|| invalid("评分须为对象"))?;
+    let mut scores = json!({"overall":null,"comfort":null,"style":null});
+    for (key, value) in obj {
+        if !["overall", "comfort", "style"].contains(&key.as_str())
+            || (!value.is_null() && !value.as_u64().is_some_and(|n| (1..=5).contains(&n)))
+        {
+            return Err(invalid("评分须为空或1–5整数"));
+        }
+        scores[key] = value.clone();
+    }
+    Ok(scores)
+}
+fn selected(proposal: &Value, values: &Value) -> Result<Vec<String>, ApiError> {
+    let values = values
+        .as_array()
+        .filter(|v| !v.is_empty() && v.len() <= 100)
+        .ok_or_else(|| invalid("须选择1–100件单品"))?;
+    let items = proposal["items"]
+        .as_array()
+        .ok_or_else(|| invalid("方案单品格式损坏"))?;
+    let mut ids = vec![];
+    for value in values {
+        let id = value
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| invalid("单品ID须为文字"))?;
+        if ids.contains(&id.to_owned()) || !items.iter().any(|item| item["clothing_id"] == id) {
+            return Err(invalid("排除ID须是方案内不重复单品"));
+        }
+        ids.push(id.to_owned());
+    }
+    Ok(ids)
+}
+pub(super) fn validate_stored_document(
+    db: &rusqlite::Connection,
+    doc: &Value,
+) -> Result<(), ApiError> {
+    let kind = reaction(&doc["reaction"])?;
+    if doc["schema_version"] != 1
+        || !doc["revoked"].is_boolean()
+        || scores(&doc["scores"])? != doc["scores"]
+    {
+        return Err(invalid("反馈格式不支持"));
+    }
+    let member = string(doc, "member_id")?;
+    let revision = doc["revision"]
+        .as_u64()
+        .filter(|r| *r > 0)
+        .ok_or_else(|| invalid("反馈修订损坏"))?;
+    if revision == 1 {
+        if !doc["supersedes_event_id"].is_null() {
+            return Err(invalid("初始反馈不能引用前驱"));
+        }
+    } else {
+        let predecessor = string(doc, "supersedes_event_id")?;
+        let exists: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM feedback_events WHERE id=?1 AND member_id=?2 AND root_id=?3 AND revision<?4)",
+            params![predecessor, member, string(doc, "root_id")?, revision],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Err(invalid("反馈前驱缺失或根与成员不符"));
+        }
+    }
+    let invalid_refs: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM feedback_asset_refs r LEFT JOIN assets a ON a.id=r.asset_id AND a.member_id=r.member_id WHERE r.event_id=?1 AND (r.member_id<>?2 OR a.id IS NULL))",
+        params![string(doc, "id")?, member],
+        |row| row.get(0),
+    )?;
+    if invalid_refs {
+        return Err(invalid("反馈展示资产不属记录成员"));
+    }
+    for field in ["created_at", "inventory_observed_at"] {
+        chrono::DateTime::parse_from_rfc3339(string(doc, field)?)
+            .map_err(|_| invalid("反馈观察时间损坏"))?;
+    }
+    let raw: Option<String> = db
+        .query_row(
+            "SELECT document FROM recommendation_intents WHERE id=?1 AND member_id=?2",
+            params![string(doc, "intent_id")?, member],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let intent = parse(raw.ok_or_else(|| invalid("反馈来源意图不存在"))?)?;
+    let index = doc["proposal_index"]
+        .as_u64()
+        .ok_or_else(|| invalid("反馈方案序号损坏"))? as usize;
+    if intent["proposals"].as_array().and_then(|v| v.get(index)) != Some(&doc["proposal"])
+        || doc["controls"] != intent["controls"]
+    {
+        return Err(invalid("反馈方案与不可变意图不符"));
+    }
+    let items = doc["proposal"]["items"]
+        .as_array()
+        .ok_or_else(|| invalid("反馈方案损坏"))?;
+    let snapshots = doc["inventory_snapshots"]
+        .as_array()
+        .ok_or_else(|| invalid("反馈观察快照损坏"))?;
+    if snapshots.len() != items.len() {
+        return Err(invalid("反馈观察快照数量不符"));
+    }
+    for (snapshot, item) in snapshots.iter().zip(items) {
+        crate::clothing::validate_stored_document(snapshot)?;
+        if snapshot["id"] != item["clothing_id"] || snapshot["member_id"] != member {
+            return Err(invalid("反馈观察快照身份不符"));
+        }
+    }
+    if kind == "day_exclude" {
+        selected(&doc["proposal"], &doc["clothing_ids"])?;
+        let scope = &doc["day_scope"];
+        let zone: chrono_tz::Tz = string(scope, "timezone")?
+            .parse()
+            .map_err(|_| invalid("排除时区损坏"))?;
+        let text = string(scope, "local_date")?;
+        let date = chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d")
+            .map_err(|_| invalid("排除日期损坏"))?;
+        if date.to_string() != text {
+            return Err(invalid("排除日期格式损坏"));
+        }
+        let midnight = date
+            .succ_opt()
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+            .ok_or_else(|| invalid("排除日期越界"))?;
+        let expiry = zone
+            .from_local_datetime(&midnight)
+            .earliest()
+            .ok_or_else(|| invalid("排除到期时间损坏"))?;
+        let stored = chrono::DateTime::parse_from_rfc3339(string(scope, "expires_at")?)
+            .map_err(|_| invalid("排除到期时间损坏"))?;
+        if stored != expiry {
+            return Err(invalid("排除到期时间与本地日期不符"));
+        }
+    } else if !doc["day_scope"].is_null() || doc["clothing_ids"] != json!([]) {
+        return Err(invalid("普通反馈不包含当天排除"));
+    }
+    if ["actual_wore", "changed"].contains(&kind) {
+        let raw: Option<String> = db
+            .query_row(
+                "SELECT document FROM wear_events WHERE id=?1 AND member_id=?2",
+                params![string(doc, "wear_event_id")?, member],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let wear = parse(raw.ok_or_else(|| invalid("实际穿着事实缺失或不属成员"))?)?;
+        let mut actual: Vec<&str> = wear["items"]
+            .as_array()
+            .ok_or_else(|| invalid("实际穿着单品损坏"))?
+            .iter()
+            .map(|i| string(i, "clothing_id"))
+            .collect::<Result<_, _>>()?;
+        let mut proposed: Vec<&str> = items
+            .iter()
+            .map(|i| string(i, "clothing_id"))
+            .collect::<Result<_, _>>()?;
+        actual.sort();
+        proposed.sort();
+        if (kind == "actual_wore" && actual != proposed)
+            || (kind == "changed" && actual == proposed)
+        {
+            return Err(invalid("实际穿着组合与反馈类型不符"));
+        }
+    } else if !doc["wear_event_id"].is_null() {
+        return Err(invalid("普通反馈不引用实际穿着"));
+    }
+    Ok(())
+}
 impl Application {
     fn feedback_require_resolved(&self, member: &str) -> Result<(), ApiError> {
         crate::sync::require_resolved_events(&self.connection, "feedback_events", member)
@@ -125,14 +308,9 @@ impl Application {
                 doc["reaction"] = json!(reaction);
             }
             if let Some(scores) = input.get("scores") {
-                let scores = scores.as_object().ok_or_else(|| invalid("评分须为对象"))?;
-                for (k, v) in scores {
-                    if !["overall", "comfort", "style"].contains(&k.as_str())
-                        || (!v.is_null() && !v.as_u64().is_some_and(|n| (1..=5).contains(&n)))
-                    {
-                        return Err(invalid("评分须为空或1–5整数"));
-                    }
-                    doc["scores"][k] = v.clone();
+                let validated = self::scores(scores)?;
+                for key in scores.as_object().unwrap().keys() {
+                    doc["scores"][key] = validated[key].clone();
                 }
             }
         }
@@ -351,31 +529,8 @@ impl Application {
         if key.is_empty() || key.len() > 200 {
             return Err(invalid("操作标识须为1–200字节"));
         }
-        let reaction = string(&input, "reaction")?;
-        if ![
-            "like",
-            "dislike",
-            "skip",
-            "day_exclude",
-            "actual_wore",
-            "changed",
-        ]
-        .contains(&reaction)
-        {
-            return Err(invalid("请选择喜欢、不喜欢或跳过"));
-        }
-        let mut scores = json!({"overall":null,"comfort":null,"style":null});
-        if let Some(v) = input.get("scores") {
-            let obj = v.as_object().ok_or_else(|| invalid("评分须为对象"))?;
-            for (k, v) in obj {
-                if !["overall", "comfort", "style"].contains(&k.as_str())
-                    || (!v.is_null() && !v.as_u64().is_some_and(|n| (1..=5).contains(&n)))
-                {
-                    return Err(invalid("总体、舒适、风格评分须为空或1–5整数"));
-                }
-                scores[k] = v.clone();
-            }
-        }
+        let reaction = reaction(&input["reaction"])?;
+        let scores = scores(input.get("scores").unwrap_or(&json!({})))?;
         let request = input.to_string();
         let tx = self.begin_write()?;
         if let Some((old,result))=tx.query_row("SELECT request,result FROM feedback_receipts WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?{if old!=request{return Err(ApiError::new("idempotency_conflict","同操作标识不能改变反馈"));}return parse(result);}
@@ -402,29 +557,7 @@ impl Application {
                 .from_local_datetime(&date.succ_opt().unwrap().and_hms_opt(0, 0, 0).unwrap())
                 .earliest()
                 .ok_or_else(|| invalid("次日零点不存在，请选择明确时区"))?;
-            let selected = input
-                .get("clothing_ids")
-                .and_then(Value::as_array)
-                .ok_or_else(|| invalid("当天排除须明确选择方案内单品"))?;
-            if selected.is_empty() || selected.len() > 100 {
-                return Err(invalid("须选择1–100件单品"));
-            }
-            for value in selected {
-                let id = value
-                    .as_str()
-                    .filter(|s| !s.is_empty())
-                    .ok_or_else(|| invalid("单品ID须为文字"))?;
-                if clothing_ids.contains(&id.to_owned())
-                    || !proposal["items"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .any(|i| i["clothing_id"] == id)
-                {
-                    return Err(invalid("排除ID须是方案内不重复单品"));
-                }
-                clothing_ids.push(id.to_owned());
-            }
+            clothing_ids = selected(proposal, &input["clothing_ids"])?;
             day_scope = json!({"local_date":date.to_string(),"timezone":zone.name(),"expires_at":end.with_timezone(&Utc).to_rfc3339()});
         } else if input.get("timezone").is_some() || input.get("clothing_ids").is_some() {
             return Err(invalid("仅当天排除接受日期范围与单品选择"));

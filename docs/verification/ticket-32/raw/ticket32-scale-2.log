@@ -1,0 +1,8 @@
+{"phase": "seeded", "database_bytes": 743501824, "media_bytes": 270001539}
+Traceback (most recent call last):
+  File "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/scale.py", line 50, in <module>
+    read=command(target,'assets.get',{'member_id':member,'asset_id':asset['id']});original=pathlib.Path(read['original']['local_path']);assert original.exists() and original.stat().st_size>30000000
+  File "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/scale.py", line 7, in command
+    if p.returncode:raise RuntimeError({"operation":name,"response":response})
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: {'operation': 'assets.get', 'response': {'error': {'code': 'invalid_input', 'message': '缺少字符串字段 id'}}}

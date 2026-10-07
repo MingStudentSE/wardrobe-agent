@@ -1,0 +1,27 @@
+{
+  "create_rename_before_receipt_commit": {
+    "actual_exit": -9,
+    "explicit_debug_gate": true,
+    "same_job_recovered": true,
+    "one_package": true
+  },
+  "restore_commit_before_worker_finishes": {
+    "actual_exit": -9,
+    "explicit_debug_gate": true,
+    "atomic_receipt_survives": true,
+    "restart_reads_incoming": true,
+    "actual_prebackup_valid": true
+  },
+  "directory_active_before_worker_finishes": {
+    "actual_exit": -9,
+    "explicit_debug_gate": true,
+    "receipt_reconciled": true,
+    "old_and_new_public_paths_agree": true
+  },
+  "natural_running_copy_cancellation": {
+    "phase_observed": "media file >1MB",
+    "worker_exit": 0,
+    "cancelled_not_resurrected": true,
+    "no_package_published": true
+  }
+}

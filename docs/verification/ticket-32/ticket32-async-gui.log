@@ -1,0 +1,15 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test backup.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5192 --strictPort
+[WebServer] (node:43127) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 2 tests using 1 worker
+
+(node:43129) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/backup.spec.ts:3:1 › 备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度 (1.6s)
+  ✓  2 tests/backup.spec.ts:18:1 › 独立安装实际移动目录后 GUI 与旧路径 CLI 读取同一数据 (1.2s)
+
+  2 passed (3.8s)

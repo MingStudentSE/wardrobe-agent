@@ -1,0 +1,35 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 1.03s
+     Running tests/backup.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/backup-cbbda9a3225d5625)
+
+running 14 tests
+test local_backup_preferences_persist_with_revision_but_are_not_portable_installation_settings ... ok
+test interrupted_pending_directory_publication_falls_back_to_old_source_before_any_new_writes ... ok
+test data_directory_switch_verifies_copy_and_existing_application_and_reopened_tools_follow_it ... ok
+test directory_move_retains_local_grants_configuration_and_media_without_reading_old_assets ... ok
+test overwrite_removes_previous_installation_operational_jobs_and_authorization_without_losing_incoming_facts ... ok
+test credentials_are_absent_from_every_backup_file_and_never_authorize_restored_installation ... ok
+test preview_rejects_missing_json_asset_references_even_when_database_and_file_hashes_are_consistent ... FAILED
+test portable_backup_preview_restore_preserves_actual_history_after_restart ... ok
+test concurrent_old_connection_writes_are_present_after_directory_switch ... ok
+test preview_explains_overwrite_and_real_prebackup_can_restore_previous_installation ... ok
+test restored_display_is_self_contained_and_corrupt_archive_never_overwrites_current_facts ... ok
+test explicit_original_option_controls_real_bytes_and_restored_original_availability ... ok
+test portable_media_content_remains_decodable_with_extensionless_transport_object_names ... ok
+test immutable_versions_revised_wear_care_and_detached_historical_display_survive_relocated_backup ... ok
+
+failures:
+
+---- preview_rejects_missing_json_asset_references_even_when_database_and_file_hashes_are_consistent stdout ----
+
+thread 'preview_rejects_missing_json_asset_references_even_when_database_and_file_hashes_are_consistent' (3503867) panicked at crates/wardrobe-core/tests/backup.rs:823:74:
+called `Result::unwrap_err()` on an `Ok` value: Object {"clears_existing_authorization_and_device_trust": Bool(true), "current": Object {"assets": Number(1), "audit": Number(2), "care_asset_refs": Number(0), "care_config": Number(0), "care_events": Number(0), "care_receipts": Number(0), "clothing": Number(1), "insights_preferences": Number(0), "members": Number(1), "outbox": Number(2), "outfit_items": Number(0), "outfit_versions": Number(0), "outfits": Number(0), "recommendation_intents": Number(0), "recommendation_saves": Number(0), "wear_asset_refs": Number(0), "wear_events": Number(0), "wear_receipts": Number(0), "workspace": Number(1)}, "device_trust_included": Bool(false), "discarded_local_jobs": Number(0), "incoming": Object {"assets": Number(0), "audit": Number(2), "care_asset_refs": Number(0), "care_config": Number(0), "care_events": Number(0), "care_receipts": Number(0), "clothing": Number(1), "insights_preferences": Number(0), "members": Number(1), "outbox": Number(2), "outfit_items": Number(0), "outfit_versions": Number(0), "outfits": Number(0), "recommendation_intents": Number(0), "recommendation_saves": Number(0), "wear_asset_refs": Number(0), "wear_events": Number(0), "wear_receipts": Number(0), "workspace": Number(1)}, "local_credentials_included": Bool(false), "manifest": Object {"database_version": Number(17), "files": Array [Object {"bytes": Number(62), "path": String("media/01a112f7-52dc-77fa-bca0-140ebc933d6f.webp"), "sha256": String("4778564ff4642deb3439aec6d1791e983e9c6eab941d667474144af96db3a900")}, Object {"bytes": Number(62), "path": String("media/01a112f7-52e3-72d5-a671-40f81809597b.webp"), "sha256": String("4778564ff4642deb3439aec6d1791e983e9c6eab941d667474144af96db3a900")}, Object {"bytes": Number(176128), "path": String("facts.sqlite"), "sha256": String("9d5b3991a22be7aec85c29e3704264849c39d300d68817cfeebf306c42af63f7")}], "format": String("wardrobe-backup"), "includes_originals": Bool(false), "version": Number(1)}, "overwrites_current_facts": Bool(true), "valid": Bool(true)}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    preview_rejects_missing_json_asset_references_even_when_database_and_file_hashes_are_consistent
+
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+
+error: test failed, to rerun pass `-p wardrobe-core --test backup`

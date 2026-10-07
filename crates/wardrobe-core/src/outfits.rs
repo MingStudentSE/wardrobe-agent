@@ -283,7 +283,7 @@ impl Application {
             let image = asset.and_then(|a| {
                 a["display"]["local_path"]
                     .as_str()
-                    .and_then(|path| image::open(path).ok())
+                    .and_then(|path| crate::assets::read_display(std::path::Path::new(path)).ok())
             });
             if let Some(image) = image {
                 let resized = image.thumbnail(width - 48, 432).to_rgba8();

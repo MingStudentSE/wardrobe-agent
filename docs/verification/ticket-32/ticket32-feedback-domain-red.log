@@ -1,0 +1,22 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 1.10s
+     Running tests/backup.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/backup-cbbda9a3225d5625)
+
+running 1 test
+test preview_rejects_feedback_domain_even_when_receipt_and_transport_agree ... FAILED
+
+failures:
+
+---- preview_rejects_feedback_domain_even_when_receipt_and_transport_agree stdout ----
+
+thread 'preview_rejects_feedback_domain_even_when_receipt_and_transport_agree' (3750221) panicked at crates/wardrobe-core/tests/backup.rs:1392:14:
+called `Result::unwrap_err()` on an `Ok` value: Object {"clears_existing_authorization_and_device_trust": Bool(true), "current": Object {"assets": Number(0), "audit": Number(7), "care_asset_refs": Number(0), "care_config": Number(0), "care_events": Number(1), "care_receipts": Number(1), "clothing": Number(3), "feedback_asset_refs": Number(0), "feedback_events": Number(1), "feedback_receipts": Number(1), "insights_preferences": Number(0), "members": Number(1), "outbox": Number(7), "outfit_items": Number(3), "outfit_versions": Number(1), "outfits": Number(1), "recommendation_intents": Number(1), "recommendation_saves": Number(1), "wear_asset_refs": Number(0), "wear_events": Number(1), "wear_receipts": Number(1), "weather_preferences": Number(1), "workspace": Number(1)}, "device_trust_included": Bool(false), "discarded_local_jobs": Number(0), "incoming": Object {"assets": Number(0), "audit": Number(7), "care_asset_refs": Number(0), "care_config": Number(0), "care_events": Number(1), "care_receipts": Number(1), "clothing": Number(3), "feedback_asset_refs": Number(0), "feedback_events": Number(1), "feedback_receipts": Number(1), "insights_preferences": Number(0), "members": Number(1), "outbox": Number(7), "outfit_items": Number(3), "outfit_versions": Number(1), "outfits": Number(1), "recommendation_intents": Number(1), "recommendation_saves": Number(1), "wear_asset_refs": Number(0), "wear_events": Number(1), "wear_receipts": Number(1), "weather_preferences": Number(1), "workspace": Number(1)}, "local_credentials_included": Bool(false), "manifest": Object {"database_version": Number(19), "files": Array [Object {"bytes": Number(237568), "path": String("facts.sqlite"), "sha256": String("7fc32427d8feec8a6975deca484705c48cd170626e77e7a25e39ca0aeb4e308b")}], "format": String("wardrobe-backup"), "includes_originals": Bool(false), "maintenance_job_id": String("01a1133d-3e7f-775a-b83d-61ea02b765d7"), "version": Number(1)}, "overwrites_current_facts": Bool(true), "valid": Bool(true)}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    preview_rejects_feedback_domain_even_when_receipt_and_transport_agree
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 34 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p wardrobe-core --test backup`

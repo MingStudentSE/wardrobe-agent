@@ -1,0 +1,64 @@
+{"phase": "seeded", "database_bytes": 743563264, "media_bytes": 270001539}
+{"operation": "backup.create", "durable_queued_reply_ms": 18.1200840161182, "job_id": "01a11398-20b1-7056-afe1-547c0aef8295"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 6140858368, "sqlite_and_wal_bytes": 861537360}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 6022488064, "sqlite_and_wal_bytes": 952509520}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5369139200, "sqlite_and_wal_bytes": 972690512}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5002522624, "sqlite_and_wal_bytes": 995767376}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4428689408, "sqlite_and_wal_bytes": 1007871056}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4201828352, "sqlite_and_wal_bytes": 1011008592}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3861082112, "sqlite_and_wal_bytes": 1017312336}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3527675904, "sqlite_and_wal_bytes": 1025234000}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3075063808, "sqlite_and_wal_bytes": 1033589840}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2960166912, "sqlite_and_wal_bytes": 1038222416}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3137638400, "sqlite_and_wal_bytes": 1079927888}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3073306624, "sqlite_and_wal_bytes": 1143055464}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3009171456, "sqlite_and_wal_bytes": 1210385512}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2865324032, "sqlite_and_wal_bytes": 1353172072}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2739507200, "sqlite_and_wal_bytes": 1476637800}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2475089920, "sqlite_and_wal_bytes": 1476636776}
+{"phase": "backup.create", "seconds": 87.74368287497782}
+{"operation": "backup.preview", "durable_queued_reply_ms": 10.032415972091258, "job_id": "01a11399-776b-7781-bdba-f54aa3c31fee"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2584530944, "sqlite_and_wal_bytes": 1476632656}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2475061248, "sqlite_and_wal_bytes": 1476632656}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2474459136, "sqlite_and_wal_bytes": 1476632656}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2473824256, "sqlite_and_wal_bytes": 1476632656}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2473656320, "sqlite_and_wal_bytes": 1476632656}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2473623552, "sqlite_and_wal_bytes": 1476632656}
+{"phase": "backup.preview", "seconds": 33.884380667004734}
+{"operation": "backup.restore", "durable_queued_reply_ms": 20.620875002350658, "job_id": "01a11399-fdbb-7708-b981-a6516ef62573"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3489685504, "sqlite_and_wal_bytes": 733429840}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3488628736, "sqlite_and_wal_bytes": 733429840}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3488399360, "sqlite_and_wal_bytes": 733429840}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3487809536, "sqlite_and_wal_bytes": 733429840}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3072745472, "sqlite_and_wal_bytes": 877805648}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2483212288, "sqlite_and_wal_bytes": 1466458192}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2499506176, "sqlite_and_wal_bytes": 1466458192}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4901347328, "sqlite_and_wal_bytes": 1466458192}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4901748736, "sqlite_and_wal_bytes": 1466458192}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4904316928, "sqlite_and_wal_bytes": 1466458192}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4387504128, "sqlite_and_wal_bytes": 1995883352}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3793571840, "sqlite_and_wal_bytes": 2568800000}
+{"phase": "backup.restore", "seconds": 62.70703245900222}
+{"operation": "backup.preview", "durable_queued_reply_ms": 41.63466699537821, "job_id": "01a1139a-f2c7-7129-ba2d-eae6c7f7e4e4"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4890066944, "sqlite_and_wal_bytes": 1476845648}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4906663936, "sqlite_and_wal_bytes": 1476845648}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4887498752, "sqlite_and_wal_bytes": 1476845648}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4886269952, "sqlite_and_wal_bytes": 1476845648}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4885282816, "sqlite_and_wal_bytes": 1476845648}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4882182144, "sqlite_and_wal_bytes": 1476845648}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4897443840, "sqlite_and_wal_bytes": 1476845648}
+{
+  "clothing": 10000,
+  "wear_events": 100000,
+  "originals": 9,
+  "feedback_revisions_and_observation_restored": true,
+  "package_bytes": 1003030251,
+  "source_removed_before_restore": true,
+  "restart_public_reads": true,
+  "fixture_seed": "public API shapes expanded by explicit synthetic SQL transaction",
+  "seconds": {
+    "backup.create": 87.74368287497782,
+    "backup.preview": 33.884380667004734,
+    "backup.restore": 62.70703245900222
+  }
+}

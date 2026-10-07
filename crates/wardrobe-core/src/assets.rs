@@ -4,7 +4,10 @@ use image::{ImageDecoder, ImageReader};
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{io::Cursor, path::Path};
+use std::{
+    io::{Cursor, Read},
+    path::Path,
+};
 
 const MAX_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_PIXELS: u64 = 60_000_000;
@@ -16,6 +19,27 @@ fn failure() -> ApiError {
 }
 fn io_error(_: std::io::Error) -> ApiError {
     ApiError::new("storage_error", "本地图片文件操作失败")
+}
+pub(super) fn read_display(path: &Path) -> Result<image::DynamicImage, ApiError> {
+    let file = std::fs::File::open(path).map_err(io_error)?;
+    if file.metadata().map_err(io_error)?.len() > MAX_BYTES {
+        return Err(failure());
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io_error)?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err(failure());
+    }
+    let format = ImageReader::new(Cursor::new(&bytes))
+        .with_guessed_format()
+        .map_err(io_error)?
+        .format();
+    if format != Some(image::ImageFormat::WebP) {
+        return Err(failure());
+    }
+    decode(&bytes)
 }
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS assets (id TEXT NOT NULL, member_id TEXT NOT NULL REFERENCES members(id), document TEXT NOT NULL, PRIMARY KEY(id,member_id));")?;
@@ -280,8 +304,9 @@ impl Application {
     pub(super) fn asset_rebuild_thumbnail(&self, input: Value) -> Result<Value, ApiError> {
         let tx = self.begin_write()?;
         let mut doc = self.asset_get(input.clone())?;
-        let image = image::open(doc["display"]["local_path"].as_str().ok_or_else(failure)?)
-            .map_err(|_| failure())?;
+        let image = read_display(Path::new(
+            doc["display"]["local_path"].as_str().ok_or_else(failure)?,
+        ))?;
         let image = thumbnail(&image);
         let bytes = webp::Encoder::from_image(&image)
             .map_err(|_| failure())?

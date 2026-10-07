@@ -73,6 +73,13 @@ impl Application {
         operation: &str,
         input: Value,
     ) -> Result<Value, ApiError> {
+        if self.installation_changed()? {
+            return Application::open(std::path::Path::new(self.connection.path().unwrap()))?
+                .execute_as_client(token, operation, input);
+        }
+        if let Some(path) = self.redirected()? {
+            return Application::open(&path)?.execute_as_client(token, operation, input);
+        }
         self.check_schema()?;
         if !input.is_object() {
             return Err(ApiError::new("invalid_input", "输入必须是JSON对象"));
@@ -154,6 +161,23 @@ impl Application {
         {
             return Err(ApiError::new("unsupported_operation", "此操作尚不可用"));
         }
+        if grant["member_ids"].is_array() && crate::maintenance::is_global_operation(operation) {
+            return Err(ApiError::new("member_denied", "全空间维护需要授权全部成员"));
+        }
+        if operation.starts_with("maintenance.") && operation != "maintenance.list" {
+            let job = self.maintenance_raw_get(string(&input, "id")?)?;
+            if grant["mode"] != "full"
+                && !grant["operations"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&job["operation"])
+            {
+                return Err(ApiError::new(
+                    "scope_denied",
+                    "维护控制还需要原业务操作的授权scope",
+                ));
+            }
+        }
         if let Some(members) = grant["member_ids"].as_array() {
             if ["sync.configure", "sync.run", "sync.process", "sync.status"].contains(&operation) {
                 return Err(ApiError::new(
@@ -205,9 +229,21 @@ impl Application {
                 ));
             }
         }
+        #[cfg(test)]
+        AFTER_AUTHORIZATION.with(|hook| {
+            let callback = hook.borrow_mut().take();
+            if let Some(callback) = callback {
+                callback();
+            }
+        });
         if operation == "capabilities" {
-            let mut result = self.execute(operation, input)?;
+            let mut result = self.execute_current(operation, input)?;
             result["operations"].as_array_mut().unwrap().retain(|o| {
+                if grant["member_ids"].is_array()
+                    && crate::maintenance::is_global_operation(o["name"].as_str().unwrap())
+                {
+                    return false;
+                }
                 !privileged(o["name"].as_str().unwrap())
                     && (grant["member_ids"].is_null()
                         || !["sync.configure", "sync.run", "sync.process", "sync.status"]
@@ -221,7 +257,16 @@ impl Application {
         if operation == "provider.save" {
             return self.provider_save_from_client(input);
         }
-        self.execute(operation, input)
+        let mut result = self.execute_current(operation, input)?;
+        if operation == "maintenance.list" && grant["mode"] != "full" {
+            result["items"].as_array_mut().unwrap().retain(|job| {
+                grant["operations"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&job["operation"])
+            });
+        }
+        Ok(result)
     }
 
     pub(super) fn client_list(&self, input: Value) -> Result<Value, ApiError> {
@@ -366,4 +411,49 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({"name":"client.list","description":"仅可信本机入口列出客户端，无连接令牌或hash","inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":grant_schema()}}}}),
         json!({"name":"client.revoke","description":"仅可信本机入口撤销客户端授权","inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false},"outputSchema":grant_schema()}),
     ]
+}
+
+#[cfg(test)]
+thread_local! {
+    static AFTER_AUTHORIZATION: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+mod restore_boundary_tests {
+    use super::*;
+    #[test]
+    fn restore_after_grant_validation_never_reopens_as_trusted() {
+        let installation = tempfile::tempdir().unwrap();
+        let archive = tempfile::tempdir().unwrap();
+        let db = installation.path().join("wardrobe.sqlite");
+        let app = Application::open(&db).unwrap();
+        let package = archive.path().join("backup");
+        let queued = app
+            .execute("backup.create", json!({"directory":package}))
+            .unwrap();
+        app.execute("maintenance.worker.run", json!({"id":queued["id"]}))
+            .unwrap();
+        let grant = app.execute("client.authorize",json!({"name":"deterministic authorization seam","mode":"full","operations":[],"member_ids":null,"expires_at":null})).unwrap();
+        let restorer = Application::open(&db).unwrap();
+        AFTER_AUTHORIZATION.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                let queued = restorer
+                    .execute(
+                        "backup.restore",
+                        json!({"directory":package,"confirm_overwrite":true}),
+                    )
+                    .unwrap();
+                restorer
+                    .execute("maintenance.worker.run", json!({"id":queued["id"]}))
+                    .unwrap();
+            }))
+        });
+        let result = app.execute_as_client(grant["token"].as_str().unwrap(), "clothing.create", json!({"member_id":"default","name":"must not bypass lost authorization","category":"top"}));
+        assert_eq!(result.unwrap_err().code, "data_restored");
+        assert!(app
+            .execute("clothing.list", json!({"member_id":"default"}))
+            .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
 }

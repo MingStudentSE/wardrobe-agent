@@ -1,0 +1,42 @@
+{"phase": "seeded", "database_bytes": 743534592, "media_bytes": 270001539}
+{"operation": "backup.create", "durable_queued_reply_ms": 10.742541984654963, "job_id": "01a11339-4097-7591-bc11-21eeb2a45614"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 2755993600, "sqlite_and_wal_bytes": 1476526160}
+{"phase": "backup.create", "seconds": 8.558583125006407}
+{"operation": "backup.preview", "durable_queued_reply_ms": 10.458749980898574, "job_id": "01a11339-6207-7225-9172-5c20ae90f626"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 3702669312, "sqlite_and_wal_bytes": 1476526160}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5344051200, "sqlite_and_wal_bytes": 1476526160}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5342498816, "sqlite_and_wal_bytes": 1476526160}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5346500608, "sqlite_and_wal_bytes": 1476526160}
+{"phase": "backup.preview", "seconds": 23.894020957988687}
+{"operation": "backup.restore", "durable_queued_reply_ms": 31.764709012350067, "job_id": "01a11339-c102-77e4-a4f4-f33aacc318c6"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 6361526272, "sqlite_and_wal_bytes": 733319248}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 6359961600, "sqlite_and_wal_bytes": 733319248}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 6359990272, "sqlite_and_wal_bytes": 733319248}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 6359277568, "sqlite_and_wal_bytes": 733319248}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5355974656, "sqlite_and_wal_bytes": 1466269776}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5355941888, "sqlite_and_wal_bytes": 1466269776}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5355597824, "sqlite_and_wal_bytes": 1466269776}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5355393024, "sqlite_and_wal_bytes": 1466269776}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5349154816, "sqlite_and_wal_bytes": 1466269776}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4976922624, "sqlite_and_wal_bytes": 1837789784}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 4361654272, "sqlite_and_wal_bytes": 2452452880}
+{"phase": "backup.restore", "seconds": 57.05556412501028}
+{"operation": "backup.preview", "durable_queued_reply_ms": 9.528249996947125, "job_id": "01a1133a-9fcd-74a0-87d7-04d52d0c0c19"}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5330239488, "sqlite_and_wal_bytes": 1476710480}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5347926016, "sqlite_and_wal_bytes": 1476710480}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5346623488, "sqlite_and_wal_bytes": 1476710480}
+{"phase": "maintenance.worker.run", "still_running": true, "free_bytes": 5346721792, "sqlite_and_wal_bytes": 1476710480}
+{
+  "clothing": 10000,
+  "wear_events": 100000,
+  "originals": 9,
+  "package_bytes": 1002952427,
+  "source_removed_before_restore": true,
+  "restart_public_reads": true,
+  "fixture_seed": "public API shapes expanded by explicit synthetic SQL transaction",
+  "seconds": {
+    "backup.create": 8.558583125006407,
+    "backup.preview": 23.894020957988687,
+    "backup.restore": 57.05556412501028
+  }
+}

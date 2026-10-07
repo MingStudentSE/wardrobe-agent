@@ -1,0 +1,14 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test insights.spec.ts --grep 真实回执延迟
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5192 --strictPort
+[WebServer] (node:2831) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:2836) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/insights.spec.ts:26:1 › 成员切换真实回执延迟时旧洞察只读，确认切换后新成员重新展开读取 (1.7s)
+
+  1 passed (4.0s)
