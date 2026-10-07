@@ -22,25 +22,61 @@ fn assert_result_matches_schema(schema: &Value, result: &Value, context: &str) {
         let prop = props
             .get(key)
             .unwrap_or_else(|| panic!("{context}: 实际结果字段 {key} 未在 outputSchema 声明"));
-        let expected_type = match value {
+        if let Some(const_value) = prop.get("const") {
+            assert_eq!(value, const_value, "{context}: 字段 {key} 须等于 const");
+        }
+        if let Some(allowed) = prop["enum"].as_array() {
+            assert!(
+                allowed.contains(value),
+                "{context}: 字段 {key} 须为枚举值"
+            );
+        }
+        let declared_types: Vec<String> = match prop.get("type") {
+            Some(Value::String(t)) => vec![t.clone()],
+            Some(Value::Array(ts)) => ts.iter().map(|v| v.as_str().unwrap().to_string()).collect(),
+            _ => vec![],
+        };
+        let actual_type = match value {
             Value::String(_) => "string",
             Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
             Value::Number(_) => "number",
             Value::Array(_) => "array",
             Value::Object(_) => "object",
             Value::Bool(_) => "boolean",
-            Value::Null => continue,
+            Value::Null => "null",
         };
-        assert_eq!(
-            prop["type"].as_str(),
-            Some(expected_type),
+        assert!(
+            declared_types.is_empty() || declared_types.iter().any(|t| {
+                t == actual_type
+                    || (t == "number" && value.is_number())
+                    || (t == "integer" && value.as_f64().is_some_and(|n| n.fract() == 0.0))
+            }),
             "{context}: 字段 {key} 声明类型不符"
         );
-        assert!(
-            required.contains(&key.as_str()),
-            "{context}: 实际必然返回的字段 {key} 应列入 required"
-        );
     }
+    for key in required {
+        assert!(actual.contains_key(key), "{context}: 缺少 required 字段 {key}");
+
+    }
+}
+
+#[test]
+fn output_contract_checker_handles_constants_nullable_types_and_required_fields() {
+    let schema = json!({"type":"object","required":["count","flag"],"properties":{
+        "count":{"type":"number"},"flag":{"const":false},
+        "optional":{"type":["string","null"],"enum":["ready",null]}
+    }});
+    assert_result_matches_schema(&schema, &json!({"count":1,"flag":false}), "optional absent");
+    assert_result_matches_schema(&schema, &json!({"count":1.5,"flag":false,"optional":null}), "nullable");
+    for invalid in [json!({"count":1}), json!({"count":null,"flag":false}),
+        json!({"count":1,"flag":true}), json!({"count":1,"flag":false,"optional":"bad"})] {
+        assert!(std::panic::catch_unwind(|| assert_result_matches_schema(&schema, &invalid, "invalid")).is_err());
+    }
+    let integer = json!({"type":"object","required":["n"],"properties":{"n":{"type":"integer"}}});
+    assert_result_matches_schema(&integer, &json!({"n":1.0}), "integral number");
+    assert!(std::panic::catch_unwind(|| assert_result_matches_schema(&integer, &json!({"n":1.5}), "fraction")).is_err());
+    let enumeration = json!({"type":"object","properties":{"v":{"enum":["ready"]}}});
+    assert!(std::panic::catch_unwind(|| assert_result_matches_schema(&enumeration, &json!({"v":null}), "enum null")).is_err());
 }
 
 #[test]
@@ -1074,4 +1110,915 @@ fn preview_rebuilds_missing_thumbnail_for_temporary_generated_asset() {
         .as_str()
         .unwrap()
         .starts_with("data:image/webp;base64,"));
+}
+
+#[test]
+fn recommendation_family_effects_examples_and_runtime_output_contract() {
+    // 真实运行时输出：规则策略同步产出意图；save/change/replace 实际执行；推荐永不产生穿着
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("rec.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let _top = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"上衣","category":"top"}),
+        )
+        .unwrap();
+    let bottom = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"裤子","category":"bottom"}),
+        )
+        .unwrap();
+    let generated = app
+        .execute(
+            "recommendation.generate",
+            json!({"member_id":member,"operation_key":"rec-1","timezone":"UTC","strategy":"rules","limit":5,"occasion":"daily"}),
+        )
+        .unwrap();
+    assert_eq!(generated["creates_wear"], json!(false), "推荐永不产生穿着");
+    let proposals = generated["proposals"]
+        .as_array()
+        .expect("proposals 数组")
+        .clone();
+    assert!(
+        !proposals.is_empty(),
+        "有上下装时规则策略必须产出建议: {generated}"
+    );
+    let intent_id = generated["id"].as_str().unwrap().to_string();
+    let got = app
+        .execute(
+            "recommendation.get",
+            json!({"member_id":member,"id":intent_id}),
+        )
+        .unwrap();
+    let listed = app
+        .execute("recommendation.list", json!({"member_id":member}))
+        .unwrap();
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+    assert_result_matches_schema(
+        &schema_of("recommendation.generate"),
+        &generated,
+        "generate",
+    );
+    assert_result_matches_schema(&schema_of("recommendation.get"), &got, "get");
+    assert_result_matches_schema(&schema_of("recommendation.list"), &listed, "list");
+    // 无条件执行采纳/调整/替换，实际公开输出对照声明 outputSchema
+    let saved = app
+        .execute(
+            "recommendation.save",
+            json!({"member_id":member,"id":intent_id,"name":"采纳搭配","operation_key":"save-1","proposal_index":0}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("recommendation.save"), &saved, "save");
+    let changed = app
+        .execute(
+            "recommendation.change",
+            json!({"member_id":member,"id":intent_id,"operation_key":"change-1","proposal_index":0}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("recommendation.change"), &changed, "change");
+    let replaced = app
+        .execute(
+            "recommendation.replace",
+            json!({"member_id":member,"id":intent_id,"operation_key":"replace-1","proposal_index":0,"clothing_id":bottom["id"]}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("recommendation.replace"), &replaced, "replace");
+    // 推荐与采纳从不产生穿着事实
+    let wears = app
+        .execute("wear.list", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(wears["items"], json!([]), "推荐/采纳不得产生 WearEvent");
+
+    // effects：generate 同步 mutation；strategy=ai 为条件入队（worker 真实调用供应商）
+    let family = [
+        ("recommendation.generate", "mutation", false),
+        ("recommendation.get", "query", false),
+        ("recommendation.list", "query", false),
+        ("recommendation.save", "mutation", false),
+        ("recommendation.change", "mutation", false),
+        ("recommendation.replace", "mutation", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    let generate = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("recommendation.generate"))
+        .unwrap();
+    let conditional = generate["effect"]["conditional_effects"]
+        .as_array()
+        .expect("generate 须声明 strategy=ai 条件入队");
+    assert!(conditional.iter().any(|c| {
+        c["when"]["strategy"] == json!("ai")
+            && c["effect"]["async"]["process"] == json!("recommendation.worker.run")
+    }));
+    // worker.run 自身同步处理任务并真实调用供应商，故不在 network=none 家族断言内
+    let worker = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("recommendation.worker.run"))
+        .unwrap();
+    assert_eq!(
+        worker["effect"]["kind"],
+        json!("mutation"),
+        "worker.run 持久化任务状态"
+    );
+    assert_eq!(
+        worker["effect"]["network"],
+        json!("explicit-provider"),
+        "worker.run 执行已排队 AI 生成时会真实调用供应商"
+    );
+    assert_eq!(worker["effect"]["local_files"], json!(false));
+    assert!(
+        worker["effect"]["async"].is_null(),
+        "worker.run 是同步任务处理，不是异步入队"
+    );
+    let worker_examples = worker["examples"].as_array().expect("worker.run 须有示例");
+    assert!(!worker_examples.is_empty(), "worker.run 至少一个示例");
+    for example in worker_examples {
+        assert_request_matches_input_schema(
+            &worker["inputSchema"],
+            &example["request"],
+            "recommendation.worker.run",
+        );
+        assert!(
+            example["prerequisites"]
+                .as_array()
+                .is_some_and(|p| !p.is_empty()),
+            "worker.run 示例须含符号化前置说明"
+        );
+    }
+    let gen_example = generate["examples"][0]["request"].clone();
+    assert_eq!(
+        gen_example["strategy"],
+        json!("rules"),
+        "示例默认离线策略，不自动执行付费调用"
+    );
+    // remaining：worker.run(strategy=ai) 真实供应商运行时证明需本地假供应商，未在本测试覆盖
+}
+
+#[test]
+fn feedback_family_effects_examples_and_runtime_output_contract() {
+    // 真实运行时输出：反馈全生命周期；普通反馈永不产生穿着，actual_wore显式确认才产生
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("fb.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let _top = app
+        .execute("clothing.create", json!({"member_id":member,"name":"上衣","category":"top"}))
+        .unwrap();
+    let _bottom = app
+        .execute("clothing.create", json!({"member_id":member,"name":"裤子","category":"bottom"}))
+        .unwrap();
+    let generated = app
+        .execute(
+            "recommendation.generate",
+            json!({"member_id":member,"operation_key":"fb-rec-1","timezone":"UTC","strategy":"rules","limit":3,"occasion":"daily"}),
+        )
+        .unwrap();
+    assert!(!generated["proposals"].as_array().unwrap().is_empty());
+    let intent_id = generated["id"].as_str().unwrap().to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let recorded = app
+        .execute(
+            "feedback.record",
+            json!({"member_id":member,"operation_key":"fb-1","intent_id":intent_id,"proposal_index":0,"reaction":"like"}),
+        )
+        .unwrap();
+    assert_eq!(recorded["revoked"], json!(false));
+    assert_eq!(recorded["wear_event_id"], Value::Null, "普通反馈不产生穿着");
+    assert_result_matches_schema(&schema_of("feedback.record"), &recorded, "record");
+    let got = app
+        .execute("feedback.get", json!({"member_id":member,"id":recorded["id"]}))
+        .unwrap();
+    assert_eq!(got["id"], recorded["id"]);
+    assert_result_matches_schema(&schema_of("feedback.get"), &got, "get");
+    let listed = app.execute("feedback.list", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("feedback.list"), &listed, "list");
+    assert_eq!(listed["items"].as_array().unwrap().len(), 1);
+
+    let corrected = app
+        .execute(
+            "feedback.correct",
+            json!({"member_id":member,"root_id":recorded["root_id"],"operation_key":"fb-2","expected_revision":1,"reaction":"skip"}),
+        )
+        .unwrap();
+    assert_eq!(corrected["revision"], json!(2));
+    assert_eq!(corrected["supersedes_event_id"], recorded["id"]);
+    assert_result_matches_schema(&schema_of("feedback.correct"), &corrected, "correct");
+    let history = app
+        .execute("feedback.history", json!({"member_id":member,"root_id":recorded["root_id"]}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("feedback.history"), &history, "history");
+    assert_eq!(history["items"].as_array().unwrap().len(), 2);
+    assert_eq!(history["next_cursor"], Value::Null);
+    let conflict = app
+        .execute(
+            "feedback.correct",
+            json!({"member_id":member,"root_id":recorded["root_id"],"operation_key":"fb-3","expected_revision":1,"reaction":"like"}),
+        )
+        .unwrap_err();
+    assert_eq!(conflict.code, "version_conflict", "过期修订必须拒绝");
+    let revoked = app
+        .execute(
+            "feedback.revoke",
+            json!({"member_id":member,"root_id":recorded["root_id"],"operation_key":"fb-4","expected_revision":2,"reason":"不再喜欢"}),
+        )
+        .unwrap();
+    assert_eq!(revoked["revoked"], json!(true));
+    assert_eq!(revoked["revision"], json!(3));
+    assert_result_matches_schema(&schema_of("feedback.revoke"), &revoked, "revoke");
+    let listed_after = app.execute("feedback.list", json!({"member_id":member})).unwrap();
+    assert_eq!(
+        listed_after["items"].as_array().unwrap().len(),
+        0,
+        "默认列表不含已撤销反馈"
+    );
+
+    let generated2 = app
+        .execute(
+            "recommendation.generate",
+            json!({"member_id":member,"operation_key":"fb-rec-2","timezone":"UTC","strategy":"rules","limit":3,"occasion":"work"}),
+        )
+        .unwrap();
+    let another = app
+        .execute(
+            "feedback.try_another",
+            json!({"member_id":member,"operation_key":"fb-5","intent_id":generated2["id"],"proposal_index":0}),
+        )
+        .unwrap();
+    assert_eq!(another["feedback"]["reaction"], json!("skip"));
+    assert_result_matches_schema(&schema_of("feedback.try_another"), &another, "try_another");
+
+    let wore = app
+        .execute(
+            "feedback.record",
+            json!({"member_id":member,"operation_key":"fb-6","intent_id":intent_id,"proposal_index":0,"reaction":"actual_wore","wear":{"confirmed":true,"local_date":"2026-10-07","timezone":"UTC"}}),
+        )
+        .unwrap();
+    assert!(wore["wear_event_id"].is_string(), "actual_wore显式确认才产生WearEvent");
+    assert_result_matches_schema(&schema_of("feedback.record"), &wore, "record-actual_wore");
+    let wears = app.execute("wear.list", json!({"member_id":member})).unwrap();
+    assert_eq!(wears["items"].as_array().unwrap().len(), 1, "只有实际穿着产生WearEvent");
+
+    let family = [
+        ("feedback.record", "mutation", false),
+        ("feedback.get", "query", false),
+        ("feedback.list", "query", false),
+        ("feedback.correct", "mutation", false),
+        ("feedback.revoke", "mutation", false),
+        ("feedback.history", "query", false),
+        ("feedback.try_another", "mutation", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    let record = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("feedback.record"))
+        .unwrap();
+    let conditional = record["effect"]["conditional_effects"]
+        .as_array()
+        .expect("record 须声明穿着条件效果");
+    assert!(conditional.iter().any(|c| {
+        c["when"]["reaction"] == json!("actual_wore") && c["effect"]["wear"] == json!("wear.record")
+    }));
+}
+
+#[test]
+fn learning_family_effects_examples_and_runtime_output_contract() {
+    // 真实运行时输出：显式偏好全生命周期；recompute异步入队由worker本地完成；事实不变
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("lr.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let top = app
+        .execute("clothing.create", json!({"member_id":member,"name":"上衣","category":"top"}))
+        .unwrap();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let set = app
+        .execute(
+            "learning.set",
+            json!({"member_id":member,"operation_key":"lr-1","dimension":"color","value":"藏青","weight":3,"note":"喜欢"}),
+        )
+        .unwrap();
+    assert_eq!(set["source"]["kind"], json!("explicit_user"));
+    assert_result_matches_schema(&schema_of("learning.set"), &set, "set");
+    let dup = app
+        .execute(
+            "learning.set",
+            json!({"member_id":member,"operation_key":"lr-2","dimension":"color","value":"藏青","weight":1}),
+        )
+        .unwrap_err();
+    assert_eq!(dup.code, "preference_exists", "同特征重复须拒绝");
+    let profile = app.execute("learning.get", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("learning.get"), &profile, "get");
+    assert_eq!(profile["explicit"].as_array().unwrap().len(), 1);
+    let edited = app
+        .execute(
+            "learning.edit",
+            json!({"member_id":member,"operation_key":"lr-3","root_id":set["root_id"],"expected_revision":1,"weight":-1}),
+        )
+        .unwrap();
+    assert_eq!(edited["revision"], json!(2));
+    assert_result_matches_schema(&schema_of("learning.edit"), &edited, "edit");
+    let stale = app
+        .execute(
+            "learning.edit",
+            json!({"member_id":member,"operation_key":"lr-4","root_id":set["root_id"],"expected_revision":1,"weight":2}),
+        )
+        .unwrap_err();
+    assert_eq!(stale.code, "stale_revision", "过期修订必须拒绝");
+    let history = app.execute("learning.history", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("learning.history"), &history, "history");
+
+    let rec = app
+        .execute("learning.recompute", json!({"member_id":member,"operation_key":"lr-5"}))
+        .unwrap();
+    assert_eq!(rec["state"], json!("queued"), "recompute返回任务收据而非画像");
+    assert_result_matches_schema(&schema_of("learning.recompute"), &rec, "recompute");
+    let job_id = rec["job_id"].as_str().unwrap().to_string();
+    let job = app
+        .execute("learning.worker.run", json!({"member_id":member,"job_id":job_id}))
+        .unwrap();
+    assert_eq!(job["kind"], json!("learning_recompute"));
+    assert_eq!(job["state"], json!("succeeded"));
+    assert_result_matches_schema(&schema_of("learning.worker.run"), &job, "worker.run");
+    let profile2 = app.execute("learning.get", json!({"member_id":member})).unwrap();
+    assert_eq!(profile2["source_stale"], json!(false), "重算后画像不再滞后");
+
+    let deleted = app
+        .execute(
+            "learning.delete",
+            json!({"member_id":member,"operation_key":"lr-6","dimension":"color","value":"藏青"}),
+        )
+        .unwrap();
+    assert_eq!(deleted["operation"], json!("learning.delete"));
+    assert_result_matches_schema(&schema_of("learning.delete"), &deleted, "delete");
+    let profile3 = app.execute("learning.get", json!({"member_id":member})).unwrap();
+    assert_eq!(profile3["explicit"].as_array().unwrap().len(), 0, "删除后显式偏好消失");
+    let reset = app
+        .execute(
+            "learning.reset",
+            json!({"member_id":member,"operation_key":"lr-7","scope":"inferred"}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("learning.reset"), &reset, "reset");
+    let unchanged = app
+        .execute("clothing.get", json!({"member_id":member,"id":top["id"]}))
+        .unwrap();
+    assert_eq!(unchanged["name"], json!("上衣"), "学习操作不改变衣物事实");
+
+    let family = [
+        ("learning.get", "query", false),
+        ("learning.set", "mutation", false),
+        ("learning.edit", "mutation", false),
+        ("learning.delete", "mutation", false),
+        ("learning.reset", "mutation", false),
+        ("learning.history", "query", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    let recompute = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("learning.recompute"))
+        .unwrap();
+    let async_meta = recompute["effect"]["async"]
+        .as_object()
+        .expect("recompute 须声明无条件异步入队");
+    assert_eq!(async_meta["job_kind"], json!("learning_recompute"));
+    assert_eq!(async_meta["process"], json!("learning.worker.run"));
+    let worker = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("learning.worker.run"))
+        .unwrap();
+    assert_eq!(worker["effect"]["kind"], json!("mutation"));
+    assert_eq!(worker["effect"]["network"], json!("none"), "画像重算纯本地");
+    assert_eq!(
+        worker["outputSchema"]["properties"]["kind"]["const"],
+        json!("learning_recompute")
+    );
+}
+
+#[test]
+fn jobs_weather_client_capabilities_family_contract() {
+    // 真实运行时输出：任务生命周期、天气配置/缓存（本机HTTP桩真实联网）、客户端授权、能力发现
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("jw.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let caps = app.execute("capabilities", json!({})).unwrap();
+    assert_result_matches_schema(&schema_of("capabilities"), &caps, "capabilities");
+    assert!(caps["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|o| o["name"] == json!("recommendation.generate")));
+
+    let rec = app
+        .execute("learning.recompute", json!({"member_id":member,"operation_key":"jw-1"}))
+        .unwrap();
+    let job_id = rec["job_id"].clone();
+    let got = app
+        .execute("jobs.get", json!({"member_id":member,"id":job_id}))
+        .unwrap();
+    assert_eq!(got["state"], json!("queued"));
+    assert_result_matches_schema(&schema_of("jobs.get"), &got, "jobs.get");
+    let listed = app.execute("jobs.list", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("jobs.list"), &listed, "jobs.list");
+    let cancelled = app
+        .execute("jobs.cancel", json!({"member_id":member,"id":job_id}))
+        .unwrap();
+    assert_eq!(cancelled["state"], json!("cancelled"));
+    assert_result_matches_schema(&schema_of("jobs.cancel"), &cancelled, "jobs.cancel");
+    let retried = app
+        .execute("jobs.retry", json!({"member_id":member,"id":job_id}))
+        .unwrap();
+    assert_eq!(retried["state"], json!("queued"), "本地任务取消后可重试");
+    assert_result_matches_schema(&schema_of("jobs.retry"), &retried, "jobs.retry");
+    let done = app
+        .execute("learning.worker.run", json!({"member_id":member,"job_id":job_id}))
+        .unwrap();
+    assert_eq!(done["state"], json!("succeeded"));
+    let err = app
+        .execute("jobs.cancel", json!({"member_id":member,"id":job_id}))
+        .unwrap_err();
+    assert_eq!(err.code, "invalid_state", "已完成任务不能取消");
+
+    let off = app
+        .execute("weather.configure", json!({"member_id":member,"mode":"off"}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("weather.configure"), &off, "weather.configure");
+    let got_weather = app.execute("weather.get", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("weather.get"), &got_weather, "weather.get");
+    let refreshed_off = app.execute("weather.refresh", json!({"member_id":member})).unwrap();
+    assert_eq!(refreshed_off["cache"], Value::Null, "mode=off刷新不联网");
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 2048];
+        let _ = stream.read(&mut buf);
+        let body = "{\"current\":{\"temperature_2m\":21.5,\"time\":1728000000},\"current_units\":{\"temperature_2m\":\"°C\",\"time\":\"unixtime\"}}";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+    });
+    let configured = app
+        .execute(
+            "weather.configure",
+            json!({"member_id":member,"mode":"automatic","location":"上海","latitude":31.2,"longitude":121.5,"usage":"noncommercial","endpoint":format!("http://127.0.0.1:{port}/v1")}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("weather.configure"), &configured, "configure-automatic");
+    let refreshed = app.execute("weather.refresh", json!({"member_id":member})).unwrap();
+    server.join().unwrap();
+    assert_eq!(
+        refreshed["cache"]["temperature_c"],
+        json!(21.5),
+        "refresh真实调用配置端点"
+    );
+    assert_eq!(refreshed["last_error"], Value::Null);
+    assert_result_matches_schema(&schema_of("weather.refresh"), &refreshed, "weather.refresh");
+
+    let granted = app
+        .execute(
+            "client.authorize",
+            json!({"name":"契约测试客户端","mode":"limited","operations":["recommendation.generate"],"member_ids":null,"expires_at":null}),
+        )
+        .unwrap();
+    assert!(granted["token"].as_str().is_some(), "authorize一次性返回令牌");
+    assert_result_matches_schema(&schema_of("client.authorize"), &granted, "client.authorize");
+    let clients = app.execute("client.list", json!({})).unwrap();
+    assert_result_matches_schema(&schema_of("client.list"), &clients, "client.list");
+    let revoked = app
+        .execute("client.revoke", json!({"id":granted["id"]}))
+        .unwrap();
+    assert_eq!(revoked["revoked"], json!(true));
+    assert_result_matches_schema(&schema_of("client.revoke"), &revoked, "client.revoke");
+
+    let family = [
+        ("jobs.get", "query", false),
+        ("jobs.list", "query", false),
+        ("jobs.cancel", "mutation", false),
+        ("jobs.retry", "mutation", false),
+        ("weather.configure", "mutation", false),
+        ("weather.get", "query", false),
+        ("client.authorize", "mutation", false),
+        ("client.list", "query", false),
+        ("client.revoke", "mutation", false),
+        ("capabilities", "query", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    let refresh = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("weather.refresh"))
+        .unwrap();
+    let conditional = refresh["effect"]["conditional_effects"]
+        .as_array()
+        .expect("refresh 须声明条件联网");
+    assert!(conditional.iter().any(|c| {
+        c["when"]["config.mode"] == json!("automatic") && c["effect"]["network"] == json!("web-weather")
+    }));
+}
+
+#[test]
+fn imports_family_effects_examples_and_runtime_output_contract() {
+    // 真实本地文件端到端：create读取图片→process本地派生→group归并→update/commit幂等入库
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("shirt.png");
+    image::RgbImage::from_pixel(4, 6, image::Rgb([245, 245, 245]))
+        .save(&source)
+        .unwrap();
+    let second = dir.path().join("pants.png");
+    image::RgbImage::from_pixel(3, 5, image::Rgb([30, 30, 60]))
+        .save(&second)
+        .unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let batch = app
+        .execute(
+            "imports.create",
+            json!({"member_id":member,"operation_key":"imp-1","paths":[source.to_string_lossy(),second.to_string_lossy()]}),
+        )
+        .unwrap();
+    assert_eq!(batch["items"].as_array().unwrap().len(), 2);
+    assert_result_matches_schema(&schema_of("imports.create"), &batch, "create");
+    let mut processed = Value::Null;
+    for _ in 0..3 {
+        processed = app
+            .execute("imports.process", json!({"member_id":member,"id":batch["id"]}))
+            .unwrap();
+    }
+    assert_result_matches_schema(&schema_of("imports.process"), &processed, "process");
+    let item_ids: Vec<&str> = batch["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["id"].as_str().unwrap())
+        .collect();
+    let grouped = app
+        .execute(
+            "imports.group",
+            json!({"member_id":member,"id":batch["id"],"item_ids":item_ids}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("imports.group"), &grouped, "group");
+    let draft_id = grouped["drafts"].as_array().unwrap().last().unwrap()["id"].clone();
+    let got = app
+        .execute("imports.get", json!({"member_id":member,"id":batch["id"]}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("imports.get"), &got, "get");
+    let listed = app.execute("imports.list", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("imports.list"), &listed, "list");
+    let updated = app
+        .execute(
+            "imports.update",
+            json!({"member_id":member,"id":batch["id"],"draft_id":draft_id,"facts":{"name":"白衬衫","category":"top"}}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("imports.update"), &updated, "update");
+    let committed = app
+        .execute(
+            "imports.commit",
+            json!({"member_id":member,"id":batch["id"],"draft_id":draft_id,"operation_key":"imp-commit-1","facts":{"name":"白衬衫","category":"top"}}),
+        )
+        .unwrap();
+    assert_eq!(committed["name"], json!("白衬衫"), "commit入库真实衣物");
+    assert_result_matches_schema(&schema_of("imports.commit"), &committed, "commit");
+
+    let family = [
+        ("imports.create", "mutation", true),
+        ("imports.get", "query", false),
+        ("imports.list", "query", false),
+        ("imports.process", "mutation", true),
+        ("imports.group", "mutation", false),
+        ("imports.commit", "mutation", false),
+        ("imports.update", "mutation", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+}
+
+#[test]
+fn images_family_effects_examples_and_runtime_output_contract() {
+    // 真实本地图片：rotate/main/restore与model.status运行时输出对照声明schema
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("shirt.png");
+    image::RgbImage::from_pixel(48, 24, image::Rgb([247, 246, 242]))
+        .save(&source)
+        .unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let asset = app
+        .execute("assets.import", json!({"member_id":member,"path":source}))
+        .unwrap();
+    let clothing = app
+        .execute("clothing.create", json!({"member_id":member,"name":"白衬衣","category":"top"}))
+        .unwrap();
+    app.execute("assets.adopt", json!({"member_id":member,"asset_id":asset["id"],"clothing_id":clothing["id"]})).unwrap();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let status = app.execute("images.model.status", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(&schema_of("images.model.status"), &status, "model.status");
+    let rotated = app
+        .execute("images.rotate", json!({"member_id":member,"asset_id":asset["id"],"degrees":90}))
+        .unwrap();
+    assert_eq!(rotated["lineage"][0]["action"], json!("rotate"));
+    assert_result_matches_schema(&schema_of("images.rotate"), &rotated, "rotate");
+    let main = app
+        .execute("images.main", json!({"member_id":member,"clothing_id":clothing["id"],"asset_id":asset["id"]}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("images.main"), &main, "main");
+    let restored = app
+        .execute("images.restore", json!({"member_id":member,"asset_id":asset["id"]}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("images.restore"), &restored, "restore");
+
+    let family = [
+        ("images.rotate", "mutation", true),
+        ("images.restore", "mutation", true),
+        ("images.merge", "mutation", true),
+        ("images.replace", "mutation", false),
+        ("images.main", "mutation", false),
+        ("images.model.status", "query", true),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    let cutout = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("images.cutout"))
+        .unwrap();
+    let async_meta = cutout["effect"]["async"].as_object().expect("cutout须声明异步入队");
+    assert_eq!(async_meta["job_kind"], json!("local_cutout"));
+    assert_eq!(async_meta["process"], json!("images.worker.run"));
+    let worker = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("images.worker.run"))
+        .unwrap();
+    assert_eq!(
+        worker["effect"]["conditional_effects"][0]["effect"]["network"],
+        json!("model-download"),
+        "模型下载任务真实下载并校验SHA256"
+    );
+    // remaining：cutout/model.download运行时需真实模型文件，由既有行为测试覆盖；本测试不联网下载
+}
+
+#[test]
+fn media_provider_families_effects_examples_and_runtime_contract() {
+    // recognition/product/flatlay/tryon：条件供应商语义 + 本地可运行操作的运行时对照
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("mp.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let listed = app.execute("recognition.list", json!({"member_id":member})).unwrap();
+    assert_eq!(listed["items"], json!([]), "无建议时返回空容器");
+    assert_result_matches_schema(&schema_of("recognition.list"), &listed, "recognition.list");
+    let missing = app
+        .execute("recognition.get", json!({"member_id":member,"id":"<不存在>"}))
+        .unwrap_err();
+    assert_eq!(missing.code, "not_found");
+
+    let family = [
+        ("recognition.create", "mutation", true),
+        ("recognition.process", "mutation", true),
+        ("recognition.get", "query", false),
+        ("recognition.list", "query", false),
+        ("recognition.review", "mutation", false),
+        ("recognition.dismiss", "mutation", false),
+        ("product.generate", "mutation", true),
+        ("product.process", "mutation", true),
+        ("product.adopt", "mutation", false),
+        ("flatlay.generate", "mutation", true),
+        ("flatlay.process", "mutation", true),
+        ("flatlay.save", "mutation", false),
+        ("flatlay.preview", "mutation", true),
+        ("tryon.person.import", "mutation", true),
+        ("tryon.person.preview", "mutation", true),
+        ("tryon.preview", "mutation", true),
+        ("tryon.process", "mutation", true),
+        ("tryon.save", "mutation", false),
+        ("tryon.generate", "mutation", true),
+        ("tryon.compare", "query", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    // 供应商条件语义：提交挂起时才真实联网消耗额度
+    for op in ["recognition.create", "product.generate", "flatlay.generate", "tryon.generate"] {
+        let d = descriptors.iter().find(|d| d["name"] == json!(op)).unwrap();
+        let conditional = d["effect"]["conditional_effects"].as_array().expect(op);
+        assert!(
+            conditional.iter().any(|c| c["effect"]["network"] == json!("explicit-provider")),
+            "{op} 须声明条件供应商网络"
+        );
+    }
+    // remaining：供应商流程的运行时输出对照由既有行为套件覆盖（recognition 8、product_display 6、flatlay、tryon，
+    // 均使用本地HTTP fixture）；本测试不发起真实供应商调用。
+}
+
+#[test]
+fn backup_maintenance_data_directory_encryption_family_contract() {
+    // 真实本地备份全链：create入队→worker执行→preview→settings；encryption.status只读
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("bk.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let backup_dir = dir.path().join("backup-out");
+    let created = app
+        .execute(
+            "backup.create",
+            json!({"directory":backup_dir,"operation_key":"bk-1","include_originals":false}),
+        )
+        .unwrap();
+    assert_eq!(created["state"], json!("queued"), "备份异步入队");
+    assert_result_matches_schema(&schema_of("backup.create"), &created, "backup.create");
+    let done = app
+        .execute("maintenance.worker.run", json!({"id":created["id"]}))
+        .unwrap();
+    assert_eq!(done["state"], json!("succeeded"), "worker本地完成备份");
+    assert_result_matches_schema(&schema_of("maintenance.worker.run"), &done, "maintenance.worker.run");
+    let previewed = app
+        .execute(
+            "backup.preview",
+            json!({"directory":backup_dir}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("backup.preview"), &previewed, "backup.preview");
+    let current = app.execute("backup.settings.get", json!({})).unwrap();
+    let settings = app
+        .execute(
+            "backup.settings.set",
+            json!({"directory":backup_dir,"include_originals":false,"expected_revision":current["revision"]}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("backup.settings.set"), &settings, "backup.settings.set");
+    let status = app.execute("encryption.status", json!({})).unwrap();
+    assert_result_matches_schema(&schema_of("encryption.status"), &status, "encryption.status");
+    let listed = app.execute("maintenance.list", json!({})).unwrap();
+    assert_result_matches_schema(&schema_of("maintenance.list"), &listed, "maintenance.list");
+
+    // backup.create/restore与data_directory.move是异步入队操作，单独断言
+    let family = [
+        ("backup.preview", "query", true),
+        ("backup.settings.get", "query", false),
+        ("backup.settings.set", "mutation", false),
+        ("maintenance.get", "query", false),
+        ("maintenance.list", "query", false),
+        ("maintenance.cancel", "mutation", false),
+        ("maintenance.retry", "mutation", true),
+        ("maintenance.worker.run", "mutation", true),
+        ("data_directory.status", "query", false),
+        ("encryption.status", "query", false),
+        ("encryption.package.read", "query", true),
+        ("encryption.package.export", "mutation", true),
+        ("encryption.restore", "mutation", true),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    for op in ["backup.create", "backup.restore", "data_directory.move"] {
+        let d = descriptors.iter().find(|d| d["name"] == json!(op)).unwrap();
+        let async_meta = d["effect"]["async"].as_object().unwrap_or_else(|| panic!("{op} 须声明异步入队"));
+        assert_eq!(async_meta["process"], json!("maintenance.worker.run"), "{op}");
+    }
+    let create = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("backup.create"))
+        .unwrap();
+    let async_meta = create["effect"]["async"].as_object().expect("backup.create须声明异步入队");
+    assert_eq!(async_meta["process"], json!("maintenance.worker.run"));
+    // 其余加密操作（create/pair/device/seal等）的运行时证明沿用既有加密套件（真实两安装外部密文包已验）
+    for op in ["encryption.create", "encryption.encrypt", "encryption.pair.offer", "encryption.unpair", "encryption.recovery.create", "encryption.seal", "encryption.open", "encryption.decrypt", "encryption.password.change", "encryption.device.apply", "encryption.device.revoke", "encryption.pair.accept", "encryption.pair.confirm", "encryption.unpair"] {
+        let d = descriptors.iter().find(|d| d["name"] == json!(op)).unwrap_or_else(|| panic!("{op}"));
+        assert_eq!(d["effect"]["kind"], json!("mutation"), "{op}");
+        assert_eq!(d["effect"]["network"], json!("none"), "{op} 纯本机加密");
+    }
 }

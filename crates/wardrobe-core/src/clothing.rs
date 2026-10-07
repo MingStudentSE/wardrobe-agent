@@ -510,6 +510,19 @@ pub(super) fn apply_facts(doc: &mut Value, input: &Value) -> Result<(), ApiError
             ));
         }
     }
+    if let Some(value) = input.get("category") {
+        let id = value
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| ApiError::new("invalid_input", "类别须为文本类别ID"))?;
+        let legal = CATEGORIES.contains(&id)
+            || id
+                .strip_prefix("custom_")
+                .is_some_and(|raw| uuid::Uuid::parse_str(raw).is_ok());
+        if !legal {
+            return Err(ApiError::new("invalid_input", "类别不在分类字典中"));
+        }
+    }
 
     for key in TEXT_FACTS {
         if let Some(value) = input.get(*key) {
@@ -761,7 +774,7 @@ pub(super) fn descriptors() -> Vec<Value> {
     descriptors.as_array().unwrap().clone()
 }
 pub(super) fn output_schema(operation: &str) -> Value {
-    let mut item = json!({"type":"object","required":["schema_version","id","member_id","name","category","seasons","purchase_price_minor","price_exponent","currency","size_label","status","favorite","created_at","updated_at"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"member_id":{"type":"string"},"name":{"type":"string"},"category":{"type":"string"},"seasons":{"type":"array","items":{"type":"string","enum":["spring","summer","autumn","winter"]}},"purchase_price_minor":{"type":["integer","null"],"minimum":0},"price_exponent":{"type":["integer","null"]},"currency":{"type":["string","null"]},"size_label":{"type":["string","null"]},"status":{"type":"string","enum":["active","archived","deleted"]},"favorite":{"type":"boolean"},"created_at":{"type":"string"},"updated_at":{"type":"string"}}});
+    let mut item = json!({"type":"object","required":["schema_version","id","member_id","name","category","seasons","purchase_price_minor","price_exponent","currency","size_label","status","favorite","created_at","updated_at"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"member_id":{"type":"string"},"name":{"type":"string"},"category":{"type":"string"},"seasons":{"type":"array","items":{"type":"string","enum":["spring","summer","autumn","winter"]}},"purchase_price_minor":{"type":["integer","null"],"minimum":0},"price_exponent":{"type":["integer","null"]},"currency":{"type":["string","null"]},"size_label":{"type":["string","null"]},"status":{"type":"string","enum":["active","archived","deleted"]},"favorite":{"type":"boolean"},"taxonomy_version":{"type":"integer"},"created_at":{"type":"string"},"updated_at":{"type":"string"}}});
     for key in TEXT_FACTS {
         item["properties"][*key] = json!({"type":["string","null"]});
     }
