@@ -1,0 +1,8 @@
+git HEAD: 7a4e3a21a2230ab9c6ddcb1cfee7172abd95f10b
+git subject: fix(learning): compare reset boundaries by RFC3339 instant
+
+git status --porcelain (pre-run):
+ M docs/verification/ticket-18/learning-1280.png
+ M docs/verification/ticket-18/learning-320.png
+ M docs/verification/ticket-18/learning-sources-1280.png
+ M docs/verification/ticket-18/learning-sources-320.png

@@ -1,0 +1,11 @@
+
+running 6 tests
+test database_and_wal_do_not_persist_exported_recovery_or_unwrapped_private_keys ... ok
+test encrypted_space_restarts_with_system_key_and_pairing_imports_same_master_on_second_device ... ok
+test two_connections_racing_confirmation_consume_invitation_once ... ok
+test recovery_restores_keys_and_password_change_preserves_existing_ciphertext ... ok
+test device_confirmation_is_single_use_and_revocation_rotates_future_keys_for_remaining_devices ... ok
+test failed_rotation_is_atomic_and_recovery_keeps_all_historical_epochs ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 9.48s
+

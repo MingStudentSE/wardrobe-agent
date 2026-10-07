@@ -1,0 +1,163 @@
+{
+  "source": "4095912",
+  "before_df": "Filesystem      Size    Used   Avail Capacity iused ifree %iused  Mounted on\n/dev/disk3s5   228Gi   199Gi   2.5Gi    99%    2.3M   26M    8%   /System/Volumes/Data\n",
+  "files": [
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/ai_recommendations-a8dd888404013697",
+      "bytes": 111441280,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/application-ffdc02d1fe195a3e",
+      "bytes": 110921472,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/assets-773e493192c33ac7",
+      "bytes": 111034624,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/authorization-fe956f04a592cf83",
+      "bytes": 110914896,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/backup-cbbda9a3225d5625",
+      "bytes": 112072704,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/care-3f096b7d4977dc9a",
+      "bytes": 111071776,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/clothing_management-84e697d05a982bad",
+      "bytes": 110890736,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/encrypted_package-045f42afeeda4e33",
+      "bytes": 111128272,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/encryption-e7ed1076601f67ba",
+      "bytes": 111123920,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/entrypoints-95eae7cede4a3832",
+      "bytes": 111393472,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/feedback-41f093acb406b2a6",
+      "bytes": 111435280,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/flatlay-5d698fcfee5160b0",
+      "bytes": 111158416,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/image_editing-8a2dcdd82019f0c5",
+      "bytes": 111454016,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/imports-fdde2689a15efba1",
+      "bytes": 111179840,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/insights-41d6aa0ff75cbf66",
+      "bytes": 111008160,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/jobs-de3e70e0e134969b",
+      "bytes": 110896544,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/learning-a2a5ea61a024eb1c",
+      "bytes": 111083696,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/learning_jobs-1f9e18dda37ffc00",
+      "bytes": 111074064,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/learning_scale-0746f69bc92c3053",
+      "bytes": 110859488,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/maintenance_jobs-7947377bffcf498f",
+      "bytes": 110894800,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/members-8f049ded7e2d3f06",
+      "bytes": 110835136,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/outfits-c96ed020993d761c",
+      "bytes": 111103040,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/product_display-a18da5aa75ef9413",
+      "bytes": 111286368,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/providers-3ea6371799df229d",
+      "bytes": 110958528,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/recognition-2f4b64dc71cadf25",
+      "bytes": 111382736,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/recommendations-4b434e0f15914463",
+      "bytes": 111113472,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/tryon-f5da9cae3915c061",
+      "bytes": 111406576,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/wardrobe_cli-c63706bd91c01edb",
+      "bytes": 63391696,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/wardrobe_core-1455b102a1d64765",
+      "bytes": 109851152,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/wears-1550ba0bb9fb26ec",
+      "bytes": 111195648,
+      "lsof_no_reference": true
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/weather-b40e0cbe55c61bdb",
+      "bytes": 110916336,
+      "lsof_no_reference": true
+    }
+  ],
+  "removed_bytes": 3396478144,
+  "after_df": "Filesystem      Size    Used   Avail Capacity iused ifree %iused  Mounted on\n/dev/disk3s5   228Gi   196Gi   5.7Gi    98%    2.3M   60M    4%   /System/Volumes/Data\n"
+}

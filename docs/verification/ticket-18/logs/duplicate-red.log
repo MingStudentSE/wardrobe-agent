@@ -1,0 +1,22 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 2.18s
+     Running tests/learning.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/learning-a2a5ea61a024eb1c)
+
+running 1 test
+test same_feature_requires_edit_instead_of_competing_explicit_values_and_cas_is_atomic ... FAILED
+
+failures:
+
+---- same_feature_requires_edit_instead_of_competing_explicit_values_and_cas_is_atomic stdout ----
+
+thread 'same_feature_requires_edit_instead_of_competing_explicit_values_and_cas_is_atomic' (3870593) panicked at crates/wardrobe-core/tests/learning.rs:372:142:
+called `Result::unwrap_err()` on an `Ok` value: Object {"algorithm_version": String("explicit-and-events-v1"), "created_at": String("2026-10-06T23:39:30.029267+00:00"), "deleted": Bool(false), "dimension": String("color"), "id": String("01a11396-276d-741e-a45e-8d779a4c036d"), "member_id": String("01a11396-2769-71af-903f-9f360bac6548"), "note": String(""), "revision": Number(1), "root_id": String("01a11396-276d-741e-a45e-8d779a4c036d"), "schema_version": Number(1), "source": Object {"kind": String("explicit_user")}, "value": String("blue"), "weight": Number(-3)}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    same_feature_requires_edit_instead_of_competing_explicit_values_and_cas_is_atomic
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p wardrobe-core --test learning`

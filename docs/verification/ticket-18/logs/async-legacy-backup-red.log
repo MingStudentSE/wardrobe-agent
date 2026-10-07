@@ -1,0 +1,24 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 2.03s
+     Running tests/learning_jobs.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/learning_jobs-1f9e18dda37ffc00)
+
+running 1 test
+test accepted_db19_archive_restores_empty_learning_without_relaxing_current_schema ... FAILED
+
+failures:
+
+---- accepted_db19_archive_restores_empty_learning_without_relaxing_current_schema stdout ----
+
+thread 'accepted_db19_archive_restores_empty_learning_without_relaxing_current_schema' (4001987) panicked at crates/wardrobe-core/tests/learning_jobs.rs:121:5:
+assertion `left == right` failed: {"attempts":1,"created_at":"2026-10-07T00:15:40.367283+00:00","error":{"code":"backup_invalid","message":"备份包含非法表结构"},"id":"01a113b7-454f-7768-a16e-43fd341e5432","input":{"directory":"/var/folders/zg/mwcsv72133b9lfjg5sftc7440000gn/T/.tmpoxuul4/legacy"},"job_id":"01a113b7-454f-7768-a16e-43fd341e5432","operation":"backup.preview","operation_key":"01a113b7-454f-7768-a16e-43fcc7c03b8a","phase":"failed","progress":0,"result":null,"schema_version":1,"state":"failed","updated_at":"2026-10-07T00:15:40.370217+00:00"}
+  left: String("failed")
+ right: "succeeded"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    accepted_db19_archive_restores_empty_learning_without_relaxing_current_schema
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p wardrobe-core --test learning_jobs`

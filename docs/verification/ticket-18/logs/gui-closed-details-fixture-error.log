@@ -1,0 +1,37 @@
+npm notice run wardrobe-desktop@0.1.0 npx
+npm notice run 'playwright' test tests/learning.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5174 --strictPort
+[WebServer] (node:85088) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:85093) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/learning.spec.ts:2:1 › 显式偏好可查看编辑删除，重置与完整重建明确且不写穿着 (30.1s)
+
+
+  1) tests/learning.spec.ts:2:1 › 显式偏好可查看编辑删除，重置与完整重建明确且不写穿着 ───────────────────────────────────────
+
+    Test timeout of 30000ms exceeded.
+
+    Error: expect(locator).toBeEnabled() failed
+
+    Locator:  getByRole('combobox', { name: '当前成员', exact: true })
+    Expected: enabled
+    Received: undefined
+
+
+      11 |  for(const width of [320,375,414,768,1024,1280,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();if(width===320||width===1280)await panel.screenshot({path:`../../docs/verification/ticket-18/learning-${width}.png`});}
+      12 |  const response=await page.request.post('/__wardrobe_dev_api',{data:{operation:'wear.list',input:{member_id:member}}});expect((await response.json()).result.items).toEqual([]);
+    > 13 |  }finally{await expect(choice).toBeEnabled();await choice.selectOption({label:'我'});}
+         |                                ^
+      14 | });
+      15 |
+        at /private/tmp/wardrobe-ticket-18/apps/desktop/tests/learning.spec.ts:13:32
+
+    Error Context: test-results/learning-显式偏好可查看编辑删除，重置与完整重建明确且不写穿着/error-context.md
+
+  1 failed
+    tests/learning.spec.ts:2:1 › 显式偏好可查看编辑删除，重置与完整重建明确且不写穿着 ────────────────────────────────────────

@@ -32,6 +32,11 @@ const TABLES: &[&str] = &[
     "feedback_events",
     "feedback_receipts",
     "feedback_asset_refs",
+    "learning_memories",
+    "learning_profiles",
+    "learning_state",
+    "learning_history",
+    "learning_receipts",
     "schedule_plans",
     "schedule_executions",
 ];
@@ -170,16 +175,29 @@ fn bounded_manifest(path: &Path) -> Result<Vec<u8>, ApiError> {
     }
     Ok(result)
 }
+fn strip_learning_local_epoch(value: &mut Value) {
+    if let Some(map) = value.as_object_mut() {
+        map.remove("local_source_version");
+        map.remove("local_installation_generation");
+    }
+}
 fn columns(db: &Connection, table: &str) -> Result<Vec<(String, String, i64)>, ApiError> {
     Ok(db
         .prepare(&format!("PRAGMA table_info(\"{table}\")"))?
         .query_map([], |r| Ok((r.get(1)?, r.get(2)?, r.get(5)?)))?
         .collect::<Result<Vec<_>, _>>()?)
 }
+fn has_table(db: &Connection, table: &str) -> Result<bool, ApiError> {
+    Ok(db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+        [table],
+        |r| r.get(0),
+    )?)
+}
 fn counts(db: &Connection) -> Result<Value, ApiError> {
     let mut result = serde_json::Map::new();
     for table in TABLES {
-        if !table_exists(db, table)? {
+        if !has_table(db, table)? {
             result.insert((*table).into(), json!(0));
             continue;
         }
@@ -241,7 +259,7 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
         Ok(())
     }
     for table in TABLES {
-        if !table_exists(db, table)? {
+        if !has_table(db, table)? {
             continue;
         }
         let fields = columns(db, table)?;
@@ -258,7 +276,10 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
             | "recommendation_intents"
             | "feedback_events"
             | "schedule_plans"
-            | "schedule_executions" => Some(("id", "id")),
+            | "schedule_executions"
+            | "learning_memories"
+            | "learning_profiles"
+            | "learning_history" => Some(("id", "id")),
             "care_config" => Some(("clothing_id", "clothing_id")),
             "outfit_versions" => Some(("outfit_id", "id")),
             _ => None,
@@ -311,7 +332,9 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
                 return Err(ApiError::new("backup_invalid", "业务文档须为对象"));
             }
             if let Some(member) = &member {
-                if document["member_id"].as_str() != Some(member.as_str()) {
+                if *table != "learning_state"
+                    && document["member_id"].as_str() != Some(member.as_str())
+                {
                     return Err(ApiError::new("backup_invalid", "业务成员与数据库行不一致"));
                 }
             }
@@ -365,6 +388,14 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
                 crate::schedules::validate_portable_execution(db, &document)
                     .map_err(|_| ApiError::new("backup_invalid", "定时执行历史或引用不支持"))?;
             }
+            if table.starts_with("learning_") {
+                crate::learning::validate_portable_document(
+                    db,
+                    table,
+                    member.as_deref().unwrap_or(""),
+                    &document,
+                )?;
+            }
             if *table == "weather_preferences" {
                 crate::weather::validate_portable_document(&document)
                     .map_err(|_| ApiError::new("backup_invalid", "天气配置格式或私有字段不支持"))?;
@@ -381,6 +412,9 @@ fn validate_references(db: &Connection) -> Result<(), ApiError> {
         }
     }
     validate_receipts(db)?;
+    if has_table(db, "learning_receipts")? {
+        crate::learning::validate_portable_receipts(db)?;
+    }
     Ok(())
 }
 fn validate_receipts(db: &Connection) -> Result<(), ApiError> {
@@ -739,6 +773,18 @@ impl Application {
                             let mut values = (0..columns)
                                 .map(|index| row.get::<_, rusqlite::types::Value>(index))
                                 .collect::<Result<Vec<_>, _>>()?;
+                            if let Some(index) =
+                                document_index.filter(|_| *table == "learning_profiles")
+                            {
+                                if let rusqlite::types::Value::Text(raw) = &values[index] {
+                                    let mut doc: Value =
+                                        serde_json::from_str(raw).map_err(|_| {
+                                            ApiError::new("backup_invalid", "学习画像记录损坏")
+                                        })?;
+                                    strip_learning_local_epoch(&mut doc);
+                                    values[index] = rusqlite::types::Value::Text(doc.to_string());
+                                }
+                            }
                             if *table == "weather_preferences" {
                                 let document_index = document_index.unwrap();
                                 let rusqlite::types::Value::Text(raw) = &values[document_index]
@@ -897,12 +943,19 @@ impl Application {
                     return Err(ApiError::new("backup_invalid", "备份数据库版本不匹配"));
                 }
                 let names=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")?.query_map([],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
-                if names.iter().any(|name| !TABLES.contains(&name.as_str()))
-                    || TABLES.iter().any(|table| {
-                        !names.contains(&table.to_string())
+                let expected_tables: Vec<&str> = TABLES
+                    .iter()
+                    .copied()
+                    .filter(|table| {
+                        !(actual_version < 20 && table.starts_with("learning_"))
                             && !(actual_version < 21
                                 && matches!(*table, "schedule_plans" | "schedule_executions"))
                     })
+                    .collect();
+                if names.len() != expected_tables.len()
+                    || names
+                        .iter()
+                        .any(|name| !expected_tables.contains(&name.as_str()))
                 {
                     return Err(ApiError::new("backup_invalid", "备份包含非法表结构"));
                 }
@@ -914,10 +967,7 @@ impl Application {
                 if dangerous {
                     return Err(ApiError::new("backup_invalid", "备份包含非法执行结构"));
                 }
-                for table in TABLES {
-                    if !names.contains(&table.to_string()) {
-                        continue;
-                    }
+                for table in expected_tables {
                     if columns(&db, table)? != columns(&self.connection, table)?
                         || foreign_keys(&db, table)? != foreign_keys(&self.connection, table)?
                     {
@@ -1010,9 +1060,11 @@ impl Application {
                         tx.execute_batch(&format!("DELETE FROM \"{table}\""))?;
                     }
                     for table in TABLES {
-                        let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM restore_source.sqlite_master WHERE type='table' AND name=?1)",[*table],|r|r.get(0))?;
-                        if !exists && matches!(*table, "schedule_plans" | "schedule_executions") {
-                            continue;
+                        {
+                            let present:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM restore_source.sqlite_master WHERE type='table' AND name=?1)",[table],|r|r.get(0))?;
+                            if !present {
+                                continue;
+                            }
                         }
                         #[cfg(all(debug_assertions, feature = "backup-test-diagnostics"))]
                         eprintln!("backup_test_phase=insert:{table}");
@@ -1083,12 +1135,4 @@ pub(super) fn descriptors() -> Vec<Value> {
         }
         json!({"name":name,"description":"本地备份、预览与显式恢复","outputSchema":if matches!(name,"backup.create"|"backup.preview"|"backup.restore"){crate::maintenance::job_schema()}else{json!({"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":1}}})},"inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties}})
     }).collect()
-}
-
-fn table_exists(db: &Connection, table: &str) -> Result<bool, ApiError> {
-    Ok(db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
-        [table],
-        |r| r.get(0),
-    )?)
 }

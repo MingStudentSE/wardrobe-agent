@@ -1,0 +1,113 @@
+{
+  "generated_at_utc": "2026-10-07T01:35:30+00:00",
+  "scope": "bounded PUBLIC regression (new test only) for the reset-cutoff timestamp root finding in learning-reset-time-review.md; product red preserved, no fix attempted (root owns the fix)",
+  "root_finding": "crates/wardrobe-core/src/learning.rs lines 487 and 508 compare event created_at RFC3339 strings lexicographically against the reset cutoff; a real instant at or before the cutoff re-expressed with an accepted +14:00 offset sorts after a UTC cutoff string and is reabsorbed after learning.reset",
+  "source": {
+    "worktree": "/Users/links/.codex/wardrobe-execution/worktrees/merge-18",
+    "sha_expected": "cd7ef72",
+    "sha": "cd7ef72e1b5dfb0423bc3937f2ea59553664ae09",
+    "head_matches_expected": true,
+    "author": "MingStudent <23649003+MingStudentSE@users.noreply.github.com>",
+    "subject": "Merge ticket 18 for independent verification",
+    "changes_by_this_task": [
+      "crates/wardrobe-core/tests/learning_reset_offsets.rs (new file, untracked; the only allowed change)"
+    ],
+    "production_source_changes": "none",
+    "existing_test_edits": "none",
+    "commit_push_network_user_data_paid_calls": "none",
+    "parallel_task_observation": "4 docs/verification/ticket-18/*.png files show as modified in the shared worktree; this task ran no GUI, media, image or docs operations and did not touch them (see evidence/git-head-and-status.txt)"
+  },
+  "environment": {
+    "env_source": "/Users/links/.codex/wardrobe-execution/native-env.sh",
+    "cargo_target_dir": "/Users/links/.codex/wardrobe-execution/cache/learning",
+    "cargo_incremental": "0",
+    "cargo_build_jobs": "2"
+  },
+  "fixture_design": {
+    "application": "public wardrobe_core::Application::open fixture, no private seams",
+    "facts": [
+      "wear case: colored clothing (blue top) + public wear.record",
+      "feedback case: blue/black top+bottom+shoes, public recommendation.generate + feedback.record (like, overall 5)"
+    ],
+    "backup": "public backup.create completed by the real durable maintenance worker (maintenance.worker.run)",
+    "archive_mutation": "ONLY the temporary exported portable archive database (facts.sqlite): event document created_at re-expressed as the exact same actual instant with chrono FixedOffset::east_opt(14*3600) (+14:00), plus the receipt copy the portable validator cross-checks (wear_receipts.result / feedback_receipts.result; validator requires result == stored event document)",
+    "manifest": "rehashed facts.sqlite bytes+sha256 with the existing tests/backup.rs rehash pattern",
+    "validators": "not weakened; public backup.preview returned valid=true and public backup.restore genuinely succeeded on the rewritten archive; no active app private tables mutated; no forced restore",
+    "receiver": "reopened via Application::open after restore; public learning.reset scope=inferred; ordinary recompute via learning.recompute receipt + learning.worker.run (support/learning.rs public helper included)",
+    "no_sleep": "no wall-clock sleeps; ordering comes from the operation sequence; the recorded event instant is strictly earlier than the later reset cutoff in the same run"
+  },
+  "exact_equal_instants_represented_differently": {
+    "wear": {
+      "original_created_at_utc": "2026-10-07T01:30:09.842859+00:00",
+      "reexpressed_created_at_plus_14": "2026-10-07T15:30:09.842859+14:00",
+      "same_actual_instant": true,
+      "reset_cutoff_utc": "2026-10-07T01:30:09.896094+00:00",
+      "event_instant_vs_cutoff": "strictly earlier by ~53ms",
+      "utc_string_vs_cutoff": "sorts before (would be excluded)",
+      "plus_14_string_vs_cutoff": "sorts after (reabsorbed)"
+    },
+    "feedback": {
+      "original_created_at_utc": "2026-10-07T01:30:09.844332+00:00",
+      "reexpressed_created_at_plus_14": "2026-10-07T15:30:09.844332+14:00",
+      "same_actual_instant": true,
+      "reset_cutoff_utc": "2026-10-07T01:30:09.901226+00:00",
+      "event_instant_vs_cutoff": "strictly earlier by ~57ms",
+      "utc_string_vs_cutoff": "sorts before (would be excluded)",
+      "plus_14_string_vs_cutoff": "sorts after (reabsorbed)"
+    }
+  },
+  "commands": [
+    {
+      "order": 1,
+      "command": "source native-env.sh && CARGO_TARGET_DIR=/Users/links/.codex/wardrobe-execution/cache/learning cargo fmt --all --check",
+      "exit": 0,
+      "stdout": "results/learning-reset-offset-red-evidence/fmt.stdout.log",
+      "stderr": "results/learning-reset-offset-red-evidence/fmt.stderr.log"
+    },
+    {
+      "order": 2,
+      "command": "source native-env.sh && CARGO_TARGET_DIR=/Users/links/.codex/wardrobe-execution/cache/learning cargo test -p wardrobe-core --test learning_reset_offsets -- --nocapture",
+      "exit": 101,
+      "stdout": "results/learning-reset-offset-red-evidence/test.stdout.log",
+      "stderr": "results/learning-reset-offset-red-evidence/test.stderr.log"
+    }
+  ],
+  "outcome": {
+    "verdict": "real product red (not a fixture blocker): the rewritten archive was accepted by preview and restore, restored facts were present, and both cutoff comparisons still reabsorbed the pre-reset events",
+    "wear_case_line_508": {
+      "test": "wear_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset",
+      "failed_assert": "profile[\"inferred\"] == [] after learning.reset + recompute",
+      "observed_reabsorbed": [
+        {"dimension": "category", "value": "top", "weight": 1, "wear_ids": 1},
+        {"dimension": "color", "value": "blue", "weight": 1, "wear_ids": 1}
+      ],
+      "sanity_passed": [
+        "preview valid=true and restore succeeded on the rewritten archive",
+        "restored wear.get created_at equals the +14:00 representation and parses to the original instant",
+        "wear.list shows the actual wear fact remains present"
+      ]
+    },
+    "feedback_case_line_487": {
+      "test": "feedback_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset",
+      "failed_assert": "profile[\"inferred\"] == [] after learning.reset + recompute",
+      "observed_reabsorbed": [
+        {"dimension": "category", "value": "top|bottom|shoes", "weight": 4, "feedback_ids": 1},
+        {"dimension": "color", "value": "blue", "weight": 4, "feedback_ids": 1},
+        {"dimension": "color", "value": "black", "weight": 4, "feedback_ids": 1}
+      ],
+      "sanity_passed": [
+        "restored feedback.list carries the +14:00 created_at parsing to the original instant",
+        "3 colored clothing facts remain present"
+      ]
+    },
+    "full_failure_payloads": "results/learning-reset-offset-red-evidence/test.stderr.log"
+  },
+  "fixture_iterations": [
+    {
+      "attempt": 1,
+      "note": "harness-only fix, not product evidence: receipt UPDATE first matched on member_id='default' literal, but portable archives store the workspace default member UUID; first run panicked at the receipt-copy assert (0 rows) before any learning operation",
+      "evidence": "superseded run output replaced by the final run in this evidence directory"
+    }
+  ],
+  "next_step_for_root": "parse the cutoff once and each event created_at as chrono DateTime and compare instants in both the feedback and wear paths (one shared semantic helper), surfacing a storage/domain error for malformed timestamps instead of silently including; this test must flip to green with no fixture change"
+}

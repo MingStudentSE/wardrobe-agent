@@ -1,0 +1,15 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+error[E0624]: associated function `new` is private
+  --> crates/wardrobe-core/tests/support/learning.rs:18:34
+   |
+18 |             return Err(ApiError::new(
+   |                                  ^^^ private associated function
+   |
+  ::: crates/wardrobe-core/src/lib.rs:39:5
+   |
+39 |     fn new(code: &str, message: &str) -> Self {
+   |     ----------------------------------------- private associated function defined here
+
+For more information about this error, try `rustc --explain E0624`.
+error: could not compile `wardrobe-core` (test "learning") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

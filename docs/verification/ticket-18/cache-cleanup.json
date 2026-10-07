@@ -1,0 +1,107 @@
+{
+  "confirmed_terminal_handle": 59743,
+  "preserved_stems": [
+    "encrypted_package",
+    "encryption",
+    "learning",
+    "learning_scale",
+    "recommendations",
+    "wardrobe_cli"
+  ],
+  "before": "Filesystem   1024-blocks      Used Available Capacity iused    ifree %iused  Mounted on\n/dev/disk3s5   239362496 209133336   2440140    99% 2253331 24401400    8%   /System/Volumes/Data\n",
+  "lsof_returncode": 1,
+  "lsof_stdout": "",
+  "lsof_stderr": "",
+  "files": [
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/entrypoints-95eae7cede4a3832",
+      "bytes": 110311984
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/wardrobe_core-1455b102a1d64765",
+      "bytes": 108784880
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/ai_recommendations-a8dd888404013697",
+      "bytes": 110377280
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/application-ffdc02d1fe195a3e",
+      "bytes": 109857648
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/assets-773e493192c33ac7",
+      "bytes": 109969552
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/authorization-fe956f04a592cf83",
+      "bytes": 109835280
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/care-3f096b7d4977dc9a",
+      "bytes": 110009088
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/clothing_management-84e697d05a982bad",
+      "bytes": 109824736
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/feedback-41f093acb406b2a6",
+      "bytes": 110354352
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/flatlay-5d698fcfee5160b0",
+      "bytes": 110075760
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/image_editing-8a2dcdd82019f0c5",
+      "bytes": 110030848
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/imports-fdde2689a15efba1",
+      "bytes": 110099408
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/insights-41d6aa0ff75cbf66",
+      "bytes": 109943456
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/jobs-de3e70e0e134969b",
+      "bytes": 109830624
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/members-8f049ded7e2d3f06",
+      "bytes": 109770624
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/outfits-c96ed020993d761c",
+      "bytes": 110021568
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/product_display-a18da5aa75ef9413",
+      "bytes": 110220128
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/providers-3ea6371799df229d",
+      "bytes": 109894832
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/recognition-2f4b64dc71cadf25",
+      "bytes": 110319568
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/tryon-f5da9cae3915c061",
+      "bytes": 110323072
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/wears-1550ba0bb9fb26ec",
+      "bytes": 110114544
+    },
+    {
+      "path": "/Users/links/.codex/worktrees/9729/\u7535\u5b50\u8863\u6a71 Agent/target/debug/deps/weather-b40e0cbe55c61bdb",
+      "bytes": 109852208
+    }
+  ],
+  "bytes_removed": 2419821440,
+  "after": "Filesystem   1024-blocks      Used Available Capacity iused    ifree %iused  Mounted on\n/dev/disk3s5   239362496 206781996   4791480    98% 2253324 47914800    4%   /System/Volumes/Data\n"
+}

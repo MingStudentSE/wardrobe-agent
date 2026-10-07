@@ -1,0 +1,9 @@
+    Checking rustix v1.1.5
+    Checking xattr v1.6.1
+    Checking tar v0.4.46
+    Checking tract-nnef v0.23.8
+    Checking tract-extra v0.23.8
+    Checking tract-onnx-opl v0.23.8
+    Checking tract-onnx v0.23.8
+    Checking wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+    Finished `dev` profile [unoptimized] target(s) in 4.28s

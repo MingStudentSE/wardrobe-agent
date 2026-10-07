@@ -201,6 +201,30 @@ impl Application {
                 ));
             }
         }
+        if grant["mode"] != "full"
+            && matches!(
+                operation,
+                "learning.worker.run" | "jobs.retry" | "jobs.cancel"
+            )
+        {
+            let id = if operation == "learning.worker.run" {
+                input["job_id"].clone()
+            } else {
+                input["id"].clone()
+            };
+            let job = self.job_get(json!({"member_id":self.member(&input)?,"id":id}))?;
+            if job["kind"] == "learning_recompute"
+                && !grant["operations"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("learning.recompute"))
+            {
+                return Err(ApiError::new(
+                    "scope_denied",
+                    "管理学习重算任务还需要learning.recompute授权",
+                ));
+            }
+        }
         #[cfg(test)]
         AFTER_AUTHORIZATION.with(|hook| {
             let callback = hook.borrow_mut().take();

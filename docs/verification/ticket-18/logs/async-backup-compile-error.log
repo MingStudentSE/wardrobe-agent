@@ -1,0 +1,25 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+error[E0277]: `?` couldn't convert the error to `ApiError`
+   --> crates/wardrobe-core/src/backup.rs:747:83
+    |
+747 | ...                   let mut doc: Value = serde_json::from_str(raw)?;
+    |                                            -------------------------^ the trait `From<serde_json::Error>` is not implemented for `ApiError`
+    |                                            |
+    |                                            this can't be annotated with `?` because it has type `Result<_, serde_json::Error>`
+    |
+note: `ApiError` needs to implement `From<serde_json::Error>`
+   --> crates/wardrobe-core/src/lib.rs:37:1
+    |
+ 37 | pub struct ApiError {
+    | ^^^^^^^^^^^^^^^^^^^
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+help: the trait `From<serde_json::Error>` is not implemented for `ApiError`
+      but trait `From<rusqlite::Error>` is implemented for it
+   --> crates/wardrobe-core/src/lib.rs:49:1
+    |
+ 49 | impl From<rusqlite::Error> for ApiError {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for that trait implementation, expected `rusqlite::Error`, found `serde_json::Error`
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `wardrobe-core` (lib) due to 1 previous error

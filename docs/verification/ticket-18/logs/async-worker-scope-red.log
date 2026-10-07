@@ -1,0 +1,22 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.85s
+     Running tests/learning_jobs.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/learning_jobs-1f9e18dda37ffc00)
+
+running 1 test
+test worker_only_client_cannot_lift_reset_boundary ... FAILED
+
+failures:
+
+---- worker_only_client_cannot_lift_reset_boundary stdout ----
+
+thread 'worker_only_client_cannot_lift_reset_boundary' (3979329) panicked at crates/wardrobe-core/tests/learning_jobs.rs:272:149:
+called `Result::unwrap_err()` on an `Ok` value: Object {"attempts": Number(1), "created_at": String("2026-10-07T00:06:59.749286+00:00"), "error": Null, "id": String("01a113af-53a5-71eb-ac81-3f80502377fb"), "kind": String("learning_recompute"), "lease_expires": Number(0), "lease_token": Null, "member_id": String("01a113af-53a1-71f9-a4e3-a25371421fa9"), "next_due": Number(0), "operation_key": String("full-rebuild"), "payload": Object {"expected_state": Object {"cutoff": Null, "suppressed": Array []}, "request": Object {"include_prior": Bool(true), "member_id": String("01a113af-53a1-71f9-a4e3-a25371421fa9"), "operation_key": String("full-rebuild")}}, "progress": Number(100), "result": Object {"profile_id": String("01a113af-53af-72b7-a58e-d71f5196d8dd")}, "schema_version": Number(1), "state": String("succeeded"), "updated_at": String("2026-10-07T00:06:59.760048+00:00")}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    worker_only_client_cannot_lift_reset_boundary
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p wardrobe-core --test learning_jobs`

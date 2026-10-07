@@ -1,0 +1,10 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 2.67s
+     Running tests/learning_scale.rs (/Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/deps/learning_scale-0746f69bc92c3053)
+
+running 1 test
+LEARNING_SCALE recompute_ms=5587 explicit=65 inferred=3 inventory=10000 effective_wears=100000 requested=5 actual=5 fixed_preserved=true elapsed_ms=5111 db_bytes=190156800
+test nonempty_learning_ranks_ten_thousand_inventory_hundred_thousand_effective_wears ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.87s
+
