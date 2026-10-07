@@ -952,7 +952,18 @@ impl Application {
                     return Err(ApiError::new("backup_invalid", "备份包含非法执行结构"));
                 }
                 for table in expected_tables {
-                    if columns(&db, table)? != columns(&self.connection, table)?
+                    let incoming_columns = columns(&db, table)?;
+                    let current_columns = columns(&self.connection, table)?;
+                    let legacy_receipt_columns = vec![
+                        ("member_id".into(), "TEXT".into(), 1),
+                        ("operation_key".into(), "TEXT".into(), 2),
+                        ("request".into(), "TEXT".into(), 0),
+                        ("result".into(), "TEXT".into(), 0),
+                    ];
+                    let legacy_receipts = *table == "feedback_receipts"
+                        && actual_version <= 21
+                        && incoming_columns == legacy_receipt_columns;
+                    if (!legacy_receipts && incoming_columns != current_columns)
                         || foreign_keys(&db, table)? != foreign_keys(&self.connection, table)?
                     {
                         return Err(ApiError::new("backup_invalid", "备份字段结构不支持"));

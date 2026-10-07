@@ -10,6 +10,13 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS feedback_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL,UNIQUE(root_id,revision)); CREATE INDEX IF NOT EXISTS feedback_member_root ON feedback_events(member_id,root_id,revision); CREATE TABLE IF NOT EXISTS feedback_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS feedback_asset_refs(event_id TEXT NOT NULL REFERENCES feedback_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
+    let primary_key: Vec<String> = tx
+        .prepare("SELECT name FROM pragma_table_info('feedback_receipts') WHERE pk>0 ORDER BY pk")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    if primary_key == ["member_id", "operation_key"] {
+        tx.execute_batch("DROP TRIGGER IF EXISTS sync_feedback_receipts_insert; DROP TRIGGER IF EXISTS sync_feedback_receipts_update; DROP TRIGGER IF EXISTS sync_feedback_receipts_delete; ALTER TABLE feedback_receipts RENAME TO feedback_receipts_legacy; CREATE TABLE feedback_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key,request,result)); INSERT INTO feedback_receipts SELECT * FROM feedback_receipts_legacy; DROP TABLE feedback_receipts_legacy;")?;
+    }
     Ok(())
 }
 fn parse(s: String) -> Result<Value, ApiError> {
@@ -200,7 +207,11 @@ pub(super) fn validate_stored_document(
     Ok(())
 }
 fn require_unique_receipt(tx: &Transaction<'_>, member: &str, key: &str) -> Result<(), ApiError> {
-    let count: u64 = tx.query_row("SELECT count(*) FROM sync_immutable WHERE entity_type='feedback_receipts' AND entity_id=?1", [format!("{member}:{key}")], |row| row.get(0))?;
+    let count: u64 = tx.query_row(
+        "SELECT count(*) FROM feedback_receipts WHERE member_id=?1 AND operation_key=?2",
+        params![member, key],
+        |row| row.get(0),
+    )?;
     if count > 1 {
         return Err(ApiError::new(
             "idempotency_conflict",
