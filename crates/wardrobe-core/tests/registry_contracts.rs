@@ -22,25 +22,61 @@ fn assert_result_matches_schema(schema: &Value, result: &Value, context: &str) {
         let prop = props
             .get(key)
             .unwrap_or_else(|| panic!("{context}: 实际结果字段 {key} 未在 outputSchema 声明"));
-        let expected_type = match value {
+        if let Some(const_value) = prop.get("const") {
+            assert_eq!(value, const_value, "{context}: 字段 {key} 须等于 const");
+        }
+        if let Some(allowed) = prop["enum"].as_array() {
+            assert!(
+                allowed.contains(value),
+                "{context}: 字段 {key} 须为枚举值"
+            );
+        }
+        let declared_types: Vec<String> = match prop.get("type") {
+            Some(Value::String(t)) => vec![t.clone()],
+            Some(Value::Array(ts)) => ts.iter().map(|v| v.as_str().unwrap().to_string()).collect(),
+            _ => vec![],
+        };
+        let actual_type = match value {
             Value::String(_) => "string",
             Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
             Value::Number(_) => "number",
             Value::Array(_) => "array",
             Value::Object(_) => "object",
             Value::Bool(_) => "boolean",
-            Value::Null => continue,
+            Value::Null => "null",
         };
-        assert_eq!(
-            prop["type"].as_str(),
-            Some(expected_type),
+        assert!(
+            declared_types.is_empty() || declared_types.iter().any(|t| {
+                t == actual_type
+                    || (t == "number" && value.is_number())
+                    || (t == "integer" && value.as_f64().is_some_and(|n| n.fract() == 0.0))
+            }),
             "{context}: 字段 {key} 声明类型不符"
         );
-        assert!(
-            required.contains(&key.as_str()),
-            "{context}: 实际必然返回的字段 {key} 应列入 required"
-        );
     }
+    for key in required {
+        assert!(actual.contains_key(key), "{context}: 缺少 required 字段 {key}");
+
+    }
+}
+
+#[test]
+fn output_contract_checker_handles_constants_nullable_types_and_required_fields() {
+    let schema = json!({"type":"object","required":["count","flag"],"properties":{
+        "count":{"type":"number"},"flag":{"const":false},
+        "optional":{"type":["string","null"],"enum":["ready",null]}
+    }});
+    assert_result_matches_schema(&schema, &json!({"count":1,"flag":false}), "optional absent");
+    assert_result_matches_schema(&schema, &json!({"count":1.5,"flag":false,"optional":null}), "nullable");
+    for invalid in [json!({"count":1}), json!({"count":null,"flag":false}),
+        json!({"count":1,"flag":true}), json!({"count":1,"flag":false,"optional":"bad"})] {
+        assert!(std::panic::catch_unwind(|| assert_result_matches_schema(&schema, &invalid, "invalid")).is_err());
+    }
+    let integer = json!({"type":"object","required":["n"],"properties":{"n":{"type":"integer"}}});
+    assert_result_matches_schema(&integer, &json!({"n":1.0}), "integral number");
+    assert!(std::panic::catch_unwind(|| assert_result_matches_schema(&integer, &json!({"n":1.5}), "fraction")).is_err());
+    let enumeration = json!({"type":"object","properties":{"v":{"enum":["ready"]}}});
+    assert!(std::panic::catch_unwind(|| assert_result_matches_schema(&enumeration, &json!({"v":null}), "enum null")).is_err());
 }
 
 #[test]
@@ -1074,4 +1110,163 @@ fn preview_rebuilds_missing_thumbnail_for_temporary_generated_asset() {
         .as_str()
         .unwrap()
         .starts_with("data:image/webp;base64,"));
+}
+
+#[test]
+fn recommendation_family_effects_examples_and_runtime_output_contract() {
+    // 真实运行时输出：规则策略同步产出意图；save/change/replace 实际执行；推荐永不产生穿着
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("rec.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let _top = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"上衣","category":"top"}),
+        )
+        .unwrap();
+    let bottom = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"裤子","category":"bottom"}),
+        )
+        .unwrap();
+    let generated = app
+        .execute(
+            "recommendation.generate",
+            json!({"member_id":member,"operation_key":"rec-1","timezone":"UTC","strategy":"rules","limit":5,"occasion":"daily"}),
+        )
+        .unwrap();
+    assert_eq!(generated["creates_wear"], json!(false), "推荐永不产生穿着");
+    let proposals = generated["proposals"]
+        .as_array()
+        .expect("proposals 数组")
+        .clone();
+    assert!(
+        !proposals.is_empty(),
+        "有上下装时规则策略必须产出建议: {generated}"
+    );
+    let intent_id = generated["id"].as_str().unwrap().to_string();
+    let got = app
+        .execute(
+            "recommendation.get",
+            json!({"member_id":member,"id":intent_id}),
+        )
+        .unwrap();
+    let listed = app
+        .execute("recommendation.list", json!({"member_id":member}))
+        .unwrap();
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+    assert_result_matches_schema(
+        &schema_of("recommendation.generate"),
+        &generated,
+        "generate",
+    );
+    assert_result_matches_schema(&schema_of("recommendation.get"), &got, "get");
+    assert_result_matches_schema(&schema_of("recommendation.list"), &listed, "list");
+    // 无条件执行采纳/调整/替换，实际公开输出对照声明 outputSchema
+    let saved = app
+        .execute(
+            "recommendation.save",
+            json!({"member_id":member,"id":intent_id,"name":"采纳搭配","operation_key":"save-1","proposal_index":0}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("recommendation.save"), &saved, "save");
+    let changed = app
+        .execute(
+            "recommendation.change",
+            json!({"member_id":member,"id":intent_id,"operation_key":"change-1","proposal_index":0}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("recommendation.change"), &changed, "change");
+    let replaced = app
+        .execute(
+            "recommendation.replace",
+            json!({"member_id":member,"id":intent_id,"operation_key":"replace-1","proposal_index":0,"clothing_id":bottom["id"]}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("recommendation.replace"), &replaced, "replace");
+    // 推荐与采纳从不产生穿着事实
+    let wears = app
+        .execute("wear.list", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(wears["items"], json!([]), "推荐/采纳不得产生 WearEvent");
+
+    // effects：generate 同步 mutation；strategy=ai 为条件入队（worker 真实调用供应商）
+    let family = [
+        ("recommendation.generate", "mutation", false),
+        ("recommendation.get", "query", false),
+        ("recommendation.list", "query", false),
+        ("recommendation.save", "mutation", false),
+        ("recommendation.change", "mutation", false),
+        ("recommendation.replace", "mutation", false),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+    let generate = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("recommendation.generate"))
+        .unwrap();
+    let conditional = generate["effect"]["conditional_effects"]
+        .as_array()
+        .expect("generate 须声明 strategy=ai 条件入队");
+    assert!(conditional.iter().any(|c| {
+        c["when"]["strategy"] == json!("ai")
+            && c["effect"]["async"]["process"] == json!("recommendation.worker.run")
+    }));
+    // worker.run 自身同步处理任务并真实调用供应商，故不在 network=none 家族断言内
+    let worker = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("recommendation.worker.run"))
+        .unwrap();
+    assert_eq!(
+        worker["effect"]["kind"],
+        json!("mutation"),
+        "worker.run 持久化任务状态"
+    );
+    assert_eq!(
+        worker["effect"]["network"],
+        json!("explicit-provider"),
+        "worker.run 执行已排队 AI 生成时会真实调用供应商"
+    );
+    assert_eq!(worker["effect"]["local_files"], json!(false));
+    assert!(
+        worker["effect"]["async"].is_null(),
+        "worker.run 是同步任务处理，不是异步入队"
+    );
+    let worker_examples = worker["examples"].as_array().expect("worker.run 须有示例");
+    assert!(!worker_examples.is_empty(), "worker.run 至少一个示例");
+    for example in worker_examples {
+        assert_request_matches_input_schema(
+            &worker["inputSchema"],
+            &example["request"],
+            "recommendation.worker.run",
+        );
+        assert!(
+            example["prerequisites"]
+                .as_array()
+                .is_some_and(|p| !p.is_empty()),
+            "worker.run 示例须含符号化前置说明"
+        );
+    }
+    let gen_example = generate["examples"][0]["request"].clone();
+    assert_eq!(
+        gen_example["strategy"],
+        json!("rules"),
+        "示例默认离线策略，不自动执行付费调用"
+    );
+    // remaining：worker.run(strategy=ai) 真实供应商运行时证明需本地假供应商，未在本测试覆盖
 }
