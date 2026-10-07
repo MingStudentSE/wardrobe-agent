@@ -646,6 +646,204 @@ fn provider_disconnect_parks_waiting_input_and_blocks_blind_resubmission() {
 }
 
 #[test]
+fn tool_loop_covers_todays_outfit_and_analysis_with_real_deterministic_queries() {
+    let d = tempfile::tempdir().unwrap();
+    let app = open_isolated_app(d.path());
+    let member = bootstrap_member(&app);
+    let created: Vec<Value> = [("羊毛毛衣", "top"), ("直筒牛仔裤", "bottom")]
+        .into_iter()
+        .map(|(name, category)| {
+            app.execute(
+                "clothing.create",
+                json!({"member_id":member,"name":name,"category":category}),
+            )
+            .unwrap()
+        })
+        .collect();
+    // The model tries to smuggle a second AI provider call into the tool frame;
+    // the server must own the arguments and keep generation on local rules.
+    let model = ScriptedModel::start(vec![
+        json!({"kind":"tool","operation":"recommendation.generate","arguments":{"member_id":member,"occasion":"daily","limit":3,"strategy":"ai","provider_id":"smuggled-provider"}}),
+        json!({"kind":"tool","operation":"insights.summary","arguments":{"member_id":member}}),
+        json!({"kind":"answer","facts":[
+            {"call_id":0,"path":"/proposals/0/items/0/clothing_id"},
+            {"call_id":1,"path":"/inventory/total"},
+            {"call_id":1,"path":"/never_worn_total"}
+        ],"explanation":"第一套可用于今天；库存与统计来自查询"}),
+    ]);
+    let provider = save_fixture_text_provider(&app, &model.endpoint);
+    let receipt = app
+        .execute(
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"today-analysis-loop","provider_id":provider,"question":"今天穿什么，并分析我的衣橱","timezone":"UTC"}),
+        )
+        .unwrap();
+    let id = receipt["job_id"].as_str().unwrap().to_owned();
+    let job = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(job["state"], "succeeded", "{job}");
+    assert_eq!(model.post_count(), 3, "two tool turns then the answer");
+    // The tool ledger carries only server-owned arguments: the smuggled AI
+    // strategy never reaches the domain dispatch.
+    let tool_calls = job["result"]["tool_calls"].as_array().unwrap();
+    assert_eq!(tool_calls.len(), 2);
+    let generate_arguments = &tool_calls[0]["arguments"];
+    assert!(generate_arguments["strategy"].is_null(), "{generate_arguments}");
+    assert!(
+        generate_arguments["provider_id"].is_null(),
+        "{generate_arguments}"
+    );
+    assert_eq!(generate_arguments["member_id"], json!(member));
+    assert_eq!(generate_arguments["occasion"], json!("daily"));
+    assert_eq!(generate_arguments["limit"], json!(3));
+    let generate_result = &tool_calls[0]["result"];
+    assert_eq!(generate_result["schema_version"], 1);
+    assert_eq!(generate_result["offline"], json!(true), "local rules only");
+    assert_eq!(generate_result["creates_wear"], json!(false));
+    let proposal_items = generate_result["proposals"][0]["items"]
+        .as_array()
+        .expect("at least one grounded proposal for a top+bottom inventory");
+    assert!(!proposal_items.is_empty());
+    for item in proposal_items {
+        assert!(
+            created.iter().any(|c| c["id"] == item["clothing_id"]),
+            "proposal items must cite real inventory IDs: {item}"
+        );
+    }
+    // Grounding: the follow-up prompt must carry the actual proposal items.
+    assert!(
+        model.request(1).contains(proposal_items[0]["clothing_id"]
+            .as_str()
+            .unwrap()),
+        "the second model turn must carry the real generate result"
+    );
+    // Deterministic analysis numbers come from the server-computed projection.
+    let insights_result = &tool_calls[1]["result"];
+    assert_eq!(insights_result["inventory"]["total"], json!(2));
+    assert_eq!(insights_result["stale_total"], json!(0));
+    assert_eq!(insights_result["never_worn_total"], json!(2));
+    // The prompt JSON is embedded as an escaped string inside the HTTP body,
+    // so the projection appears there in its escaped form.
+    assert!(
+        model.request(2).contains("\\\"total\\\":2"),
+        "the answer turn must carry the real insights projection"
+    );
+    // Server-extracted facts resolve against the projected results only.
+    let facts = job["result"]["facts"].as_array().unwrap();
+    assert_eq!(facts.len(), 3);
+    assert_eq!(
+        facts[0]["value"],
+        proposal_items[0]["clothing_id"],
+        "fact values are extracted by the server, never trusted from the model"
+    );
+    assert_eq!(facts[1]["value"], json!(2));
+    assert_eq!(facts[2]["value"], json!(2));
+    assert_eq!(
+        job["result"]["budget"],
+        json!({"model_turns":3,"tool_calls":2})
+    );
+    // The rules generation persisted exactly one recommendation intent as a
+    // domain artifact, but no WearEvents ever.
+    let intents = app
+        .execute("recommendation.list", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(intents["items"].as_array().unwrap().len(), 1);
+    assert_eq!(intents["items"][0]["creates_wear"], json!(false));
+    assert_member_has_no_wear(&app, &member);
+    // A finished job replays without any further model traffic.
+    let replay = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(replay["result"], job["result"]);
+    assert_eq!(model.post_count(), 3);
+}
+
+#[test]
+fn tool_operation_outside_readonly_whitelist_fails_without_executing() {
+    let d = tempfile::tempdir().unwrap();
+    let app = open_isolated_app(d.path());
+    let member = bootstrap_member(&app);
+    let item = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"羊毛毛衣","category":"top"}),
+        )
+        .unwrap();
+    // The model asks for a write tool with the REAL item id; the server must
+    // refuse before any domain dispatch and the item must survive untouched.
+    let model = ScriptedModel::start(vec![
+        json!({"kind":"tool","operation":"clothing.delete","arguments":{"member_id":member,"id":item["id"]}}),
+        json!({"kind":"answer","facts":[],"explanation":"写工具被拒后不应到达第二轮"}),
+    ]);
+    let provider = save_fixture_text_provider(&app, &model.endpoint);
+    let receipt = app
+        .execute(
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"write-tool-refused","provider_id":provider,"question":"帮我删掉这件衣服","timezone":"UTC"}),
+        )
+        .unwrap();
+    let id = receipt["job_id"].as_str().unwrap().to_owned();
+    let job = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(job["state"], "failed");
+    assert_eq!(job["error"]["code"], "tool_not_allowed");
+    assert_eq!(model.post_count(), 1, "denial ends the loop after one POST");
+    assert_eq!(
+        job["stylist"]["tool_calls"],
+        json!([]),
+        "a refused tool must not enter the durable ledger"
+    );
+    let surviving = app
+        .execute("clothing.get", json!({"member_id":member,"id":item["id"]}))
+        .unwrap();
+    assert_eq!(surviving["id"], item["id"], "the item must not be deleted");
+    assert_member_has_no_wear(&app, &member);
+}
+
+#[test]
+fn client_without_insights_scope_fails_deferred_tool_dispatch_scope_denied() {
+    let d = tempfile::tempdir().unwrap();
+    let app = open_isolated_app(d.path());
+    let member = bootstrap_member(&app);
+    // Second reply exists so a wrongly-allowed second turn fails fast RED.
+    let model = ScriptedModel::start(vec![
+        json!({"kind":"tool","operation":"insights.summary","arguments":{"member_id":member}}),
+        json!({"kind":"answer","facts":[],"explanation":"工具被拒后不应到达第二轮"}),
+    ]);
+    let provider = save_fixture_text_provider(&app, &model.endpoint);
+    let (token, _grant_id) = authorize_limited_client(
+        &app,
+        &member,
+        &["stylist.ask", "stylist.worker.run"],
+    );
+    let receipt = app
+        .execute_as_client(
+            &token,
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"insights-scope-denied","provider_id":provider,"question":"分析我的衣橱","timezone":"UTC"}),
+        )
+        .unwrap();
+    let id = receipt["job_id"].as_str().unwrap().to_owned();
+    let job = app
+        .execute_as_client(
+            &token,
+            "stylist.worker.run",
+            json!({"member_id":member,"id":id}),
+        )
+        .unwrap();
+    assert_eq!(job["state"], "failed");
+    assert_eq!(
+        job["error"]["code"], "scope_denied",
+        "the insights tool is deferred under the same client grant revalidation"
+    );
+    assert_eq!(model.post_count(), 1);
+    assert_eq!(job["stylist"]["tool_calls"], json!([]));
+    assert_member_has_no_wear(&app, &member);
+}
+
+#[test]
 fn answer_citing_unprojected_notes_exhausts_invalid_budget_without_leaking_sentinel() {
     let d = tempfile::tempdir().unwrap();
     let app = open_isolated_app(d.path());
