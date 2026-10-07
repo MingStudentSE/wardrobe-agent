@@ -13,7 +13,7 @@
 3. Rust 每次 shell 调用都 source `/Users/links/.codex/wardrobe-execution/native-env.sh`；它检查挂载和工作区，设置外盘 TMPDIR、npm cache 与默认 Cargo target。
 4. 各并发任务使用独占外盘 `CARGO_TARGET_DIR`，例如原路径别名 `/Users/links/.codex/wardrobe-execution/cache/<任务名>`。设置自定义值时须验证其真实路径在外盘；不共享并发写入缓存。
 5. React/Tauri 的 node_modules、dist、target、打包产物和临时文件都放在外盘工作树或外盘缓存。系统已有 Rust/Node 工具链和已安装应用无需迁移。
-6. GLM 开发统一通过 `wardrobe-execution/run-task.py`；执行器验证 cwd/output 指向挂载盘，并将构建临时目录及 npm/Cargo cache 设置到外盘。
+6. GLM 开发使用用户当前指定的 zcode CLI / GLM-5.3-Flash；会话先验证真实 model_usage。TUI 在外盘工作区启动并设置外盘临时目录；原生构建每次 source 外盘 native-env.sh。`run-zcode-task.py` 提供带挂载、模型与路径检查的会话恢复入口；若当前 headless 无权限客户端，使用 TUI 审批已授权的开发命令，不把未执行命令算作成功。Unix socket 需要短 TMPDIR 别名，别名也必须指向外盘。
 7. 开发、测试、打包期间保持备份盘连接。卸载映像或拔盘前停止全部写入任务。重新挂载后继续使用原路径。
 
 ## 验证与恢复
