@@ -12,6 +12,7 @@ mod publication;
 pub(crate) mod schedule;
 mod schema;
 pub mod storage;
+pub mod storage_s3;
 mod webdav;
 mod worker;
 use crate::{string, ApiError, Application};
@@ -20,6 +21,74 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Read, path::Path};
 use storage::{LocalFolder, SyncStorage, WriteCondition};
+use storage_s3::{S3Credentials, S3Objects, S3Target};
+
+/// 同步目标访问凭据在 OS 安全存储中的服务名（secret 为 JSON，含两组键）。
+const SYNC_CREDENTIAL_SERVICE: &str = "wardrobe-agent.sync";
+
+/// 从已配置目标文档构造传输适配器；凭据（WebDAV 密码/S3 访问键）仅从 OS 安全存储读取。
+fn storage_from_target(
+    target: &Value,
+    target_key: &str,
+) -> Result<Box<dyn SyncStorage>, ApiError> {
+    match target["provider_kind"].as_str() {
+        Some("local_folder") => Ok(Box::new(LocalFolder::new(Path::new(string(
+            target,
+            "directory",
+        )?))?)),
+        Some("webdav") => Ok(Box::new(storage::WebDav::connect(storage::WebDavConfig {
+            url: string(target, "url")?.to_string(),
+            root: target["root"].as_str().unwrap_or_default().to_string(),
+            username: string(target, "username")?.to_string(),
+            password: sync_webdav_password(target_key)?,
+            timeout: std::time::Duration::from_secs(30),
+        })?)),
+        Some("s3") => Ok(Box::new(S3Objects::new(
+            S3Target {
+                endpoint: string(target, "endpoint")?.to_string(),
+                region: target["region"].as_str().unwrap_or("us-east-1").to_string(),
+                bucket: string(target, "bucket")?.to_string(),
+                prefix: target["prefix"].as_str().unwrap_or_default().to_string(),
+                path_style: target["path_style"].as_bool().unwrap_or(true),
+            },
+            sync_s3_credentials(target_key)?,
+        )?)),
+        _ => Err(error("storage_unsupported")),
+    }
+}
+
+/// S3 访问键写入 OS 安全存储（keyring）。事实库与配置输出永不包含 secret。
+fn sync_store_s3_credentials(
+    target_key: &str,
+    access_key_id: &str,
+    secret_access_key: &str,
+) -> Result<(), ApiError> {
+    let entry = keyring::Entry::new(SYNC_CREDENTIAL_SERVICE, target_key)
+        .map_err(|_| error("storage_error"))?;
+    entry
+        .set_password(
+            &json!({"access_key_id":access_key_id,"secret_access_key":secret_access_key})
+                .to_string(),
+        )
+        .map_err(|_| ApiError::new("storage_error", "无法写入系统安全存储"))
+}
+
+/// 从 OS 安全存储读取该目标的 S3 访问凭据。
+fn sync_s3_credentials(target_key: &str) -> Result<S3Credentials, ApiError> {
+    let entry = keyring::Entry::new(SYNC_CREDENTIAL_SERVICE, target_key)
+        .map_err(|_| error("storage_error"))?;
+    let password = entry.get_password().map_err(|_| {
+        ApiError::new(
+            "storage_auth",
+            "未找到该同步目标的访问凭据，请重新执行同步配置",
+        )
+    })?;
+    let value: Value = serde_json::from_str(&password).map_err(|_| error("storage_error"))?;
+    Ok(S3Credentials {
+        access_key_id: string(&value, "access_key_id")?.to_string(),
+        secret_access_key: string(&value, "secret_access_key")?.to_string(),
+    })
+}
 const TABLES: [&str; 12] = [
     "members",
     "clothing",
@@ -612,6 +681,13 @@ impl Application {
                 "root",
                 "username",
                 "password",
+                "endpoint",
+                "region",
+                "bucket",
+                "prefix",
+                "path_style",
+                "access_key_id",
+                "secret_access_key",
             ],
             "sync.run" => &["operation_key"],
             "sync.process" => &["id"],
@@ -665,6 +741,20 @@ impl Application {
                 let space = string(&identity, "space_id")?;
                 let target = match input["provider_kind"].as_str() {
                     Some("local_folder") => {
+                        if [
+                            "endpoint",
+                            "region",
+                            "bucket",
+                            "prefix",
+                            "path_style",
+                            "access_key_id",
+                            "secret_access_key",
+                        ]
+                        .iter()
+                        .any(|k| input.get(*k).is_some())
+                        {
+                            return Err(error("invalid_input"));
+                        }
                         let directory = std::fs::canonicalize(string(&input, "directory")?)
                             .map_err(|_| error("storage_not_found"))?;
                         let local = std::fs::canonicalize(
@@ -712,14 +802,66 @@ impl Application {
                         // 密码只进 OS 安全存储；目标文档仅含连接描述。
                         json!({"id":"primary","target_key":target_key,"provider_kind":"webdav","url":url,"root":root,"username":username})
                     }
+                    Some("s3") => {
+                        if input.get("directory").is_some() {
+                            return Err(error("invalid_input"));
+                        }
+                        let access_key_id = string(&input, "access_key_id")?.to_string();
+                        let secret_access_key = string(&input, "secret_access_key")?.to_string();
+                        if access_key_id.is_empty() || secret_access_key.is_empty() {
+                            return Err(error("invalid_input"));
+                        }
+                        let connection = json!({
+                            "endpoint": string(&input, "endpoint")?,
+                            "region": input["region"].as_str().unwrap_or("us-east-1"),
+                            "bucket": string(&input, "bucket")?,
+                            "prefix": input["prefix"].as_str().unwrap_or_default(),
+                            "path_style": input["path_style"].as_bool().unwrap_or(true),
+                        });
+                        let target_key = digest(
+                            json!({"connection":connection,"space_id":space})
+                                .to_string()
+                                .as_bytes(),
+                        );
+                        // 配置期即构造适配器：能力探测与认证校验前置，
+                        // 失败则整次配置不生效（不静默半配置）。
+                        let adapter = S3Objects::new(
+                            S3Target {
+                                endpoint: string(&connection, "endpoint")?.to_string(),
+                                region: string(&connection, "region")?.to_string(),
+                                bucket: string(&connection, "bucket")?.to_string(),
+                                prefix: string(&connection, "prefix")?.to_string(),
+                                path_style: connection["path_style"]
+                                    .as_bool()
+                                    .unwrap_or(true),
+                            },
+                            S3Credentials {
+                                access_key_id: access_key_id.clone(),
+                                secret_access_key: secret_access_key.clone(),
+                            },
+                        )?;
+                        drop(adapter);
+                        // 访问键只进 OS 安全存储（keyring），不进事实库与日志。
+                        sync_store_s3_credentials(&target_key, &access_key_id, &secret_access_key)?;
+                        json!({
+                            "id":"primary",
+                            "target_key":target_key,
+                            "provider_kind":"s3",
+                            "endpoint":connection["endpoint"],
+                            "region":connection["region"],
+                            "bucket":connection["bucket"],
+                            "prefix":connection["prefix"],
+                            "path_style":connection["path_style"],
+                        })
+                    }
                     _ => return Err(error("storage_unsupported")),
                 };
                 let tx = self.begin_write()?;
                 for table in TABLES {
                     tx.execute(
                         "INSERT OR IGNORE INTO sync_bootstrap(space_id,table_name) VALUES(?1,?2)",
-                        params![space, table],
-                    )?;
+                    params![space, table],
+                )?;
                 }
                 tx.execute("INSERT INTO sync_targets VALUES('primary',?1) ON CONFLICT(id) DO UPDATE SET document=excluded.document",[target.to_string()])?;
                 tx.commit()?;
@@ -801,16 +943,7 @@ impl Application {
                         .as_bytes(),
                 )
             });
-        let storage: Box<dyn SyncStorage> = match target["provider_kind"].as_str() {
-            Some("webdav") => Box::new(storage::WebDav::connect(storage::WebDavConfig {
-                url: string(&target, "url")?.to_string(),
-                root: target["root"].as_str().unwrap_or_default().to_string(),
-                username: string(&target, "username")?.to_string(),
-                password: sync_webdav_password(&target_key)?,
-                timeout: std::time::Duration::from_secs(30),
-            })?),
-            _ => Box::new(LocalFolder::new(Path::new(string(&target, "directory")?))?),
-        };
+        let storage = storage_from_target(&target, &target_key)?;
         let storage: &dyn SyncStorage = storage.as_ref();
         let prefix = if identity["epoch"].as_u64().unwrap_or(0) == 1 {
             format!("{}/changes", string(&identity, "space_id")?)
@@ -1062,16 +1195,24 @@ pub(crate) fn descriptors() -> Vec<Value> {
         if op=="run" {properties=json!({"operation_key":{"type":"string","minLength":1}});}
         if op=="process" {properties=json!({"id":{"type":"string","minLength":1}});required.push("id");}
         if op=="configure" {properties=json!({
-            "provider_kind":{"enum":["local_folder","webdav"]},
+            "provider_kind":{"enum":["local_folder","webdav","s3"]},
             "directory":{"type":"string","minLength":1,"description":"local_folder 目标目录"},
             "url":{"type":"string","minLength":1,"description":"webdav 服务器地址"},
             "root":{"type":"string","minLength":1,"description":"webdav 服务器上已存在的目录前缀"},
             "username":{"type":"string","minLength":1},
-            "password":{"type":"string","description":"只写入 OS 安全存储，不进入配置或日志"}
+            "password":{"type":"string","description":"只写入 OS 安全存储，不进入配置或日志"},
+            "endpoint":{"type":"string","minLength":1,"description":"s3 兼容对象存储端点"},
+            "region":{"type":"string","description":"s3 区域，默认 us-east-1"},
+            "bucket":{"type":"string","minLength":1,"description":"s3 存储桶"},
+            "prefix":{"type":"string","description":"s3 键前缀，可选"},
+            "path_style":{"type":"boolean","description":"s3 path-style 寻址，自建服务通常开启"},
+            "access_key_id":{"type":"string","minLength":1},
+            "secret_access_key":{"type":"string","minLength":1,"description":"仅经标准输入传输，写入系统安全存储"}
         });required.push("provider_kind");
         schema_extra_oneof=json!([
-            {"required":["directory"],"not":{"required":["url","root","username"]}},
-            {"required":["url","root","username"],"not":{"required":["directory"]}}
+            {"required":["directory"],"not":{"required":["url","root","username","endpoint","bucket","access_key_id","secret_access_key"]}},
+            {"required":["url","root","username"],"not":{"required":["directory","endpoint","bucket","access_key_id","secret_access_key"]}},
+            {"required":["endpoint","bucket","access_key_id","secret_access_key"],"not":{"required":["directory","url","root","username"]}}
         ]);}
         if ["history","conflicts","resolve"].contains(&op) {properties["member_id"]=json!({"type":"string"});required.push("member_id");}
         if ["history","resolve"].contains(&op) {for key in ["entity_type","entity_id"] {properties[key]=json!({"type":"string"});required.push(key);}}
