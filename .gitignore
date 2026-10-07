@@ -21,3 +21,7 @@ coverage/
 
 # Local editor files
 .idea/
+
+# UI verification output
+apps/desktop/test-results/
+apps/desktop/playwright-report/

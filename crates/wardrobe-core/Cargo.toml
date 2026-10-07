@@ -1,0 +1,32 @@
+[package]
+name = "wardrobe-core"
+version = "0.1.0"
+edition = "2021"
+[features]
+backup-test-diagnostics = []
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v7", "serde"] }
+chrono = "0.4"
+chrono-tz = "0.10.4"
+iso_currency = "0.7"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+sha2 = "0.11.0"
+base64 = "0.23.1"
+webp = "0.3.1"
+libheif-rs = { version = "=3.0.0", default-features = false, features = ["v1_23"] }
+libheif-sys = { version = "=5.3.1", default-features = false, features = ["v1_23"] }
+getrandom = "0.4"
+tract-onnx = { version = "=0.23.8", default-features = false }
+chacha20poly1305 = "=0.10.1"
+hkdf = "=0.13.0"
+x25519-dalek = { version = "=2.0.1", features = ["static_secrets"] }
+ed25519-dalek = "=2.2.0"
+argon2 = "=0.5.3"
+zeroize = { version = "1", features = ["derive"] }
+[dev-dependencies]
+tempfile = "3"

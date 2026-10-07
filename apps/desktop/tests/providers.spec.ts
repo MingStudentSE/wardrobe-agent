@@ -1,0 +1,19 @@
+import {test,expect} from '@playwright/test';
+test('模型配置可重读，无密钥不会阻断已有衣橱',async({page})=>{await page.goto('/');await page.getByText('模型设置',{exact:true}).click();await page.getByLabel('配置名称').fill('本机测试模型');await page.getByLabel('兼容 API 端点').fill('http://127.0.0.1:11434/v1');await page.getByLabel('模型名称').fill('local-fixture');await page.getByLabel('认证方式').selectOption('none');await page.getByRole('button',{name:'保存模型配置'}).click();await expect(page.getByRole('status').filter({hasText:'模型配置已保存'})).toBeVisible();await page.reload();await page.getByText('模型设置',{exact:true}).click();await page.getByLabel('已保存模型').selectOption({label:'本机测试模型'});await expect(page.getByLabel('模型名称')).toHaveValue('local-fixture');await expect(page.getByLabel('兼容 API 端点')).toHaveValue('http://127.0.0.1:11434/v1');await expect(page.getByRole('heading',{name:'我的衣橱',exact:true})).toBeVisible();for(const width of [320,375,414,768,1024,1280,1440]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();if(width===320||width===1280)await page.locator("#model-settings").screenshot({path:`../../docs/verification/ticket-12/model-settings-${width}.png`});}});
+
+test('视觉专用配置仅在明确点击后发送内置测试图',async({page})=>{
+ const {createServer}=await import('node:http');
+ const requests:unknown[]=[];
+ const server=createServer((req,res)=>{let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{requests.push(JSON.parse(body));res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({choices:[{message:{content:'Blue square on light background'}}]}));});});
+ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+ const address=server.address() as {port:number};
+ await page.goto('/');await page.getByText('模型设置',{exact:true}).click();
+ await page.getByLabel('配置名称').fill('视觉连接测试');await page.getByLabel('兼容 API 端点').fill(`http://127.0.0.1:${address.port}/v1`);await page.getByLabel('模型名称').fill('vision-fixture');
+ await page.getByRole('checkbox',{name:'文本',exact:true}).uncheck();await page.getByRole('checkbox',{name:'视觉',exact:true}).check();await page.getByLabel('认证方式').selectOption('none');await page.getByRole('button',{name:'保存模型配置'}).click();
+ await expect(page.getByLabel('待验证能力')).toHaveValue('vision');expect(requests).toHaveLength(0);
+ await page.getByRole('button',{name:'验证所选能力'}).click();await expect(page.getByRole('status').filter({hasText:'视觉连接验证成功'})).toBeVisible();expect(requests).toHaveLength(1);
+ const request=requests[0] as any;expect(request.messages[0].content[1].image_url.url).toMatch(/^data:image\/png;base64,/);expect(request.model).toBe('vision-fixture');
+ for(const width of [320,375,414,768,1024,1280,1440]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();if(width===320||width===1280)await page.locator('#model-settings').screenshot({path:`../../docs/verification/ticket-12-vision/model-settings-${width}.png`});}
+ }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});
