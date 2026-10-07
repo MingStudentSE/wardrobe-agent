@@ -510,6 +510,19 @@ pub(super) fn apply_facts(doc: &mut Value, input: &Value) -> Result<(), ApiError
             ));
         }
     }
+    if let Some(value) = input.get("category") {
+        let id = value
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| ApiError::new("invalid_input", "类别须为文本类别ID"))?;
+        let legal = CATEGORIES.contains(&id)
+            || id
+                .strip_prefix("custom_")
+                .is_some_and(|raw| uuid::Uuid::parse_str(raw).is_ok());
+        if !legal {
+            return Err(ApiError::new("invalid_input", "类别不在分类字典中"));
+        }
+    }
 
     for key in TEXT_FACTS {
         if let Some(value) = input.get(*key) {
