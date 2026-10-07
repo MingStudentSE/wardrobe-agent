@@ -221,7 +221,6 @@ fn stdin_configuration_and_mcp_discovery_share_provider_contract_without_gui() {
             "--trusted-local",
             "--db",
             path.to_str().unwrap(),
-            "--trusted-local",
             "provider.save",
             "--input-stdin",
         ])
