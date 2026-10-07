@@ -530,6 +530,8 @@ fn repeat_sync_is_idempotent_and_package_carries_only_adopted_displays() {
                         || relative.ends_with("head.index")
                         || relative.ends_with("mode.index")
                 }
+                // #31：设备消费水位记录（加密信封，按设备一台一个）。
+                "watermarks" => relative.ends_with(".commit"),
                 _ => false,
             },
             _ => false,

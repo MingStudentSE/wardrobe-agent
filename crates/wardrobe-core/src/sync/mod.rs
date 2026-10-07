@@ -6,8 +6,10 @@ mod conflicts;
 #[cfg(test)]
 mod cursor_contract;
 mod index;
+mod ops;
 mod pending;
 mod publication;
+pub(crate) use ops::drop_target_state;
 #[cfg(test)]
 pub(crate) mod schedule;
 mod schema;
@@ -27,10 +29,7 @@ use storage_s3::{S3Credentials, S3Objects, S3Target};
 const SYNC_CREDENTIAL_SERVICE: &str = "wardrobe-agent.sync";
 
 /// 从已配置目标文档构造传输适配器；凭据（WebDAV 密码/S3 访问键）仅从 OS 安全存储读取。
-fn storage_from_target(
-    target: &Value,
-    target_key: &str,
-) -> Result<Box<dyn SyncStorage>, ApiError> {
+fn storage_from_target(target: &Value, target_key: &str) -> Result<Box<dyn SyncStorage>, ApiError> {
     match target["provider_kind"].as_str() {
         Some("local_folder") => Ok(Box::new(LocalFolder::new(Path::new(string(
             target,
@@ -423,6 +422,8 @@ pub(crate) fn reset_after_restore(tx: &Transaction<'_>) -> Result<(), ApiError> 
         "sync_missing",
         "sync_asset_commits",
         "sync_blob_scan",
+        "sync_watermark",
+        "sync_maintenance",
     ] {
         tx.execute_batch(&format!("DELETE FROM {table}"))?;
     }
@@ -439,6 +440,8 @@ pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     // Blob discovery budget: processed commit keys are never re-decrypted, and
     // per-folder page scans resume from a durable cursor with wraparound.
     tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_asset_commits(key TEXT PRIMARY KEY);CREATE TABLE IF NOT EXISTS sync_blob_scan(space_id TEXT NOT NULL,folder TEXT NOT NULL,last_key TEXT NOT NULL,PRIMARY KEY(space_id,folder))")?;
+    // #31 运维状态：本机设备消费水位（同步步末发布到目标）、最近回收摘要。
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS sync_watermark(device TEXT PRIMARY KEY,positions TEXT NOT NULL,captured_at TEXT NOT NULL,epoch INTEGER NOT NULL);CREATE TABLE IF NOT EXISTS sync_maintenance(key TEXT PRIMARY KEY,document TEXT NOT NULL)")?;
     // Recover every previously validated receipt branch into portable business facts.
     tx.execute_batch("INSERT OR IGNORE INTO feedback_receipts(member_id,operation_key,request,result) SELECT json_extract(document,'$.member_id'),json_extract(document,'$.operation_key'),json_extract(document,'$.request'),json_extract(document,'$.result') FROM sync_immutable WHERE entity_type='feedback_receipts';")?;
     let has_local_receipt_flag: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('sync_publications') WHERE name='locally_published')",[],|r|r.get(0))?;
@@ -692,6 +695,24 @@ impl Application {
             "sync.run" => &["operation_key"],
             "sync.process" => &["id"],
             "sync.status" => &[],
+            "sync.pause" | "sync.resume" => &[],
+            "sync.reclaim" => &["retention_seconds", "dry_run", "backup_confirmed"],
+            "sync.mirror.sync" | "sync.mirror.promote" | "sync.mirror.remove" => &[],
+            "sync.target.switch" | "sync.mirror.configure" => &[
+                "provider_kind",
+                "directory",
+                "url",
+                "root",
+                "username",
+                "password",
+                "endpoint",
+                "region",
+                "bucket",
+                "prefix",
+                "path_style",
+                "access_key_id",
+                "secret_access_key",
+            ],
             "sync.conflicts" => &["member_id"],
             "sync.history" => &["member_id", "entity_type", "entity_id"],
             "sync.resolve" => &[
@@ -716,6 +737,14 @@ impl Application {
         match op {
             "sync.conflicts" => self.sync_conflicts(input),
             "sync.resolve" => self.sync_resolve(input),
+            "sync.pause" => self.sync_pause(input),
+            "sync.resume" => self.sync_resume(input),
+            "sync.target.switch" => self.sync_target_switch(input),
+            "sync.mirror.configure" => self.sync_mirror_configure(input),
+            "sync.mirror.sync" => self.sync_mirror_sync(input),
+            "sync.mirror.promote" => self.sync_mirror_promote(input),
+            "sync.mirror.remove" => self.sync_mirror_remove(input),
+            "sync.reclaim" => self.sync_reclaim(input),
             "sync.history" => {
                 let member = self.member(&input)?;
                 let table = string(&input, "entity_type")?;
@@ -737,131 +766,15 @@ impl Application {
                 Ok(json!({"schema_version":1,"items":items}))
             }
             "sync.configure" => {
+                let target = ops::build_target(self, &input)?;
                 let identity = self.sync_identity()?;
                 let space = string(&identity, "space_id")?;
-                let target = match input["provider_kind"].as_str() {
-                    Some("local_folder") => {
-                        if [
-                            "endpoint",
-                            "region",
-                            "bucket",
-                            "prefix",
-                            "path_style",
-                            "access_key_id",
-                            "secret_access_key",
-                        ]
-                        .iter()
-                        .any(|k| input.get(*k).is_some())
-                        {
-                            return Err(error("invalid_input"));
-                        }
-                        let directory = std::fs::canonicalize(string(&input, "directory")?)
-                            .map_err(|_| error("storage_not_found"))?;
-                        let local = std::fs::canonicalize(
-                            self.asset_root
-                                .parent()
-                                .ok_or_else(|| error("storage_error"))?,
-                        )
-                        .map_err(|_| error("storage_error"))?;
-                        if directory.starts_with(local) {
-                            return Err(error("invalid_input"));
-                        }
-                        LocalFolder::new(&directory)?;
-                        json!({"id":"primary","target_key":digest(json!({"directory":directory,"space_id":space}).to_string().as_bytes()),"provider_kind":"local_folder","directory":directory})
-                    }
-                    Some("webdav") => {
-                        let url = string(&input, "url")?.trim_end_matches('/').to_string();
-                        let root = input["root"]
-                            .as_str()
-                            .map(str::trim)
-                            .map(|r| r.trim_matches('/').to_string())
-                            .unwrap_or_default();
-                        let username = string(&input, "username")?;
-                        if url.is_empty() || root.is_empty() || username.is_empty() {
-                            return Err(error("invalid_input"));
-                        }
-                        let target_key = digest(
-                            json!({"provider":"webdav","url":url,"root":root,"username":username,"space_id":space})
-                                .to_string()
-                                .as_bytes(),
-                        );
-                        let password = match input["password"].as_str() {
-                            Some(password) if !password.is_empty() => password.to_string(),
-                            _ => sync_webdav_password(&target_key)?,
-                        };
-                        // 配置期即做真实连接 + 条件写入能力探针：认证失败、
-                        // 能力缺失（明确拒绝）在这里就暴露，而不是留给worker。
-                        storage::WebDav::connect(storage::WebDavConfig {
-                            url: url.clone(),
-                            root: root.clone(),
-                            username: username.to_string(),
-                            password: password.clone(),
-                            timeout: std::time::Duration::from_secs(30),
-                        })?;
-                        sync_store_webdav_password(&target_key, &password)?;
-                        // 密码只进 OS 安全存储；目标文档仅含连接描述。
-                        json!({"id":"primary","target_key":target_key,"provider_kind":"webdav","url":url,"root":root,"username":username})
-                    }
-                    Some("s3") => {
-                        if input.get("directory").is_some() {
-                            return Err(error("invalid_input"));
-                        }
-                        let access_key_id = string(&input, "access_key_id")?.to_string();
-                        let secret_access_key = string(&input, "secret_access_key")?.to_string();
-                        if access_key_id.is_empty() || secret_access_key.is_empty() {
-                            return Err(error("invalid_input"));
-                        }
-                        let connection = json!({
-                            "endpoint": string(&input, "endpoint")?,
-                            "region": input["region"].as_str().unwrap_or("us-east-1"),
-                            "bucket": string(&input, "bucket")?,
-                            "prefix": input["prefix"].as_str().unwrap_or_default(),
-                            "path_style": input["path_style"].as_bool().unwrap_or(true),
-                        });
-                        let target_key = digest(
-                            json!({"connection":connection,"space_id":space})
-                                .to_string()
-                                .as_bytes(),
-                        );
-                        // 配置期即构造适配器：能力探测与认证校验前置，
-                        // 失败则整次配置不生效（不静默半配置）。
-                        let adapter = S3Objects::new(
-                            S3Target {
-                                endpoint: string(&connection, "endpoint")?.to_string(),
-                                region: string(&connection, "region")?.to_string(),
-                                bucket: string(&connection, "bucket")?.to_string(),
-                                prefix: string(&connection, "prefix")?.to_string(),
-                                path_style: connection["path_style"]
-                                    .as_bool()
-                                    .unwrap_or(true),
-                            },
-                            S3Credentials {
-                                access_key_id: access_key_id.clone(),
-                                secret_access_key: secret_access_key.clone(),
-                            },
-                        )?;
-                        drop(adapter);
-                        // 访问键只进 OS 安全存储（keyring），不进事实库与日志。
-                        sync_store_s3_credentials(&target_key, &access_key_id, &secret_access_key)?;
-                        json!({
-                            "id":"primary",
-                            "target_key":target_key,
-                            "provider_kind":"s3",
-                            "endpoint":connection["endpoint"],
-                            "region":connection["region"],
-                            "bucket":connection["bucket"],
-                            "prefix":connection["prefix"],
-                            "path_style":connection["path_style"],
-                        })
-                    }
-                    _ => return Err(error("storage_unsupported")),
-                };
                 let tx = self.begin_write()?;
                 for table in TABLES {
                     tx.execute(
                         "INSERT OR IGNORE INTO sync_bootstrap(space_id,table_name) VALUES(?1,?2)",
-                    params![space, table],
-                )?;
+                        params![space, table],
+                    )?;
                 }
                 tx.execute("INSERT INTO sync_targets VALUES('primary',?1) ON CONFLICT(id) DO UPDATE SET document=excluded.document",[target.to_string()])?;
                 tx.commit()?;
@@ -911,8 +824,86 @@ impl Application {
                 let transport_errors=transport_statement.query_map([target_key],|r|Ok(json!({"publisher":r.get::<_,String>(0)?,"code":r.get::<_,String>(1)?,"attempts":r.get::<_,u64>(2)?})))?.collect::<Result<Vec<_>,_>>()?;
                 let active_job: Option<String> = self.connection.query_row("SELECT document FROM jobs WHERE kind='sync' AND json_extract(document,'$.payload.target.target_key')=?1 AND json_extract(document,'$.state') IN ('queued','running') ORDER BY id DESC LIMIT 1",[target_key],|r|r.get(0)).optional()?;
                 let active_job=active_job.as_deref().map(serde_json::from_str::<Value>).transpose().map_err(|_|error("storage_error"))?.map(|job|json!({"id":job["id"],"member_id":job["member_id"],"state":job["state"]}));
+                // 运维状态（#31）：游标、本机水位、暂停、镜像、最近失败与最近回收。
+                let (consumed_commits, last_consumed): (u64, Option<String>) = {
+                    let mut statement = self
+                        .connection
+                        .prepare("SELECT key FROM sync_cursors WHERE target_id=?1")?;
+                    let keys = statement
+                        .query_map([target_key], |r| r.get::<_, String>(0))?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let mut count = 0u64;
+                    let mut best: Option<String> = None;
+                    for key in keys {
+                        count += 1;
+                        if let Some(op) = ops::op_id_of_key(&key) {
+                            if best.as_ref().is_none_or(|b| op.as_str() > b.as_str()) {
+                                best = Some(op);
+                            }
+                        }
+                    }
+                    (count, best)
+                };
+                // 解除配对后状态页必须仍可读：身份不可用时水位如实缺失。
+                let watermark: Option<Value> = self
+                    .sync_identity()
+                    .ok()
+                    .and_then(|identity| {
+                        self.connection
+                            .query_row(
+                                "SELECT positions,captured_at FROM sync_watermark WHERE device=?1 AND epoch=?2",
+                                params![string(&identity,"device_id").ok()?, identity["epoch"].as_u64().unwrap_or(1)],
+                                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                            )
+                            .optional()
+                            .ok()
+                            .flatten()
+                    })
+                    .map(|(positions, captured_at)| {
+                        serde_json::from_str::<Value>(&positions)
+                            .map(|p| json!({"positions":p,"captured_at":captured_at}))
+                            .map_err(|_| error("storage_error"))
+                    })
+                    .transpose()?;
+                let last_reclaim: Option<Value> = self
+                    .connection
+                    .query_row(
+                        "SELECT document FROM sync_maintenance WHERE key='reclaim'",
+                        [],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .map(|doc| serde_json::from_str(&doc).map_err(|_| error("storage_error")))
+                    .transpose()?;
+                // 最近失败只在「最近一次同步结果仍是失败」时呈现：
+                // 显式重试成功后恢复干净状态，不纠缠历史失败。
+                let last_failure: Option<Value> = {
+                    let outcome: (Option<i64>, Option<i64>) = self.connection.query_row(
+                        "SELECT (SELECT rowid FROM jobs WHERE kind='sync' AND json_extract(document,'$.state')='failed' ORDER BY rowid DESC LIMIT 1),(SELECT rowid FROM jobs WHERE kind='sync' AND json_extract(document,'$.state')='succeeded' ORDER BY rowid DESC LIMIT 1)",
+                        [],
+                        |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<i64>>(1)?)),
+                    ).unwrap_or((None, None));
+                    match outcome {
+                        (Some(failed), succeeded) if succeeded.is_none_or(|s| failed > s) => self.connection.query_row(
+                            "SELECT document FROM jobs WHERE rowid=?1",
+                            params![failed],
+                            |r| r.get::<_, String>(0),
+                        ).optional()?
+                        .map(|doc| serde_json::from_str::<Value>(&doc).map_err(|_| error("storage_error")))
+                        .transpose()?
+                        .map(|job| json!({"code":job["error"]["code"],"message":job["error"]["message"],"at":job["updated_at"],"job_id":job["id"]})),
+                        _ => None,
+                    }
+                };
                 Ok(
-                    json!({"schema_version":1,"pending":pending,"asset_errors":asset_errors,"transport_errors":transport_errors,"quarantine":quarantine,"target":target_value,"active_job":active_job}),
+                    json!({"schema_version":1,"pending":pending,"asset_errors":asset_errors,"transport_errors":transport_errors,"quarantine":quarantine,"target":target_value,"active_job":active_job,
+                        "paused":target_value.as_ref().is_some_and(|t| t["paused"]==json!(true)),
+                        "mirror":target_value.as_ref().and_then(|t| t["mirror"].as_object().map(|_| t["mirror"].clone())),
+                        "cursor":{"consumed_commits":consumed_commits,"last_consumed_op":last_consumed},
+                        "watermark":watermark,
+                        "last_failure":last_failure,
+                        "last_reclaim":last_reclaim,
+                    }),
                 )
             }
             "sync.run" => self.sync_enqueue(input),
@@ -1161,6 +1152,9 @@ impl Application {
         received += replayed;
         quarantined += replay_quarantined;
         let missing_assets = self.sync_fetch_assets(storage)?;
+        // 步末发布本机消费水位（best-effort）：水位缺失只会阻止回收，不会
+        // 导致误删，因此失败不阻塞同步批次本身。
+        let _ = self.sync_publish_watermark(storage, &identity, &target_key);
         let has_more: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_journal j WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=j.op_id) OR registered=0) OR EXISTS(SELECT 1 FROM sync_inbox i WHERE NOT EXISTS(SELECT 1 FROM sync_publications p WHERE p.target_id=?1 AND p.op_id=i.op_id)) OR EXISTS(SELECT 1 FROM sync_publications p JOIN sync_inbox i ON i.op_id=p.op_id WHERE p.target_id=?1 AND p.locally_published=1 AND NOT EXISTS(SELECT 1 FROM sync_index_entries e WHERE e.target_id=?1 AND e.epoch=?2 AND e.op_id=p.op_id))", params![target_key,identity["epoch"].as_u64().ok_or_else(||error("sync_invalid"))?],|r|r.get(0))?;
         Ok(
             json!({"schema_version":1,"sent":sent,"received":received,"pending":pending + missing_markers,"quarantined":quarantined,"missing_assets":missing_assets,"has_more":bootstrap_more || has_more || incoming_more || (pending > 0 && (incoming_count == 256 || replayed + replay_quarantined > 0))}),
@@ -1190,7 +1184,7 @@ fn sync_store_webdav_password(target_key: &str, password: &str) -> Result<(), Ap
 }
 
 pub(crate) fn descriptors() -> Vec<Value> {
-    ["configure","run","process","status","history","conflicts","resolve"].into_iter().map(|op|{
+    let mut base=["configure","run","process","status","history","conflicts","resolve"].into_iter().map(|op|{
         let mut properties=json!({});let mut required=vec![];let mut schema_extra_oneof=serde_json::Value::Null;
         if op=="run" {properties=json!({"operation_key":{"type":"string","minLength":1}});}
         if op=="process" {properties=json!({"id":{"type":"string","minLength":1}});required.push("id");}
@@ -1222,5 +1216,59 @@ pub(crate) fn descriptors() -> Vec<Value> {
         if !schema_extra_oneof.is_null() {schema["oneOf"]=schema_extra_oneof;}
         let output=match op {"run"=>json!({"type":"object","required":["schema_version","job_id","member_id","state"],"properties":{"schema_version":{"const":1},"job_id":{"type":"string"},"member_id":{"type":"string"},"state":{"type":"string"}}}),"process"=>crate::jobs::output_schema(),_=>json!({"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}})};
         json!({"name":format!("sync.{op}"),"description":"同步已配对加密空间：run立即返回持久job_id，process执行有限worker批次；空间级操作需要全部成员授权，冲突选择保留旧历史","inputSchema":schema,"outputSchema":output})
-    }).collect()
+    }).collect::<Vec<_>>();
+    // #31 同步运维：暂停/恢复、更换目标、镜像备份与安全回收。
+    let target_properties = json!({
+        "provider_kind":{"enum":["local_folder","webdav","s3"]},
+        "directory":{"type":"string","minLength":1,"description":"local_folder 目标目录"},
+        "url":{"type":"string","minLength":1,"description":"webdav 服务器地址"},
+        "root":{"type":"string","minLength":1,"description":"webdav 服务器上已存在的目录前缀"},
+        "username":{"type":"string","minLength":1},
+        "password":{"type":"string","description":"只写入 OS 安全存储，不进入配置或日志"},
+        "endpoint":{"type":"string","minLength":1,"description":"s3 兼容对象存储端点"},
+        "region":{"type":"string","description":"s3 区域，默认 us-east-1"},
+        "bucket":{"type":"string","minLength":1,"description":"s3 存储桶"},
+        "prefix":{"type":"string","description":"s3 键前缀，可选"},
+        "path_style":{"type":"boolean","description":"s3 path-style 寻址，自建服务通常开启"},
+        "access_key_id":{"type":"string","minLength":1},
+        "secret_access_key":{"type":"string","minLength":1,"description":"仅经标准输入传输，写入系统安全存储"}
+    });
+    let target_oneof = json!([
+        {"required":["directory"],"not":{"required":["url","root","username","endpoint","bucket","access_key_id","secret_access_key"]}},
+        {"required":["url","root","username"],"not":{"required":["directory","endpoint","bucket","access_key_id","secret_access_key"]}},
+        {"required":["endpoint","bucket","access_key_id","secret_access_key"],"not":{"required":["directory","url","root","username"]}}
+    ]);
+    let describe = |name: &str,
+                    description: &str,
+                    properties: Value,
+                    required: Vec<&str>,
+                    oneof: Value,
+                    output: Value| {
+        let mut schema = json!({"type":"object","additionalProperties":false,"required":required,"properties":properties});
+        if !oneof.is_null() {
+            schema["oneOf"] = oneof;
+        }
+        json!({"name":name,"description":description,"inputSchema":schema,"outputSchema":output})
+    };
+    let simple_output = json!({"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}}});
+    base.push(describe("sync.pause","暂停本机同步批次：队列任务保留，恢复后同一任务继续；已排队任务的 process 以 sync_paused 显式拒绝",json!({}),vec![],Value::Null,json!({"type":"object","required":["schema_version","paused"],"properties":{"schema_version":{"const":1},"paused":{"type":"boolean"}}})));
+    base.push(describe("sync.resume","恢复本机同步批次",json!({}),vec![],Value::Null,json!({"type":"object","required":["schema_version","paused"],"properties":{"schema_version":{"const":1},"paused":{"type":"boolean"}}})));
+    base.push(describe("sync.target.switch","更换主同步目标：先完整复制已发布对象并逐对象 sha256 回读校验，全部通过才切换；任一步失败保持旧目标（回退=旧目标原样可用）",target_properties.clone(),vec!["provider_kind"],target_oneof.clone(),json!({"type":"object","required":["schema_version","copied"],"properties":{"schema_version":{"const":1},"copied":{"type":"integer"},"skipped":{"type":"integer"},"verified_bytes":{"type":"integer"}}})));
+    base.push(describe("sync.mirror.configure","配置镜像备份目标（主目标的单向副本，不参与多主协调）并完成首次完整复制校验",target_properties.clone(),vec!["provider_kind"],target_oneof.clone(),json!({"type":"object","required":["schema_version","copied"],"properties":{"schema_version":{"const":1},"copied":{"type":"integer"},"skipped":{"type":"integer"},"verified_bytes":{"type":"integer"}}})));
+    base.push(describe("sync.mirror.sync","增量单向复制主目标到镜像备份；重复执行幂等",json!({}),vec![],Value::Null,json!({"type":"object","required":["schema_version","copied"],"properties":{"schema_version":{"const":1},"copied":{"type":"integer"},"skipped":{"type":"integer"},"verified_bytes":{"type":"integer"}}})));
+    base.push(describe("sync.mirror.promote","主目标失败时显式提升镜像为主目标：提升前校验镜像与主目标逐对象一致且发布标记与对象字节自洽；旧主目标原样保留为镜像可再次提升回退",json!({}),vec![],Value::Null,json!({"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":1},"markers_verified":{"type":"integer"},"objects_compared":{"type":"integer"}}})));
+    base.push(describe(
+        "sync.mirror.remove",
+        "移除镜像备份配置并清理其传输凭据；主目标不变",
+        json!({}),
+        vec![],
+        Value::Null,
+        simple_output.clone(),
+    ));
+    base.push(describe("sync.reclaim","安全回收已确认的同步日志提交：全部当前配对设备水位覆盖 + 保留窗口已过 + 显式确认存在可恢复备份基线，三个条件缺一不可；绝不按固定时间盲删；同时清理远端对象已消失的已处理 blob 键登记",json!({
+        "retention_seconds":{"type":"integer","minimum":0,"description":"保留窗口秒数，默认 30 天"},
+        "dry_run":{"type":"boolean","description":"只统计候选不删除"},
+        "backup_confirmed":{"type":"boolean","description":"调用方确认存在覆盖被回收范围的本地备份或加密快照包"}
+    }),vec![],Value::Null,json!({"type":"object","required":["schema_version","reclaimed_changes"],"properties":{"schema_version":{"const":1},"candidates":{"type":"integer"},"reclaimed_changes":{"type":"integer"},"reclaimed_blob_registry":{"type":"integer"},"blocked_by":{"type":"array","items":{"type":"string"}},"dry_run":{"type":"boolean"},"retention_seconds":{"type":"integer"},"has_more":{"type":"boolean"}}})));
+    base
 }

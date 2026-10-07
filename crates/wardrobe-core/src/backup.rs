@@ -1247,6 +1247,9 @@ impl Application {
                     tx.commit()?;
                     #[cfg(all(debug_assertions, feature = "backup-test-diagnostics"))]
                     process_test_gate("restore-committed");
+                    // 恢复清空同步目标与设备信任后，清理 OS 安全存储中的传输
+                    // 凭据孤儿（独立于恢复事务：不破坏其原子性）。
+                    let _ = crate::sync::drop_target_state(self);
                     let credential_cleanup = previous_credential.as_deref().is_none_or(|id| {
                         keyring::Entry::new("wardrobe-agent.encryption", id).is_ok_and(|entry| {
                             matches!(

@@ -343,6 +343,9 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             tx.execute("DELETE FROM encryption_state", [])?;
             tx.execute("DELETE FROM encryption_pairings", [])?;
             tx.commit()?;
+            // #31：解除配对同时清理同步目标的传输凭据与按目标键的传输状态
+            // （此前 wardrobe-agent.sync 条目按 target_key 累积、unpair 不清理）。
+            crate::sync::drop_target_state(app)?;
             Ok(status(None))
         }
         "encryption.pair.offer" => {

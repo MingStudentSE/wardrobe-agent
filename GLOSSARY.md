@@ -137,3 +137,16 @@
 - **搭配结构冲突（Outfit Structure Conflict）**：并发修改搭配 items 以变体双方保留并在同步设置面板可见；解决方式是显式重新发布搭配版本，并发版本历史继续经 `sync.history` 可查。
 - **事件乱序挂起（Out-of-order Staging）**：因果前序（依赖实体或因果钟）未到达的事件进入 pending 挂起重放，不静默丢弃也不阻塞独立事实流；重复投递（同 op_id 重复标记）按 inbox 幂等只应用一次，穿着次数按有效事件、天数按当地日期去重的既有口径不变。
 - **同步不回声（No Sync Echo）**：对端事实经 inbox 收据与发布标记只应用并转发一次；冲突解决、恢复与画像重算写入 outbox/审计但不生成同逻辑同步日志。收敛后重复同步 sent=received=0，两空间画像重算结果一致。
+
+## Sync operations and key lifecycle（issue #31）
+
+- **同步暂停（Sync Pause）**：本机主目标文档内的持久开关；`sync.run` 入队与 `sync.process` 领取都以 `sync_paused` 显式拒绝，暂停前已入队任务保留、恢复后同一任务继续。暂停只作用于本机目标，不向对端传播。
+- **目标切换复制校验（Target Switch Copy Verification）**：更换主目标先把已发布对象完整复制到新目标并逐对象 sha256 回读校验，全部通过才在一个事务里切换主目标并搬迁按目标键的传输状态；任一步失败保持旧目标（回退 = 旧目标原样可用），旧目标字节永不清理。
+- **单调对象向前合并（Monotonic Forward Merge）**：发布者页游标 `head.index` 与设备水位记录允许在复制对账中「向前合并」（解密双方取更前进者），同页码不同摘要仍视为损坏冲突；其余对象字节不一致一律整体中止。
+- **镜像备份（Mirror Backup）**：主目标的单向副本（`sync.mirror.configure/sync/promote/remove`），不参与多主协调；增量补齐幂等。显式提升前校验镜像与主目标逐对象一致且发布标记与对象字节自洽，旧主目标原样保留、可再次提升切回。
+- **设备消费水位（Device Consumption Watermark）**：每设备对每个发布者已完整消费的连续索引页位置（`sync_index_read.next_page`），同步步末以加密记录发布到 `{space}/epochs/{e}/watermarks/`；op_id 不保证时序，页位置才是单调可靠的消费进度。
+- **安全回收三条件（Reclaim Triple Gate）**：远端改动日志（tombstone/已发布提交）只在「全部当前配对设备水位覆盖该页 + 保留窗口已过（默认 30 天，可配置）+ 调用方确认存在可恢复备份基线」时按页整页回收（标记先删、对象后删）；缺任一条件如实列出被阻塞设备，绝不按固定时间盲删。晚于窗口加入的全新设备须先恢复备份基线再同步前推。
+- **已处理键登记回收（Processed-Key Registry Reclaim）**：`sync_asset_commits` 的已处理 blob 键在远端对象消失后随回收扫描清除死行（每批有界），登记不再永久膨胀；远端 blob 对象本身不回收——新设备引导与恢复备份依赖目标上完整的展示图 commit。
+- **凭据随键迁移（Credential Migration on Epoch Roll）**：纪元推进滚动目标键时，WebDAV/S3 传输凭据自动迁移到新键（旧键保留供回退），无需重输密码；凭据只存 OS 安全存储，永不进入配置、日志或同步包。解除配对与恢复备份会清理这些凭据并清空按目标键的传输状态。
+- **撤销致盲与自锁（Revocation Blinding & Self-Lock）**：撤销即纪元轮换——所有者新事实只进入新纪元命名空间，被撤销设备停留在旧纪元视图、不再取得任何新事实；设备状态协议送达新清单后自锁（`revoked`），此后同步以 `device_revoked` 显式拒绝。改密码只重包装本机钱包，不影响空间密钥与同步；错误密码恢复失败不破坏现有状态。
+- **最近失败如实呈现（Last-Failure Outcome Gating）**：`sync.status.last_failure` 只在最近一次同步结果是失败时呈现；失败批次显式重试成功后恢复干净状态，历史失败不纠缠后续操作。

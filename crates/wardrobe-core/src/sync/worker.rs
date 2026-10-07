@@ -1,6 +1,51 @@
 use super::*;
+/// 纪元推进滚动目标键后，把 OS 安全存储中的传输凭据迁移到新键
+/// （WebDAV 密码 / S3 访问键）。旧键凭据保留不删：回退到旧目标时仍可用。
+fn migrate_sync_credential(
+    app: &Application,
+    old_key: &str,
+    new_key: &str,
+    target: &Value,
+) -> Result<(), ApiError> {
+    if old_key.is_empty() || old_key == new_key {
+        return Ok(());
+    }
+    match target["provider_kind"].as_str() {
+        Some("webdav") => {
+            let password = match sync_webdav_password(old_key) {
+                Ok(password) => password,
+                Err(e) if e.code == "storage_unauthorized" => return Ok(()),
+                Err(e) => return Err(e),
+            };
+            if sync_webdav_password(new_key).is_err() {
+                sync_store_webdav_password(new_key, &password)?;
+            }
+        }
+        Some("s3") => {
+            let credentials = match sync_s3_credentials(old_key) {
+                Ok(credentials) => credentials,
+                Err(e) if e.code == "storage_auth" => return Ok(()),
+                Err(e) => return Err(e),
+            };
+            if sync_s3_credentials(new_key).is_err() {
+                sync_store_s3_credentials(
+                    new_key,
+                    &credentials.access_key_id,
+                    &credentials.secret_access_key,
+                )?;
+            }
+        }
+        // local_folder 无凭据；其余类型不带凭据。
+        _ => {
+            let _: &Application = app;
+        }
+    }
+    Ok(())
+}
 impl Application {
     pub(super) fn sync_enqueue(&self, input: Value) -> Result<Value, ApiError> {
+        // 暂停是持久开关：暂停期间拒绝新批次，队列任务保留。
+        self.sync_pause_gate()?;
         let identity = self.sync_identity()?;
         let target: String = self
             .connection
@@ -15,6 +60,11 @@ impl Application {
         if identity["epoch"].as_u64().unwrap_or(0) > 1 {
             let key=digest(json!({"directory":target["directory"],"space_id":identity["space_id"],"epoch":identity["epoch"]}).to_string().as_bytes());
             if target["target_key"] != key {
+                // 纪元推进后目标键滚动（强制按新纪元重新发布日志）。传输凭据
+                // 按 target_key 隔离在 OS 安全存储：随键迁移，避免轮换后
+                // 需要重新输入 WebDAV/S3 凭据。
+                let old_key = target["target_key"].as_str().unwrap_or_default().to_owned();
+                migrate_sync_credential(self, &old_key, &key, &target)?;
                 target["target_key"] = json!(key);
                 let tx = self.begin_write()?;
                 tx.execute(
@@ -40,6 +90,8 @@ impl Application {
     }
     /// One explicitly bounded worker step; queued remainder is durable across process exit.
     pub(super) fn sync_process(&self, input: Value) -> Result<Value, ApiError> {
+        // 暂停期间排队任务不得继续：显式拒绝且任务保留，恢复后同一任务继续。
+        self.sync_pause_gate()?;
         let member = self.member(&json!({"member_id":"default"}))?;
         let id = string(&input, "id")?;
         let existing = self.job_get(json!({"member_id":member,"id":id}))?;
