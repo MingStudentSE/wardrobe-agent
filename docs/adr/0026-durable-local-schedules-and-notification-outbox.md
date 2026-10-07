@@ -10,8 +10,8 @@
 
 通知outbox先登记提交意图再调用OS，崩溃后unknown不盲重发。OS API接受只表示submitted，不保证用户看到了通知。拒绝权限、关闭系统提醒和适配器不可用均显式显示。后台驻留与开机启动独立且默认关闭；只有可信本机明确操作可更改。关机或所有进程退出无法执行，到恢复时遵循补跑规则。
 
-原生接口使用Tauri官方插件：
-- https://v2.tauri.app/plugin/notification/ （Windows必须安装后的应用，浏览器测试不证明通知显示。）
-- https://v2.tauri.app/plugin/autostart/ （macOS LaunchAgent、Windows及Linux启动机制；默认不调用enable。）
+当前原生通知适配实际使用 `notify-rust`：macOS 设置应用标识，Windows 设置应用 ID，Linux 设置应用名；不是 Tauri notification 插件。系统接口成功仅记录 submitted，接口错误记录 unknown，不盲重发。当前状态接口明确返回权限由操作系统管理且不可查询，尚不能证明拒绝权限时的完整交互已验收。
+
+登录启动实际使用 Tauri autostart 插件（https://v2.tauri.app/plugin/autostart/），macOS 使用 LaunchAgent；默认不调用 enable。macOS 原生编译检查和浏览器 GUI 测试已通过，但三平台安装后的通知、后台驻留、登录启动及系统权限交互仍须实际运行验收，不能用这些检查替代。
 
 schema21预留本模块，按实际表存在修复且user_version取最大；20留给独立learning实现。portable纳入计划与业务执行历史，排除本机表与通知权限。恢复旧备份不能退回本机去重安全状态；目录迁移保留它们。
