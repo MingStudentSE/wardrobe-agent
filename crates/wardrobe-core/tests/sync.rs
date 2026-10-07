@@ -1679,3 +1679,120 @@ fn new_paired_installation_receives_original_remote_histories_on_a_new_target() 
         );
     }
 }
+
+#[test]
+#[ignore = "requires actual OS credential store"]
+fn corrupt_indexed_marker_is_durable_and_does_not_block_a_healthy_publisher() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let c = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    let ap = a.path().join("db");
+    let bp = b.path().join("db");
+    let cp = c.path().join("db");
+    let owner = Application::open(&ap).unwrap();
+    let peer = Application::open(&bp).unwrap();
+    let sink = Application::open(&cp).unwrap();
+    let _cleanup = [
+        Cleanup(ap.clone()),
+        Cleanup(bp.clone()),
+        Cleanup(cp.clone()),
+    ];
+    let space = owner.execute("encryption.create", json!({"password":"generated temporary transport fixture","device_name":"healthy source"})).unwrap()["recovery_bundle"]["space_id"].as_str().unwrap().to_owned();
+    let mut manifest = serde_json::Value::Null;
+    for (app, name) in [(&peer, "marker publisher"), (&sink, "healthy receiver")] {
+        let offer = owner
+            .execute("encryption.pair.offer", json!({"device_name":name}))
+            .unwrap();
+        let receipt=app.execute("encryption.pair.accept",json!({"invitation":offer["invitation"],"pairing_secret":offer["pairing_secret"],"password":"generated temporary peer"})).unwrap();
+        manifest = owner
+            .execute(
+                "encryption.pair.confirm",
+                json!({"receipt":receipt["receipt"]}),
+            )
+            .unwrap()["manifest"]
+            .clone();
+        app.execute("encryption.device.apply", json!({"manifest":manifest}))
+            .unwrap();
+    }
+    peer.execute("encryption.device.apply", json!({"manifest":manifest}))
+        .unwrap();
+    let member_a = owner.execute("space.default", json!({})).unwrap()["member_id"].clone();
+    let member_b = peer.execute("space.default", json!({})).unwrap()["member_id"].clone();
+    let healthy = owner
+        .execute(
+            "clothing.create",
+            json!({"member_id":member_a,"name":"healthy publisher fact","category":"top"}),
+        )
+        .unwrap();
+    let delayed = peer
+        .execute(
+            "clothing.create",
+            json!({"member_id":member_b,"name":"corrupt transport repaired","category":"bottom"}),
+        )
+        .unwrap();
+    for app in [&owner, &peer, &sink] {
+        app.execute(
+            "sync.configure",
+            json!({"provider_kind":"local_folder","directory":remote.path()}),
+        )
+        .unwrap();
+    }
+    owner.sync_batch().unwrap();
+    peer.sync_batch().unwrap();
+    let read =
+        rusqlite::Connection::open_with_flags(&bp, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let op: String = read
+        .query_row(
+            "SELECT op_id FROM sync_journal WHERE entity_type='clothing' AND entity_id=?1",
+            [delayed["id"].as_str().unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    drop(read);
+    let marker = remote.path().join(format!("{space}/changes/{op}.commit"));
+    let original = std::fs::read(&marker).unwrap();
+    let mut corrupted = original.clone();
+    corrupted[0] ^= 1;
+    std::fs::write(&marker, &corrupted).unwrap();
+    sink.sync_batch()
+        .expect("one corrupt authenticated indexed marker must not stop a healthy publisher");
+    assert_eq!(
+        sink.execute(
+            "clothing.get",
+            json!({"member_id":member_a,"id":healthy["id"]})
+        )
+        .unwrap()["name"],
+        "healthy publisher fact"
+    );
+    assert!(
+        sink.execute("sync.status", json!({})).unwrap()["pending"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    drop(sink);
+    let sink = Application::open(&cp).unwrap();
+    assert!(
+        sink.execute("sync.status", json!({})).unwrap()["pending"]
+            .as_u64()
+            .unwrap()
+            > 0,
+        "missing transport retry must survive restart"
+    );
+    std::fs::write(&marker, &original).unwrap();
+    sink.sync_batch().unwrap();
+    assert_eq!(
+        sink.execute(
+            "clothing.get",
+            json!({"member_id":member_b,"id":delayed["id"]})
+        )
+        .unwrap()["name"],
+        "corrupt transport repaired"
+    );
+    assert_eq!(
+        sink.execute("sync.status", json!({})).unwrap()["pending"],
+        0
+    );
+}

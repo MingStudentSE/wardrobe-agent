@@ -194,7 +194,9 @@ impl Application {
                 }
                 Err(e) if ["storage_not_found", "storage_transient"].contains(&e.code.as_str()) => {
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    self.connection.execute("UPDATE sync_missing SET code=?4 WHERE target_id=?1 AND epoch=?2 AND key=?3",params![target,epoch,key,e.code])?;
+                }
             }
         }
         let mut supported = false;
@@ -316,21 +318,21 @@ impl Application {
                     }
                     let marker = match bounded(storage, key) {
                         Ok(marker) => marker,
-                        Err(e)
-                            if ["storage_not_found", "storage_transient"]
-                                .contains(&e.code.as_str()) =>
-                        {
+                        Err(e) => {
                             let tx = self.begin_write()?;
                             tx.execute("INSERT OR IGNORE INTO sync_missing(target_id,epoch,publisher,key,document,code) VALUES(?1,?2,?3,?4,?5,?6)",params![target,epoch,publisher,key,entry.to_string(),e.code])?;
                             tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.transport_pending',?2)",params![id,json!({"publisher":publisher,"epoch":epoch,"key":key,"code":e.code}).to_string()])?;
                             tx.commit()?;
                             continue;
                         }
-                        Err(e) => return Err(e),
                     };
                     complete = false;
                     if entry["digest"] != digest(&marker) || entry["bytes"] != marker.len() {
-                        return Err(error("storage_corrupt"));
+                        let tx = self.begin_write()?;
+                        tx.execute("INSERT OR IGNORE INTO sync_missing(target_id,epoch,publisher,key,document,code) VALUES(?1,?2,?3,?4,?5,'storage_corrupt')",params![target,epoch,publisher,key,entry.to_string()])?;
+                        tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.transport_pending',?2)",params![id,json!({"publisher":publisher,"epoch":epoch,"key":key,"code":"storage_corrupt"}).to_string()])?;
+                        tx.commit()?;
+                        continue;
                     }
                     objects.push(storage::ObjectMeta {
                         key: key.to_owned(),
