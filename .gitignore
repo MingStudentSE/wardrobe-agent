@@ -27,3 +27,6 @@ apps/desktop/test-results/
 apps/desktop/playwright-report/
 
 /apps/desktop/node_modules
+
+# Tauri generated capability schemas
+/apps/desktop/src-tauri/gen/

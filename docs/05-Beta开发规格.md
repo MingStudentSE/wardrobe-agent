@@ -36,7 +36,7 @@
 
 单品必填：id、member_id、name、category、status；name 去首尾空白，1–120 字符，缺名称的草稿默认“未命名单品”。无照片可保存，展示占位图。必填不代表必须手工输入 ID。category 未知可选 other，status 默认 active。
 
-- category 固定为 top、bottom、outerwear、dress、one_piece、shoes、bag、accessory、underwear、sportswear、other。sub_category 为版本化分类表中的可选 ID；用户自定义标签不改变核心 category 枚举。
+- category 使用成员自己的分类注册表；默认提供 top、bottom、outerwear、dress、one_piece、shoes、bag、accessory、underwear、sportswear、other，允许通过 category.create / category.delete 新增和删除。新增分类使用稳定 custom_UUID ID；删除分类将已有单品转入 other，保留历史穿搭快照；other 不可删除。sub_category 为可选自由文本。参见 docs/api/categories.md。
 - seasons 固定 spring/summer/autumn/winter 多选，空数组表示未知或未设；“四季”展开为四项。
 - color、pattern、material、style、occasion、tags 为可编辑多值；颜色使用稳定 ID + 可选用户描述。数组按规范化键去重，保留展示文本。
 - brand、size_label、fit、description、notes 为可选文本；notes 上限 10000 字符。尺寸数值使用独立 measurement + unit，不让 LLM 从图片推断真实尺寸。

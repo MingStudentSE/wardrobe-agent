@@ -1,0 +1,4 @@
+import {test,expect} from '@playwright/test';
+test('backdrop dismisses clean dialogs and protects unsaved edits',async({page})=>{
+ await page.goto('/');const trigger=page.getByRole('button',{name:'＋ 新增衣物',exact:true});await trigger.click();const dialog=page.getByRole('dialog');await dialog.getByRole('heading',{name:'新增衣物',exact:true}).click();await expect(dialog).toBeVisible();await page.mouse.click(2,2);await expect(dialog).not.toBeVisible();await expect(trigger).toBeFocused();await trigger.click();await dialog.getByLabel('名称',{exact:true}).fill('未保存的资料');page.once('dialog',d=>d.dismiss());await page.mouse.click(2,2);await expect(dialog).toBeVisible();await expect(dialog.getByLabel('名称',{exact:true})).toHaveValue('未保存的资料');page.once('dialog',d=>d.accept());await page.mouse.click(2,2);await expect(dialog).not.toBeVisible();
+});

@@ -2,7 +2,7 @@ import React,{useEffect,useState} from 'react';
 import {api} from '../api';
 type Job={id:string;kind:string;state:string;progress?:number;error?:{message?:string}};
 const states:Record<string,string>={queued:'等待处理',running:'处理中',succeeded:'已完成',failed:'失败',cancelled:'已取消'};
-const kinds:Record<string,string>={recognition:'衣物识别',product:'商品展示图',flatlay:'搭配展示图',tryon:'虚拟试穿',imports:'批量录入',recommendation:'搭配推荐'};
+const kinds:Record<string,string>={text_recommendation:'搭配推荐',learning_recompute:'偏好学习',product_display:'商品展示图',image_edit:'图片处理',recognition:'衣物识别',product:'商品展示图',flatlay:'搭配展示图',tryon:'虚拟试穿',imports:'批量录入',recommendation:'搭配推荐'};
 export function TaskCenter({member}:{member:string}){
  const[jobs,setJobs]=useState<Job[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState('');
  useEffect(()=>{let active=true;async function load(){try{const result=await api<{items:Job[]}>('jobs.list',{member_id:member});if(active){setJobs(result.items);setError('');}}catch(e){if(active)setError(typeof e==='object'&&e&&'message'in e?String(e.message):'无法读取任务，请重试。');}finally{if(active)setLoading(false);}}void load();const timer=setInterval(()=>void load(),5000);return()=>{active=false;clearInterval(timer);};},[member]);

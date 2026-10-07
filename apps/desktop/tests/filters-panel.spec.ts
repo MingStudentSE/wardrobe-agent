@@ -1,0 +1,6 @@
+import {test,expect} from '@playwright/test';
+test('filter panel applies drafts explicitly and exposes removable conditions',async({page})=>{
+ await page.goto('/');await expect(page.locator('.collection .grid article')).toHaveCount(24);await page.getByRole('button',{name:'筛选',exact:true}).click();const dialog=page.getByRole('dialog',{name:'筛选衣物'});await dialog.getByRole('button',{name:'回收站',exact:true}).click();await expect(page.locator('.collection .grid article')).toHaveCount(24);await dialog.getByRole('button',{name:'取消',exact:true}).click();await expect(page.locator('.collection .grid article')).toHaveCount(24);
+ await page.getByRole('button',{name:'筛选',exact:true}).click();await dialog.getByRole('button',{name:'回收站',exact:true}).click();await dialog.getByRole('button',{name:'应用筛选'}).click();await expect(page.getByText('回收站为空',{exact:true})).toBeVisible();await page.getByRole('button',{name:'移除库存筛选'}).click();await expect(page.locator('.collection .grid article')).toHaveCount(24);
+ await page.setViewportSize({width:375,height:900});await page.getByRole('button',{name:'筛选',exact:true}).click();await dialog.locator('summary').click();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.keyboard.press('Escape');await expect(dialog).not.toBeVisible();
+});

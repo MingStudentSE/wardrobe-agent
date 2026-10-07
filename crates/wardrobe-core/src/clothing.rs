@@ -302,11 +302,13 @@ impl Application {
             return Err(ApiError::new("conflict", "请先从回收站恢复单品"));
         }
         apply_facts(&mut doc, &input)?;
+        if !self.category_exists(doc["member_id"].as_str().unwrap_or(""),doc["category"].as_str().unwrap_or(""))? {return Err(ApiError::new("invalid_input","请选择有效类别"));}
         self.save_clothing(doc, "clothing.update")
     }
     fn save_clothing(&self, mut doc: Value, operation: &str) -> Result<Value, ApiError> {
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let tx = self.begin_write()?;
+        if !self.category_exists(doc["member_id"].as_str().unwrap_or(""),doc["category"].as_str().unwrap_or(""))? {return Err(ApiError::new("invalid_input","分类已删除，请重新选择"));}
         let serialized = doc.to_string();
         tx.execute(
             "UPDATE clothing SET document=?1 WHERE id=?2 AND member_id=?3",
@@ -330,7 +332,7 @@ impl Application {
             return Err(ApiError::new("invalid_input", "名称须为 1–120 个字符"));
         }
         let category = string(&input, "category")?;
-        if !CATEGORIES.contains(&category) {
+        if !self.category_exists(&member,category)? {
             return Err(ApiError::new("invalid_input", "请选择有效类别"));
         }
         let seasons = input.get("seasons").cloned().unwrap_or(json!([]));
@@ -389,6 +391,7 @@ impl Application {
         let member = doc["member_id"].as_str();
         let serialized = doc.to_string();
         let tx = self.begin_write()?;
+        if !self.category_exists(member.unwrap_or(""),doc["category"].as_str().unwrap_or(""))? {return Err(ApiError::new("invalid_input","分类已删除，请重新选择"));}
         tx.execute(
             "INSERT INTO clothing VALUES (?1,?2,?3)",
             params![id, member, serialized],
@@ -433,7 +436,7 @@ pub(super) fn validate_stored_document(document: &Value) -> Result<(), ApiError>
         .ok_or_else(|| ApiError::new("invalid_input", "单品文档须为对象"))?;
     if document["schema_version"] != 1
         || !document["name"].is_string()
-        || !document["category"].is_string()
+        || !document["category"].as_str().is_some_and(|id| CATEGORIES.contains(&id) || id.strip_prefix("custom_").is_some_and(|raw| uuid::Uuid::parse_str(raw).is_ok()))
         || !document["status"]
             .as_str()
             .is_some_and(|status| ["active", "archived", "deleted"].contains(&status))
@@ -558,7 +561,7 @@ pub(super) fn apply_facts(doc: &mut Value, input: &Value) -> Result<(), ApiError
         doc["name"] = json!(name);
     }
     if let Some(value) = input.get("category") {
-        if !value.as_str().is_some_and(|s| CATEGORIES.contains(&s)) {
+        if !value.as_str().is_some_and(|s| !s.is_empty() && s.len()<=160) {
             return Err(ApiError::new("invalid_input", "请选择有效类别"));
         }
         doc["category"] = value.clone();
@@ -630,7 +633,7 @@ pub(super) fn apply_facts(doc: &mut Value, input: &Value) -> Result<(), ApiError
 }
 pub(super) fn descriptors() -> Vec<Value> {
     let mut descriptors = json!([
-        {"name":"clothing.create","description":"保存无图单品","inputSchema":{"type":"object","required":["member_id","name","category"],"properties":{"member_id":{"type":"string"},"name":{"type":"string","minLength":1,"maxLength":120},"category":{"type":"string","enum":CATEGORIES},"seasons":{"type":"array","items":{"type":"string","enum":["spring","summer","autumn","winter"]}},"purchase_price_minor":{"type":["integer","null"],"minimum":0},"currency":{"type":["string","null"]}}}},
+        {"name":"clothing.create","description":"保存无图单品","inputSchema":{"type":"object","required":["member_id","name","category"],"properties":{"member_id":{"type":"string"},"name":{"type":"string","minLength":1,"maxLength":120},"category":{"type":"string"},"seasons":{"type":"array","items":{"type":"string","enum":["spring","summer","autumn","winter"]}},"purchase_price_minor":{"type":["integer","null"],"minimum":0},"currency":{"type":["string","null"]}}}},
         {"name":"clothing.get","description":"读取成员单品","inputSchema":{"type":"object","required":["member_id","id"],"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}}},
         {"name":"clothing.list","description":"分页浏览成员单品","inputSchema":{"type":"object","required":["member_id"],"properties":{"member_id":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"string"}}}},
     ]);
@@ -711,7 +714,7 @@ pub(super) fn descriptors() -> Vec<Value> {
     descriptors.as_array().unwrap().clone()
 }
 pub(super) fn output_schema(operation: &str) -> Value {
-    let mut item = json!({"type":"object","required":["schema_version","id","member_id","name","category","seasons","purchase_price_minor","price_exponent","currency","size_label","status","favorite","created_at","updated_at"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"member_id":{"type":"string"},"name":{"type":"string"},"category":{"type":"string","enum":CATEGORIES},"seasons":{"type":"array","items":{"type":"string","enum":["spring","summer","autumn","winter"]}},"purchase_price_minor":{"type":["integer","null"],"minimum":0},"price_exponent":{"type":["integer","null"]},"currency":{"type":["string","null"]},"size_label":{"type":["string","null"]},"status":{"type":"string","enum":["active","archived","deleted"]},"favorite":{"type":"boolean"},"created_at":{"type":"string"},"updated_at":{"type":"string"}}});
+    let mut item = json!({"type":"object","required":["schema_version","id","member_id","name","category","seasons","purchase_price_minor","price_exponent","currency","size_label","status","favorite","created_at","updated_at"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"member_id":{"type":"string"},"name":{"type":"string"},"category":{"type":"string"},"seasons":{"type":"array","items":{"type":"string","enum":["spring","summer","autumn","winter"]}},"purchase_price_minor":{"type":["integer","null"],"minimum":0},"price_exponent":{"type":["integer","null"]},"currency":{"type":["string","null"]},"size_label":{"type":["string","null"]},"status":{"type":"string","enum":["active","archived","deleted"]},"favorite":{"type":"boolean"},"created_at":{"type":"string"},"updated_at":{"type":"string"}}});
     for key in TEXT_FACTS {
         item["properties"][*key] = json!({"type":["string","null"]});
     }
