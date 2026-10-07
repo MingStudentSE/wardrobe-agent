@@ -3,8 +3,8 @@ mod assets;
 mod authorization;
 mod backup;
 mod care;
-mod clothing;
 mod categories;
+mod clothing;
 mod cutout;
 mod data_directory;
 mod encryption;
@@ -18,13 +18,13 @@ mod learning;
 mod maintenance;
 mod members;
 mod outfits;
+mod pair_search;
 mod pairing;
-pub mod profiles;
 mod product;
+pub mod profiles;
 mod providers;
 mod recognition;
 mod recommendations;
-mod pair_search;
 mod schedules;
 mod tryon;
 mod wears;
@@ -403,13 +403,7 @@ pub(crate) fn unique_index_signatures(
             continue;
         }
         columns.sort();
-        signatures.insert(
-            columns
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join("|"),
-        );
+        signatures.insert(columns.into_iter().flatten().collect::<Vec<_>>().join("|"));
     }
     Ok(signatures)
 }
@@ -451,9 +445,7 @@ fn upgrade_branch_shapes(tx: &rusqlite::Transaction<'_>) -> Result<(), ApiError>
         } else {
             tx.execute_batch(&format!("CREATE TABLE {table}(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),{root} TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL)"))?;
         }
-        tx.execute_batch(&format!(
-            "INSERT INTO {table} SELECT * FROM {table}_legacy"
-        ))?;
+        tx.execute_batch(&format!("INSERT INTO {table} SELECT * FROM {table}_legacy"))?;
         if let Some(refs) = refs {
             tx.execute_batch(&format!("CREATE TABLE {refs}(event_id TEXT NOT NULL REFERENCES {table}(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));INSERT INTO {refs} SELECT * FROM {refs}_legacy;DROP TABLE {refs}_legacy"))?;
         }
@@ -500,7 +492,8 @@ pub fn operations() -> Value {
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );
     capabilities["outputSchema"] = json!({"type":"object","required":["schema_version","operations","categories","taxonomy"],"properties":{"schema_version":{"type":"integer","const":1},"operations":{"type":"array","items":{"type":"object","required":["name","description","inputSchema","outputSchema"]}},"categories":{"type":"array","items":{"type":"string"}},"taxonomy":{"type":"object","required":["version","sub_categories","colors"],"properties":{"version":{"type":"integer"},"sub_categories":{"type":"array"},"colors":{"type":"array"}}}}});
-    capabilities["effect"] = json!({"kind":"query","network":"none","local_files":false,"async":null});
+    capabilities["effect"] =
+        json!({"kind":"query","network":"none","local_files":false,"async":null});
     capabilities["examples"] = json!([{"request":{},"prerequisites":["免授权发现全部公开操作契约（名称/描述/输入输出schema）","限定scope客户端仅见其授权范围内操作；本示例只读不执行业务"]}]);
     descriptors.push(capabilities);
     // scope 元数据由授权规则同源派生（authorization::scope_metadata），不是第二套命令表

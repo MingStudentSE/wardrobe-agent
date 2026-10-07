@@ -28,16 +28,23 @@ impl Cli {
             .env_remove("WARDROBE_PROFILES_PATH")
             .output()
             .unwrap();
-        let body: Value = serde_json::from_slice(&output.stdout)
-            .unwrap_or_else(|e| panic!("非JSON stdout: {e}: {}", String::from_utf8_lossy(&output.stdout)));
-        (
-            output.status.code().unwrap_or(-1),
-            body,
-        )
+        let body: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+            panic!(
+                "非JSON stdout: {e}: {}",
+                String::from_utf8_lossy(&output.stdout)
+            )
+        });
+        (output.status.code().unwrap_or(-1), body)
     }
     fn trusted(&self, op: &str, input: &Value) -> Value {
         let input = input.to_string();
-        let (code, body) = self.run(&["--trusted-local", "--db", self.db.to_str().unwrap(), op, &input]);
+        let (code, body) = self.run(&[
+            "--trusted-local",
+            "--db",
+            self.db.to_str().unwrap(),
+            op,
+            &input,
+        ]);
         assert_eq!(code, 0, "{op}: {body}");
         body["result"].clone()
     }
@@ -56,8 +63,12 @@ impl Cli {
         stdin.write_all(payload.as_bytes()).unwrap();
         drop(stdin);
         let out = child.wait_with_output().unwrap();
-        let body: Value = serde_json::from_slice(&out.stdout)
-            .unwrap_or_else(|e| panic!("非JSON stdout: {e}: {}", String::from_utf8_lossy(&out.stdout)));
+        let body: Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+            panic!(
+                "非JSON stdout: {e}: {}",
+                String::from_utf8_lossy(&out.stdout)
+            )
+        });
         (out.status.code().unwrap_or(-1), body)
     }
 }
@@ -68,8 +79,14 @@ fn external_agent_full_workflow_after_builtin_ai_off() {
     // 内置AI关闭：无内置Agent进程/无隐式模型调用；唯一AI路径=显式provider（如实记录的当前形态）
     let space = cli.trusted("space.default", &json!({}));
     let member = space["member_id"].as_str().unwrap().to_string();
-    let top = cli.trusted("clothing.create", &json!({"member_id":member,"name":"外部Agent上衣","category":"top"}));
-    let bottom = cli.trusted("clothing.create", &json!({"member_id":member,"name":"外部Agent裤子","category":"bottom"}));
+    let top = cli.trusted(
+        "clothing.create",
+        &json!({"member_id":member,"name":"外部Agent上衣","category":"top"}),
+    );
+    let bottom = cli.trusted(
+        "clothing.create",
+        &json!({"member_id":member,"name":"外部Agent裤子","category":"bottom"}),
+    );
 
     // 外部Agent有限授权：读成员/衣物/上下文 + 写标签/推荐/配对，无重复逐操作确认
     let grant = cli.trusted(
@@ -95,7 +112,11 @@ fn external_agent_full_workflow_after_builtin_ai_off() {
     );
     assert_eq!(code, 0, "{body}");
     // 上下文读取：洞察摘要
-    let (code, body) = cli.client(&token, "insights.summary", &json!({"member_id":member,"timezone":"UTC","as_of_date":"2026-10-07"}));
+    let (code, body) = cli.client(
+        &token,
+        "insights.summary",
+        &json!({"member_id":member,"timezone":"UTC","as_of_date":"2026-10-07"}),
+    );
     assert_eq!(code, 0, "{body}");
 
     // 写回2：外部推荐（规则策略，无模型调用）
@@ -116,7 +137,11 @@ fn external_agent_full_workflow_after_builtin_ai_off() {
     assert_eq!(code, 0, "{body}");
 
     // 跨入口一致：CLI 与 MCP 读回相同持久ID/内容（GUI共用同一Application，由GUI套件覆盖）
-    let (code, body) = cli.client(&token, "clothing.get", &json!({"member_id":member,"id":top["id"]}));
+    let (code, body) = cli.client(
+        &token,
+        "clothing.get",
+        &json!({"member_id":member,"id":top["id"]}),
+    );
     assert_eq!(code, 0, "{body}");
     let version = body["result"]["updated_at"].clone();
     let mut mcp = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
@@ -146,13 +171,18 @@ fn external_agent_full_workflow_after_builtin_ai_off() {
         .filter(|l| !l.is_empty())
         .map(|l| serde_json::from_str::<Value>(l).expect("MCP stdout 每行都是协议帧"))
         .collect();
-    assert!(frames.iter().any(|f| f["id"] == json!(1)), "initialize应答: {mcp_stdout}");
+    assert!(
+        frames.iter().any(|f| f["id"] == json!(1)),
+        "initialize应答: {mcp_stdout}"
+    );
     let call = frames
         .iter()
         .find(|f| f["id"] == json!(2))
         .expect("tools/call应答");
     let readback: Value = serde_json::from_str(
-        call["result"]["content"][0]["text"].as_str().expect("text内容"),
+        call["result"]["content"][0]["text"]
+            .as_str()
+            .expect("text内容"),
     )
     .expect("MCP工具返回JSON");
     assert_eq!(
@@ -161,8 +191,12 @@ fn external_agent_full_workflow_after_builtin_ai_off() {
         "MCP(同一授权令牌)读回CLI写回的标签: {readback}"
     );
     assert_eq!(readback["updated_at"], version, "同一持久版本");
-    assert!(mcp_stdout.lines().all(|l| serde_json::from_str::<Value>(l).is_ok() || l.is_empty()),
-        "MCP stdout 每行都是协议帧");
+    assert!(
+        mcp_stdout
+            .lines()
+            .all(|l| serde_json::from_str::<Value>(l).is_ok() || l.is_empty()),
+        "MCP stdout 每行都是协议帧"
+    );
 
     // 真实本地照片导入→任务→处理→读取（无网络无供应商）
     let png = cli.dir.path().join("agent.png");
@@ -175,12 +209,20 @@ fn external_agent_full_workflow_after_builtin_ai_off() {
     assert_eq!(code, 0, "{body}");
 
     // 越权拒绝：限定scope外的操作
-    let (code, body) = cli.client(&token, "clothing.create", &json!({"member_id":member,"name":"越权","category":"top"}));
+    let (code, body) = cli.client(
+        &token,
+        "clothing.create",
+        &json!({"member_id":member,"name":"越权","category":"top"}),
+    );
     assert_eq!(code, 2, "{body}");
     assert_eq!(body["error"]["code"], json!("scope_denied"), "{body}");
     // 拒绝无副作用
     let listed = cli.trusted("clothing.list", &json!({"member_id":member}));
-    assert_eq!(listed["items"].as_array().unwrap().len(), 2, "拒绝未产生业务副作用");
+    assert_eq!(
+        listed["items"].as_array().unwrap().len(),
+        2,
+        "拒绝未产生业务副作用"
+    );
 
     // 他人成员越权
     let other = cli.trusted("member.create", &json!({"name":"他人"}))["member_id"]
@@ -191,7 +233,9 @@ fn external_agent_full_workflow_after_builtin_ai_off() {
     assert_eq!(code, 2, "{body}");
     let denial = body["error"]["code"].clone();
     assert!(
-        denial == json!("member_denied") || denial == json!("scope_denied") || denial == json!("unauthorized"),
+        denial == json!("member_denied")
+            || denial == json!("scope_denied")
+            || denial == json!("unauthorized"),
         "他人成员必须拒绝: {body}"
     );
 
@@ -234,7 +278,11 @@ fn crc32(data: &[u8]) -> u32 {
     for (i, e) in table.iter_mut().enumerate() {
         let mut c = i as u32;
         for _ in 0..8 {
-            c = if c & 1 != 0 { 0xEDB88320 ^ (c >> 1) } else { c >> 1 };
+            c = if c & 1 != 0 {
+                0xEDB88320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
         }
         *e = c;
     }
@@ -252,7 +300,7 @@ fn zlib_compress(data: &[u8]) -> Vec<u8> {
     for chunk in data.chunks(65535) {
         stored.push(if chunk.len() == 65535 { 0 } else { 1 });
         stored.extend_from_slice(&(chunk.len() as u16).to_le_bytes());
-        stored.extend_from_slice(&( !(chunk.len() as u16)).to_le_bytes());
+        stored.extend_from_slice(&(!(chunk.len() as u16)).to_le_bytes());
         stored.extend_from_slice(chunk);
     }
     let crc = crc32(data);

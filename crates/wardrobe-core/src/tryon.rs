@@ -169,8 +169,23 @@ pub(super) fn descriptors() -> Vec<Value> {
         "tryon.preview",
         "tryon.person.preview",
     ] {
-        let (effect,examples)=match name {
-            "tryon.process"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<试穿任务ID>"},"prerequisites":["推进试穿任务；真实提交发送人物及搭配全部衣物并消耗额度","多衣上限先校验不静默截断；本示例不自动执行"]}])),"tryon.save"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<试穿任务ID>"},"prerequisites":["显式保存试穿结果仅本机；不承诺真实尺码合身"]}])),"tryon.preview"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<试穿任务ID>"},"prerequisites":["预览本机私有试穿；不改变搭配/穿着/同步"]}])),_=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<本人图片任务ID>"},"prerequisites":["处理/预览本人或模特私有试穿图；仅本机"]}]))
+        let (effect, examples) = match name {
+            "tryon.process" => (
+                json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),
+                json!([{"request":{"member_id":"<已授权成员ID>","id":"<试穿任务ID>"},"prerequisites":["推进试穿任务；真实提交发送人物及搭配全部衣物并消耗额度","多衣上限先校验不静默截断；本示例不自动执行"]}]),
+            ),
+            "tryon.save" => (
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","id":"<试穿任务ID>"},"prerequisites":["显式保存试穿结果仅本机；不承诺真实尺码合身"]}]),
+            ),
+            "tryon.preview" => (
+                json!({"kind":"mutation","network":"none","local_files":true,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","id":"<试穿任务ID>"},"prerequisites":["预览本机私有试穿；不改变搭配/穿着/同步"]}]),
+            ),
+            _ => (
+                json!({"kind":"mutation","network":"none","local_files":true,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","id":"<本人图片任务ID>"},"prerequisites":["处理/预览本人或模特私有试穿图；仅本机"]}]),
+            ),
         };
         result.push(json!({"name":name,"effect":effect,"examples":examples,"description":"处理、保存或预览本机私有试穿，不改变搭配/穿着/同步","inputSchema":{"type":"object","required":["member_id","id"],"properties":{"member_id":{"type":"string"},"id":{"type":"string"}},"additionalProperties":false},"outputSchema":if name.ends_with("preview"){json!({"type":"object","required":["schema_version","id","data_url","sync_scope","width","height"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"data_url":{"type":"string"},"sync_scope":{"const":"local_only"},"width":{"type":"integer"},"height":{"type":"integer"}}})}else{crate::jobs::output_schema()}}));
     }

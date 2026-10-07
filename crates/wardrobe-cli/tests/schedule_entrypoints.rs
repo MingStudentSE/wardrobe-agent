@@ -367,7 +367,13 @@ fn scheduler_rejects_profile_connection_instead_of_silently_ignoring_it() {
     let dir = tempfile::tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
         .env("WARDROBE_DATA_DIR", dir.path())
-        .args(["--profile", "不存在的配置", "--trusted-local", "scheduler", "--once"])
+        .args([
+            "--profile",
+            "不存在的配置",
+            "--trusted-local",
+            "scheduler",
+            "--once",
+        ])
         .output()
         .unwrap();
     let parsed: Value = serde_json::from_slice(&output.stdout).unwrap();

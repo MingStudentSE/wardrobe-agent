@@ -85,10 +85,7 @@ fn run_scheduler(db: Option<PathBuf>, once: bool) {
         std::thread::sleep(std::time::Duration::from_secs(5));
     }
 }
-fn resolve_db(
-    db: Option<PathBuf>,
-    profile: Option<String>,
-) -> Result<PathBuf, ApiError> {
+fn resolve_db(db: Option<PathBuf>, profile: Option<String>) -> Result<PathBuf, ApiError> {
     if let Some(db) = db {
         return Ok(db);
     }
@@ -100,8 +97,15 @@ fn resolve_db(
 
 fn run_profile(command: args::ProfileCommand) {
     use args::ProfileAction;
-    let result = match (command.action, command.name.as_deref(), command.data_dir.as_deref(), command.force) {
-        (ProfileAction::Add, Some(name), Some(dir), force) => wardrobe_core::profiles::upsert(name, dir, force),
+    let result = match (
+        command.action,
+        command.name.as_deref(),
+        command.data_dir.as_deref(),
+        command.force,
+    ) {
+        (ProfileAction::Add, Some(name), Some(dir), force) => {
+            wardrobe_core::profiles::upsert(name, dir, force)
+        }
         (ProfileAction::Remove, Some(name), _, _) => wardrobe_core::profiles::remove(name),
         (ProfileAction::List, _, _, _) => wardrobe_core::profiles::list(),
         (ProfileAction::Use, Some(name), _, _) => wardrobe_core::profiles::set_default(name),

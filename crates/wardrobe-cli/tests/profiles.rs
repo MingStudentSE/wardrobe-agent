@@ -42,7 +42,13 @@ fn profile_lifecycle_isolation_and_fallback_matrix() {
     let b = env.data_dir("data-b");
 
     // 未知profile：exit 2 纯JSON，不创建目录
-    let (code, out) = env.cmd(&["--trusted-local", "--profile", "ghost", "space.default", "{}"]);
+    let (code, out) = env.cmd(&[
+        "--trusted-local",
+        "--profile",
+        "ghost",
+        "space.default",
+        "{}",
+    ]);
     assert_eq!(code, 2, "{out}");
     let err: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(err["error"]["code"], json!("profile_not_found"), "{out}");
@@ -56,35 +62,59 @@ fn profile_lifecycle_isolation_and_fallback_matrix() {
     let (code, out) = env.cmd(&["profile.add", "work", "--data-dir", b.to_str().unwrap()]);
     assert_eq!(code, 2);
     assert!(out.contains("profile_exists"), "{out}");
-    let (code, out) = env.cmd(&["profile.add", "work", "--data-dir", a.to_str().unwrap(), "--force"]);
+    let (code, out) = env.cmd(&[
+        "profile.add",
+        "work",
+        "--data-dir",
+        a.to_str().unwrap(),
+        "--force",
+    ]);
     assert_eq!(code, 0, "{out}");
     let (code, out) = env.cmd(&["profile.list"]);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("data-a") && out.contains("data-b"), "{out}");
 
     // 隔离：work 与 home 各自 space.default 成员互不可见
-    let (code, out) = env.cmd(&["--trusted-local", "--profile", "work", "space.default", "{}"]);
+    let (code, out) = env.cmd(&[
+        "--trusted-local",
+        "--profile",
+        "work",
+        "space.default",
+        "{}",
+    ]);
     assert_eq!(code, 0, "{out}");
-    let member_a: String =
-        serde_json::from_str::<serde_json::Value>(&out).unwrap()["result"]["member_id"]
-            .as_str()
-            .unwrap()
-            .into();
-    let (code, out) = env.cmd(&["--trusted-local", "--profile", "home", "space.default", "{}"]);
+    let member_a: String = serde_json::from_str::<serde_json::Value>(&out).unwrap()["result"]
+        ["member_id"]
+        .as_str()
+        .unwrap()
+        .into();
+    let (code, out) = env.cmd(&[
+        "--trusted-local",
+        "--profile",
+        "home",
+        "space.default",
+        "{}",
+    ]);
     assert_eq!(code, 0, "{out}");
-    let member_b: String =
-        serde_json::from_str::<serde_json::Value>(&out).unwrap()["result"]["member_id"]
-            .as_str()
-            .unwrap()
-            .into();
+    let member_b: String = serde_json::from_str::<serde_json::Value>(&out).unwrap()["result"]
+        ["member_id"]
+        .as_str()
+        .unwrap()
+        .into();
     assert_ne!(member_a, member_b, "两个数据目录必须隔离");
     let (code, out) = env.cmd(&[
-        "--trusted-local", "--profile", "home", "clothing.create",
+        "--trusted-local",
+        "--profile",
+        "home",
+        "clothing.create",
         &format!("{{\"member_id\":\"{member_b}\",\"name\":\"home专属\",\"category\":\"top\"}}"),
     ]);
     assert_eq!(code, 0, "{out}");
     let (code, out) = env.cmd(&[
-        "--trusted-local", "--profile", "work", "clothing.list",
+        "--trusted-local",
+        "--profile",
+        "work",
+        "clothing.list",
         &format!("{{\"member_id\":\"{member_a}\"}}"),
     ]);
     assert_eq!(code, 0, "{out}");
@@ -99,18 +129,21 @@ fn profile_lifecycle_isolation_and_fallback_matrix() {
     assert_eq!(code, 0, "{out}");
     let (code, out) = env.cmd(&["--trusted-local", "space.default", "{}"]);
     assert_eq!(code, 0, "{out}");
-    let again: String =
-        serde_json::from_str::<serde_json::Value>(&out).unwrap()["result"]["member_id"]
-            .as_str()
-            .unwrap()
-            .into();
+    let again: String = serde_json::from_str::<serde_json::Value>(&out).unwrap()["result"]
+        ["member_id"]
+        .as_str()
+        .unwrap()
+        .into();
     assert_eq!(again, member_b, "默认profile解析到home");
 
     // --db 与 --profile 互斥
     let (code, out) = env.cmd(&[
-        "--db", a.join("x.sqlite").to_str().unwrap(),
-        "--profile", "work",
-        "space.default", "{}",
+        "--db",
+        a.join("x.sqlite").to_str().unwrap(),
+        "--profile",
+        "work",
+        "space.default",
+        "{}",
     ]);
     assert_eq!(code, 2, "{out}");
 
@@ -123,7 +156,13 @@ fn profile_lifecycle_isolation_and_fallback_matrix() {
     std::fs::write(&env.config, b"{corrupt").unwrap();
     let (code, out) = env.cmd(&["--version"]);
     assert_eq!(code, 0, "{out}");
-    let (code, out) = env.cmd(&["--trusted-local", "--profile", "work", "space.default", "{}"]);
+    let (code, out) = env.cmd(&[
+        "--trusted-local",
+        "--profile",
+        "work",
+        "space.default",
+        "{}",
+    ]);
     assert_eq!(code, 1, "损坏配置=storage_error exit 1");
     assert!(out.contains("storage_error"), "{out}");
 
@@ -147,11 +186,11 @@ fn mcp_profile_resolution_matches_cli_without_gui() {
     assert_eq!(code, 0, "{out}");
     let (code, out) = env.cmd(&["--trusted-local", "--profile", "mcp", "space.default", "{}"]);
     assert_eq!(code, 0, "{out}");
-    let member: String =
-        serde_json::from_str::<serde_json::Value>(&out).unwrap()["result"]["member_id"]
-            .as_str()
-            .unwrap()
-            .into();
+    let member: String = serde_json::from_str::<serde_json::Value>(&out).unwrap()["result"]
+        ["member_id"]
+        .as_str()
+        .unwrap()
+        .into();
     // MCP 用同一 profile 写入，CLI 读回同一持久数据
     let mut child = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
         .args(["--trusted-local", "mcp", "--profile", "mcp"])
@@ -163,9 +202,8 @@ fn mcp_profile_resolution_matches_cli_without_gui() {
         .unwrap();
     use std::io::Write;
     let mut stdin = child.stdin.take().unwrap();
-    let init = String::from(
-        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
-    );
+    let init =
+        String::from("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}");
     writeln!(stdin, "{init}").unwrap();
     let call = String::from(
         "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"capabilities\",\"arguments\":{}}}",
@@ -176,7 +214,10 @@ fn mcp_profile_resolution_matches_cli_without_gui() {
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     assert!(stdout.contains("\"id\":1"), "MCP initialize应答: {stdout}");
     let (code, out) = env.cmd(&[
-        "--trusted-local", "--profile", "mcp", "clothing.list",
+        "--trusted-local",
+        "--profile",
+        "mcp",
+        "clothing.list",
         &format!("{{\"member_id\":\"{member}\"}}"),
     ]);
     assert_eq!(code, 0, "{out}");

@@ -1,7 +1,5 @@
 //! Portable facts: credentials and device trust are deliberately installation-local.
-use crate::{
-    string, unique_index_signatures, ApiError, Application, DATABASE_SCHEMA_VERSION,
-};
+use crate::{string, unique_index_signatures, ApiError, Application, DATABASE_SCHEMA_VERSION};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -87,9 +85,7 @@ const SCHEDULE_TABLES: &[&str] = &["schedule_plans", "schedule_executions"];
 //  - 21: category-only (published), schedule-only (unreleased), or both
 //  - 22: sync historical baseline (28) or post-category (29)
 //  - 23: combined category+schedules
-fn known_archive_table_sets(
-    version: u32,
-) -> Option<Vec<std::collections::HashSet<&'static str>>> {
+fn known_archive_table_sets(version: u32) -> Option<Vec<std::collections::HashSet<&'static str>>> {
     let base: std::collections::HashSet<&str> = BASE_TABLES.iter().copied().collect();
     let learning: std::collections::HashSet<&str> = LEARNING_TABLES.iter().copied().collect();
     let schedule: std::collections::HashSet<&str> = SCHEDULE_TABLES.iter().copied().collect();
