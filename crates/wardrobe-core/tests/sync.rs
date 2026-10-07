@@ -1870,4 +1870,49 @@ fn corrupt_indexed_marker_is_durable_and_does_not_block_a_healthy_publisher() {
         sink.execute("sync.status", json!({})).unwrap()["pending"],
         0
     );
+    owner.execute("weather.configure", json!({"member_id":member_a,"mode":"automatic","location":"公开测试城市","latitude":31.2,"longitude":121.5,"usage":"noncommercial","endpoint":"http://127.0.0.1:1/private-local-weather"})).unwrap();
+    owner.sync_batch().unwrap();
+    sink.sync_batch().unwrap();
+    let remote_weather = sink
+        .execute("weather.get", json!({"member_id":member_a}))
+        .unwrap();
+    assert_eq!(
+        remote_weather["config"]["location"], "公开测试城市",
+        "explicit weather configuration must sync"
+    );
+    assert_eq!(
+        remote_weather["config"]["endpoint"], "https://api.open-meteo.com/v1/forecast",
+        "local endpoint must not travel"
+    );
+    assert!(remote_weather["cache"].is_null() && remote_weather["last_error"].is_null());
+    let failed_weather = owner
+        .execute("weather.refresh", json!({"member_id":member_a}))
+        .unwrap();
+    assert!(
+        !failed_weather["last_error"].is_null(),
+        "actual local connection failure is recorded only locally"
+    );
+    assert_eq!(
+        owner.sync_batch().unwrap()["sent"],
+        0,
+        "derived weather errors must not publish operations"
+    );
+    sink.execute("weather.configure",json!({"member_id":member_a,"mode":"automatic","location":"公开测试城市","latitude":31.2,"longitude":121.5,"usage":"noncommercial","endpoint":"http://127.0.0.1:2/receiver-private"})).unwrap();
+    assert_eq!(
+        sink.sync_batch().unwrap()["sent"],
+        0,
+        "endpoint-only changes must remain local"
+    );
+    owner.execute("weather.configure",json!({"member_id":member_a,"mode":"automatic","location":"另一个公开城市","latitude":32.0,"longitude":120.0,"usage":"noncommercial","endpoint":"http://127.0.0.1:1/private-local-weather"})).unwrap();
+    owner.sync_batch().unwrap();
+    sink.sync_batch().unwrap();
+    let updated = sink
+        .execute("weather.get", json!({"member_id":member_a}))
+        .unwrap();
+    assert_eq!(updated["config"]["location"], "另一个公开城市");
+    assert_eq!(
+        updated["config"]["endpoint"], "http://127.0.0.1:2/receiver-private",
+        "receiving config preserves local transport endpoint"
+    );
+    assert!(updated["cache"].is_null() && updated["last_error"].is_null());
 }

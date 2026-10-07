@@ -349,6 +349,18 @@ pub(super) fn validate(table: &str, entity: &str, doc: &Value) -> Result<(), Api
             timestamp(doc, "created_at")?;
             timestamp(doc, "updated_at")?;
         }
+        "weather_preferences" => {
+            fields(doc, &["schema_version", "member_id", "config"])?;
+            check(member == entity && doc["config"].get("endpoint").is_none())?;
+            let mut local = doc.clone();
+            if local["config"]["mode"] == "automatic" {
+                local["config"]["endpoint"] = json!("https://api.open-meteo.com/v1/forecast");
+            }
+            local["cache"] = Value::Null;
+            local["last_error"] = Value::Null;
+            crate::weather::validate_portable_document(&local)
+                .map_err(|_| error("sync_invalid"))?;
+        }
         "insights_preferences" => {
             fields(
                 doc,

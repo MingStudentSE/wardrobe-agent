@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Read, path::Path};
 use storage::{LocalFolder, SyncStorage, WriteCondition};
-const TABLES: [&str; 10] = [
+const TABLES: [&str; 11] = [
     "members",
     "clothing",
     "outfits",
@@ -23,6 +23,7 @@ const TABLES: [&str; 10] = [
     "care_config",
     "care_events",
     "insights_preferences",
+    "weather_preferences",
     "feedback_events",
     "feedback_receipts",
 ];
@@ -30,7 +31,7 @@ fn entity_key(table: &str, prefix: &str) -> String {
     match table {
         "outfit_versions" => format!("{prefix}.outfit_id||':'||{prefix}.version"),
         "care_config" => format!("{prefix}.clothing_id"),
-        "insights_preferences" => format!("{prefix}.member_id"),
+        "insights_preferences" | "weather_preferences" => format!("{prefix}.member_id"),
         "feedback_receipts" => format!("{prefix}.member_id||':'||{prefix}.operation_key"),
         _ => format!("{prefix}.id"),
     }
@@ -185,6 +186,19 @@ fn materialize(
         "care_config" => {
             tx.execute("INSERT INTO care_config VALUES(?1,?2,?3) ON CONFLICT(member_id,clothing_id) DO UPDATE SET document=excluded.document",params![member,string(doc,"clothing_id")?,serialized])?;
         }
+        "weather_preferences" => {
+            let mut local = doc.clone();
+            if local["config"]["mode"] == "automatic" {
+                let endpoint: Option<String> = tx.query_row("SELECT json_extract(document,'$.config.endpoint') FROM weather_preferences WHERE member_id=?1",[member],|r|r.get(0)).optional()?.flatten();
+                local["config"]["endpoint"] = json!(
+                    endpoint.unwrap_or_else(|| "https://api.open-meteo.com/v1/forecast".into())
+                );
+            }
+            local["cache"] = Value::Null;
+            local["last_error"] = Value::Null;
+            crate::weather::validate_portable_document(&local)?;
+            tx.execute("INSERT INTO weather_preferences VALUES(?1,?2) ON CONFLICT(member_id) DO UPDATE SET document=excluded.document",params![member,local.to_string()])?;
+        }
         "insights_preferences" => {
             tx.execute("INSERT INTO insights_preferences VALUES(?1,?2) ON CONFLICT(member_id) DO UPDATE SET document=excluded.document",params![member,serialized])?;
         }
@@ -262,7 +276,9 @@ pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     for table in TABLES {
         for kind in ["INSERT", "UPDATE"] {
             let key = entity_key(table, "NEW");
-            let after = if table == "feedback_receipts" {
+            let after = if table == "weather_preferences" {
+                "json_remove(NEW.document,'$.config.endpoint','$.cache','$.last_error')"
+            } else if table == "feedback_receipts" {
                 "json_object('schema_version',1,'member_id',NEW.member_id,'operation_key',NEW.operation_key,'request',NEW.request,'result',NEW.result)"
             } else if table == "members" {
                 "json_object('id',NEW.id,'name',NEW.name)"
@@ -271,6 +287,8 @@ pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
             };
             let before = if kind == "INSERT" {
                 "NULL"
+            } else if table == "weather_preferences" {
+                "json_remove(OLD.document,'$.config.endpoint','$.cache','$.last_error')"
             } else if table == "feedback_receipts" {
                 "json_object('schema_version',1,'member_id',OLD.member_id,'operation_key',OLD.operation_key,'request',OLD.request,'result',OLD.result)"
             } else if table == "members" {
@@ -278,7 +296,12 @@ pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
             } else {
                 "OLD.document"
             };
-            tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS sync_{table}_{kind} AFTER {kind} ON {table} WHEN (SELECT applying FROM sync_control WHERE id=1)=0 AND EXISTS(SELECT 1 FROM encryption_state) BEGIN INSERT INTO sync_journal(op_id,device,entity_type,entity_id,before_doc,after_doc,base) VALUES(lower(hex(randomblob(16))),(SELECT json_extract(document,'$.device_id') FROM encryption_state),'{table}',{key},{before},{after},COALESCE((SELECT json_group_object(device,seq) FROM sync_clock),'{{}}')); INSERT INTO sync_clock(device,seq) VALUES((SELECT json_extract(document,'$.device_id') FROM encryption_state),1) ON CONFLICT(device) DO UPDATE SET seq=seq+1; UPDATE sync_journal SET clock=(SELECT json_group_object(device,seq) FROM sync_clock) WHERE id=(SELECT max(id) FROM sync_journal); END;"))?;
+            let changed = if table == "weather_preferences" && kind == "UPDATE" {
+                format!(" AND {before}!={after}")
+            } else {
+                String::new()
+            };
+            tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS sync_{table}_{kind} AFTER {kind} ON {table} WHEN (SELECT applying FROM sync_control WHERE id=1)=0 AND EXISTS(SELECT 1 FROM encryption_state){changed} BEGIN INSERT INTO sync_journal(op_id,device,entity_type,entity_id,before_doc,after_doc,base) VALUES(lower(hex(randomblob(16))),(SELECT json_extract(document,'$.device_id') FROM encryption_state),'{table}',{key},{before},{after},COALESCE((SELECT json_group_object(device,seq) FROM sync_clock),'{{}}')); INSERT INTO sync_clock(device,seq) VALUES((SELECT json_extract(document,'$.device_id') FROM encryption_state),1) ON CONFLICT(device) DO UPDATE SET seq=seq+1; UPDATE sync_journal SET clock=(SELECT json_group_object(device,seq) FROM sync_clock) WHERE id=(SELECT max(id) FROM sync_journal); END;"))?;
         }
     }
     tx.execute_batch("CREATE INDEX IF NOT EXISTS sync_journal_entity ON sync_journal(entity_type,entity_id); CREATE INDEX IF NOT EXISTS sync_inbox_entity ON sync_inbox(json_extract(document,'$.entity_type'),json_extract(document,'$.entity_id'));")?;
@@ -546,7 +569,9 @@ impl Application {
                 )?;
                 for table in TABLES {
                     let key = entity_key(table, table);
-                    let sql = if table == "members" {
+                    let sql = if table == "weather_preferences" {
+                        format!("SELECT {key},json_remove(document,'$.config.endpoint','$.cache','$.last_error') FROM {table} WHERE ?1 OR 1")
+                    } else if table == "members" {
                         "SELECT id,json_object('id',id,'name',name) FROM members WHERE ?1 OR EXISTS(SELECT 1 FROM clothing c WHERE c.member_id=members.id)".to_string()
                     } else if table == "feedback_receipts" {
                         format!("SELECT {key},json_object('schema_version',1,'member_id',member_id,'operation_key',operation_key,'request',request,'result',result) FROM {table} WHERE ?1 OR 1")
