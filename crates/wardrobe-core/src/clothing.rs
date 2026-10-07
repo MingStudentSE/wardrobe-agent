@@ -302,13 +302,23 @@ impl Application {
             return Err(ApiError::new("conflict", "请先从回收站恢复单品"));
         }
         apply_facts(&mut doc, &input)?;
-        if !self.category_exists(doc["member_id"].as_str().unwrap_or(""),doc["category"].as_str().unwrap_or(""))? {return Err(ApiError::new("invalid_input","请选择有效类别"));}
+        if !self.category_exists(
+            doc["member_id"].as_str().unwrap_or(""),
+            doc["category"].as_str().unwrap_or(""),
+        )? {
+            return Err(ApiError::new("invalid_input", "请选择有效类别"));
+        }
         self.save_clothing(doc, "clothing.update")
     }
     fn save_clothing(&self, mut doc: Value, operation: &str) -> Result<Value, ApiError> {
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let tx = self.begin_write()?;
-        if !self.category_exists(doc["member_id"].as_str().unwrap_or(""),doc["category"].as_str().unwrap_or(""))? {return Err(ApiError::new("invalid_input","分类已删除，请重新选择"));}
+        if !self.category_exists(
+            doc["member_id"].as_str().unwrap_or(""),
+            doc["category"].as_str().unwrap_or(""),
+        )? {
+            return Err(ApiError::new("invalid_input", "分类已删除，请重新选择"));
+        }
         let serialized = doc.to_string();
         tx.execute(
             "UPDATE clothing SET document=?1 WHERE id=?2 AND member_id=?3",
@@ -332,7 +342,7 @@ impl Application {
             return Err(ApiError::new("invalid_input", "名称须为 1–120 个字符"));
         }
         let category = string(&input, "category")?;
-        if !self.category_exists(&member,category)? {
+        if !self.category_exists(&member, category)? {
             return Err(ApiError::new("invalid_input", "请选择有效类别"));
         }
         let seasons = input.get("seasons").cloned().unwrap_or(json!([]));
@@ -391,7 +401,9 @@ impl Application {
         let member = doc["member_id"].as_str();
         let serialized = doc.to_string();
         let tx = self.begin_write()?;
-        if !self.category_exists(member.unwrap_or(""),doc["category"].as_str().unwrap_or(""))? {return Err(ApiError::new("invalid_input","分类已删除，请重新选择"));}
+        if !self.category_exists(member.unwrap_or(""), doc["category"].as_str().unwrap_or(""))? {
+            return Err(ApiError::new("invalid_input", "分类已删除，请重新选择"));
+        }
         tx.execute(
             "INSERT INTO clothing VALUES (?1,?2,?3)",
             params![id, member, serialized],
@@ -436,7 +448,12 @@ pub(super) fn validate_stored_document(document: &Value) -> Result<(), ApiError>
         .ok_or_else(|| ApiError::new("invalid_input", "单品文档须为对象"))?;
     if document["schema_version"] != 1
         || !document["name"].is_string()
-        || !document["category"].as_str().is_some_and(|id| CATEGORIES.contains(&id) || id.strip_prefix("custom_").is_some_and(|raw| uuid::Uuid::parse_str(raw).is_ok()))
+        || !document["category"].as_str().is_some_and(|id| {
+            CATEGORIES.contains(&id)
+                || id
+                    .strip_prefix("custom_")
+                    .is_some_and(|raw| uuid::Uuid::parse_str(raw).is_ok())
+        })
         || !document["status"]
             .as_str()
             .is_some_and(|status| ["active", "archived", "deleted"].contains(&status))
@@ -561,7 +578,10 @@ pub(super) fn apply_facts(doc: &mut Value, input: &Value) -> Result<(), ApiError
         doc["name"] = json!(name);
     }
     if let Some(value) = input.get("category") {
-        if !value.as_str().is_some_and(|s| !s.is_empty() && s.len()<=160) {
+        if !value
+            .as_str()
+            .is_some_and(|s| !s.is_empty() && s.len() <= 160)
+        {
             return Err(ApiError::new("invalid_input", "请选择有效类别"));
         }
         doc["category"] = value.clone();
@@ -710,6 +730,33 @@ pub(super) fn descriptors() -> Vec<Value> {
             descriptor["inputSchema"]["properties"]["favorite"] = json!({"type":"boolean"});
         }
         descriptor["outputSchema"] = output_schema(descriptor["name"].as_str().unwrap());
+    }
+    let effects = json!({
+        "clothing.create": {"kind":"mutation","network":"none","local_files":false,"async":null},
+        "clothing.get": {"kind":"query","network":"none","local_files":false,"async":null},
+        "clothing.list": {"kind":"query","network":"none","local_files":false,"async":null},
+        "clothing.history": {"kind":"query","network":"none","local_files":false,"async":null},
+        "clothing.archive": {"kind":"mutation","network":"none","local_files":false,"async":null},
+        "clothing.activate": {"kind":"mutation","network":"none","local_files":false,"async":null},
+        "clothing.delete": {"kind":"mutation","network":"none","local_files":false,"async":null},
+        "clothing.restore": {"kind":"mutation","network":"none","local_files":false,"async":null},
+        "clothing.update": {"kind":"mutation","network":"none","local_files":false,"async":null},
+    });
+    let examples = json!({
+        "clothing.create": [{"request":{"member_id":"<已授权成员ID>","name":"<单品名称>","category":"<内置类别或已创建分类ID>"},"prerequisites":["space.default 初始化；名称1-120字符"]}],
+        "clothing.get": [{"request":{"member_id":"<已授权成员ID>","id":"<clothing.create 返回的ID>"},"prerequisites":["读取当前状态的单品"]}],
+        "clothing.list": [{"request":{"member_id":"<已授权成员ID>","limit":20},"prerequisites":["分页浏览；支持筛选排序，status 过滤 active/archived/deleted"]}],
+        "clothing.history": [{"request":{"member_id":"<已授权成员ID>","id":"<单品ID>"},"prerequisites":["返回不可变历史快照"]}],
+        "clothing.archive": [{"request":{"member_id":"<已授权成员ID>","id":"<单品ID>"},"prerequisites":["软状态迁移到 archived，可用 clothing.activate 恢复"]}],
+        "clothing.activate": [{"request":{"member_id":"<已授权成员ID>","id":"<单品ID>"},"prerequisites":["状态迁移到 active"]}],
+        "clothing.delete": [{"request":{"member_id":"<已授权成员ID>","id":"<单品ID>"},"prerequisites":["软删除为 deleted，可 clothing.restore 恢复"]}],
+        "clothing.restore": [{"request":{"member_id":"<已授权成员ID>","id":"<单品ID>"},"prerequisites":["恢复为 active"]}],
+        "clothing.update": [{"request":{"member_id":"<已授权成员ID>","id":"<单品ID>","favorite":true},"prerequisites":["部分更新；历史保留更新前不可变快照"]}],
+    });
+    for descriptor in descriptors.as_array_mut().unwrap() {
+        let name = descriptor["name"].as_str().unwrap().to_string();
+        descriptor["effect"] = effects[&name].clone();
+        descriptor["examples"] = examples[&name].clone();
     }
     descriptors.as_array().unwrap().clone()
 }

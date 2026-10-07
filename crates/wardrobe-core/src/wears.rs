@@ -475,5 +475,22 @@ pub(super) fn descriptors() -> Vec<Value> {
         if op=="get"{properties["id"]=json!({"type":"string"});required.push("id");}
         if op=="list"{properties["clothing_id"]=json!({"type":"string"});properties["include_revoked"]=json!({"type":"boolean"});properties["limit"]=json!({"type":"integer","minimum":1,"maximum":100});properties["cursor"]=json!({"type":"string"});}
         json!({"name":format!("wear.{op}"),"description":format!("真实穿着 {op}"),"inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties},"outputSchema":if ["record","correct","revoke","get"].contains(&op){json!({"type":"object","required":["schema_version","id","member_id","root_event_id","revision","kind","items","source_outfit","local_date","timezone","local_time","time_precision","occurred_at","created_at","notes","supersedes_event_id"],"properties":{"schema_version":{"const":1},"revision":{"type":"integer","minimum":1},"kind":{"enum":["record","correction","revocation"]},"items":{"type":"array","minItems":1},"source_outfit":{"type":["object","null"]}}})}else{json!({"type":"object","required":["schema_version","member_id","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array"}}})}})
+    }).map(|mut descriptor|{
+        let op=descriptor["name"].as_str().unwrap().strip_prefix("wear.").unwrap().to_string();
+        descriptor["effect"]=match op.as_str() {
+            "record"|"correct"|"revoke"=>json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+            _=>json!({"kind":"query","network":"none","local_files":false,"async":null}),
+        };
+        let mid=json!("<已授权成员ID>");
+        descriptor["examples"]=match op.as_str() {
+            "record"=>json!([{"request":{"member_id":mid,"operation_key":"<幂等操作键>","local_date":"2020-01-01","timezone":"UTC","clothing_ids":["<单品ID>"],"source_outfit_id":"<可选搭配ID>"},"prerequisites":["同 operation_key 幂等；可选关联搭配版本"]}]),
+            "correct"=>json!([{"request":{"member_id":mid,"operation_key":"<新幂等键>","root_event_id":"<wear.record 返回的根事件ID>","expected_revision":1,"local_date":"2020-01-02","timezone":"UTC"},"prerequisites":["按 expected_revision 乐观更正，修订号+1"]}]),
+            "revoke"=>json!([{"request":{"member_id":mid,"operation_key":"<新幂等键>","root_event_id":"<根事件ID>","expected_revision":2,"reason":"<作废原因>"},"prerequisites":["作废记录并保留历史"]}]),
+            "get"=>json!([{"request":{"member_id":mid,"id":"<事件ID>"},"prerequisites":["读取单条穿着事件"]}]),
+            "list"=>json!([{"request":{"member_id":mid,"limit":20},"prerequisites":["include_revoked 默认不含作废记录"]}]),
+            "history"=>json!([{"request":{"member_id":mid,"root_event_id":"<根事件ID>"},"prerequisites":["返回同一根事件的完整修订链"]}]),
+            _=>json!([{"request":{"member_id":mid},"prerequisites":["读取持久化穿着统计"]}]),
+        };
+        descriptor
     }).collect()
 }
