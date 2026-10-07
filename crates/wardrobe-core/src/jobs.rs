@@ -1,6 +1,10 @@
 use crate::{string, ApiError, Application};
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
+/// Whole-space task payloads require all-member authorization even through generic job APIs.
+pub(super) fn is_space_job(kind: &str) -> bool {
+    kind == "sync"
+}
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),kind TEXT NOT NULL,operation_key TEXT NOT NULL,document TEXT NOT NULL,UNIQUE(member_id,kind,operation_key)); CREATE INDEX IF NOT EXISTS jobs_member ON jobs(member_id,id);")?;
     Ok(())

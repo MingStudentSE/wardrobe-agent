@@ -26,6 +26,7 @@ mod providers;
 mod recognition;
 mod recommendations;
 mod schedules;
+pub mod sync;
 mod tryon;
 mod wears;
 mod weather;
@@ -36,6 +37,8 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
+// Combined categories and portable receipt variants (22) plus the schedule
+// families (23); the migration ladder below repairs each historical shape.
 pub const DATABASE_SCHEMA_VERSION: u32 = 23;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
@@ -147,12 +150,14 @@ impl Application {
         weather::migrate(&tx)?;
         schedules::migrate(&tx)?;
         feedback::migrate(&tx)?;
-        learning::migrate(&tx)?;
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
         cutout::migrate(&tx)?;
         recognition::migrate(&tx)?;
         encryption::migrate(&tx)?;
+        sync::migrate(&tx)?;
+        // Sync repairs immutable event tables before learning attaches source triggers.
+        learning::migrate(&tx)?;
         backup::migrate(&tx)?;
         maintenance::migrate(&tx)?;
         upgrade_branch_shapes(&tx)?;
@@ -272,6 +277,7 @@ impl Application {
             }
         }
         match operation {
+            name if name.starts_with("sync.") => self.sync_operation(name, input),
             "category.list" | "category.create" | "category.delete" => self.category_operation(operation,input),
             name if matches!(name,"backup.create"|"backup.preview"|"backup.restore"|"data_directory.move") => self.maintenance_enqueue(name,input),
             name if name.starts_with("maintenance.") => self.maintenance_operation(name,input),
@@ -466,6 +472,7 @@ pub fn operations() -> Value {
     descriptors.extend(maintenance::descriptors());
     descriptors.extend(data_directory::descriptors());
     descriptors.extend(encryption::descriptors());
+    descriptors.extend(sync::descriptors());
     descriptors.extend(clothing::descriptors());
     descriptors.extend(categories::descriptors());
     descriptors.extend(providers::descriptors());

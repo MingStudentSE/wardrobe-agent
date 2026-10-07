@@ -175,3 +175,40 @@ fn client_cannot_remove_credentials_indirectly_by_changing_a_provider_binding() 
     let result=app.execute_as_client(grant["token"].as_str().unwrap(),"provider.save",json!({"id":provider["id"],"name":"改绑定","endpoint":"https://other.example.com/v1","model":"test","capabilities":["text"],"authentication":"bearer"}));
     assert!(matches!(result,Err(error) if error.code=="scope_denied"));
 }
+#[test]
+fn member_limited_sync_grant_cannot_smuggle_member_id_into_space_operations() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap();
+    let grant=app.execute("client.authorize",json!({"name":"member sync scope","mode":"limited","operations":["sync.status","sync.run","sync.configure","sync.conflicts"],"member_ids":[member["member_id"]],"expires_at":null})).unwrap();
+    for op in ["sync.status", "sync.run", "sync.configure"] {
+        assert_eq!(
+            app.execute_as_client(
+                grant["token"].as_str().unwrap(),
+                op,
+                json!({"member_id":member["member_id"]})
+            )
+            .unwrap_err()
+            .code,
+            "member_denied"
+        );
+    }
+    assert_eq!(
+        app.execute_as_client(
+            grant["token"].as_str().unwrap(),
+            "sync.conflicts",
+            json!({"member_id":member["member_id"]})
+        )
+        .unwrap()["items"],
+        json!([])
+    );
+    let capabilities = app
+        .execute_as_client(grant["token"].as_str().unwrap(), "capabilities", json!({}))
+        .unwrap();
+    assert!(capabilities["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|v| !["sync.status", "sync.run", "sync.configure"]
+            .contains(&v["name"].as_str().unwrap())));
+}

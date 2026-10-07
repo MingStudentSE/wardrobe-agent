@@ -176,7 +176,7 @@ impl Application {
         }
         let previous = if operation != "wear.record" {
             let root = string(&input, "root_event_id")?;
-            let serialized:Option<String>=tx.query_row("SELECT document FROM wear_events WHERE member_id=?1 AND root_event_id=?2 ORDER BY revision DESC LIMIT 1",params![member,root],|r|r.get(0)).optional()?;
+            let serialized:Option<String>=tx.query_row("SELECT document FROM wear_events WHERE member_id=?1 AND root_event_id=?2 ORDER BY revision DESC,id DESC LIMIT 1",params![member,root],|r|r.get(0)).optional()?;
             let previous: Value = serde_json::from_str(
                 &serialized.ok_or_else(|| ApiError::new("not_found", "穿着记录不存在"))?,
             )
@@ -403,7 +403,8 @@ impl Application {
             .get("cursor")
             .map(|v| v.as_str().ok_or_else(|| invalid("游标须为字符串")))
             .transpose()?;
-        let mut statement=self.connection.prepare("SELECT document FROM wear_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM wear_events WHERE root_event_id=e.root_event_id) ORDER BY json_extract(document,'$.occurred_at') DESC,root_event_id DESC")?;
+        crate::sync::require_resolved_events(&self.connection, "wear_events", member)?;
+        let mut statement=self.connection.prepare("SELECT document FROM wear_events e WHERE member_id=?1 AND id=(SELECT id FROM wear_events WHERE root_event_id=e.root_event_id ORDER BY revision DESC,id DESC LIMIT 1) ORDER BY json_extract(document,'$.occurred_at') DESC,root_event_id DESC")?;
         let mut events = vec![];
         for row in statement.query_map([member], |r| r.get::<_, String>(0))? {
             let event: Value = serde_json::from_str(&row?)
@@ -439,7 +440,8 @@ impl Application {
     }
     // One stable projection shared by downstream care and insights; never materialized counters.
     pub(super) fn effective_wears(&self, member: &str) -> Result<Vec<Value>, ApiError> {
-        let mut statement=self.connection.prepare("SELECT document FROM wear_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM wear_events WHERE root_event_id=e.root_event_id) ORDER BY json_extract(document,'$.occurred_at'),root_event_id")?;
+        crate::sync::require_resolved_events(&self.connection, "wear_events", member)?;
+        let mut statement=self.connection.prepare("SELECT document FROM wear_events e WHERE member_id=?1 AND id=(SELECT id FROM wear_events WHERE root_event_id=e.root_event_id ORDER BY revision DESC,id DESC LIMIT 1) ORDER BY json_extract(document,'$.occurred_at'),root_event_id")?;
         let mut result = vec![];
         for row in statement.query_map([member], |r| r.get::<_, String>(0))? {
             let event: Value = serde_json::from_str(&row?)

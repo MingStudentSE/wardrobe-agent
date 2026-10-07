@@ -1619,6 +1619,7 @@ fn jobs_weather_client_capabilities_family_contract() {
     // 真实运行时输出：任务生命周期、天气配置/缓存（本机HTTP桩真实联网）、客户端授权、能力发现
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("jw.sqlite")).unwrap();
+    // space.default 初始化工作空间；本测试只检查契约描述，不使用成员ID。
     let member = app.execute("space.default", json!({})).unwrap()["member_id"]
         .as_str()
         .unwrap()
@@ -1796,6 +1797,7 @@ fn imports_family_effects_examples_and_runtime_output_contract() {
         .save(&second)
         .unwrap();
     let app = Application::open(&dir.path().join("db")).unwrap();
+    // space.default 初始化工作空间；本测试只检查契约描述，不使用成员ID。
     let member = app.execute("space.default", json!({})).unwrap()["member_id"]
         .as_str()
         .unwrap()
@@ -1987,6 +1989,7 @@ fn media_provider_families_effects_examples_and_runtime_contract() {
     // recognition/product/flatlay/tryon：条件供应商语义 + 本地可运行操作的运行时对照
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("mp.sqlite")).unwrap();
+    // space.default 初始化工作空间；本测试只检查契约描述，不使用成员ID。
     let member = app.execute("space.default", json!({})).unwrap()["member_id"]
         .as_str()
         .unwrap()
@@ -2067,7 +2070,8 @@ fn backup_maintenance_data_directory_encryption_family_contract() {
     // 真实本地备份全链：create入队→worker执行→preview→settings；encryption.status只读
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("bk.sqlite")).unwrap();
-    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+    // space.default 初始化工作空间；本测试只检查契约描述，不使用成员ID。
+    let _member = app.execute("space.default", json!({})).unwrap()["member_id"]
         .as_str()
         .unwrap()
         .to_string();

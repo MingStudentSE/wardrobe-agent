@@ -130,7 +130,10 @@ impl Application {
             return parse(d.ok_or_else(|| ApiError::new("not_found", "洗护事件不存在"))?);
         }
         if op == "care.list" || op == "care.history" {
-            let mut st=self.connection.prepare(if op=="care.history"{"SELECT document FROM care_events WHERE member_id=?1 ORDER BY root_event_id,revision"}else{"SELECT document FROM care_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM care_events WHERE root_event_id=e.root_event_id) ORDER BY json_extract(document,'$.occurred_at') DESC,root_event_id DESC"})?;
+            if op == "care.list" {
+                crate::sync::require_resolved_events(&self.connection, "care_events", &member)?;
+            }
+            let mut st=self.connection.prepare(if op=="care.history"{"SELECT document FROM care_events WHERE member_id=?1 ORDER BY root_event_id,revision"}else{"SELECT document FROM care_events e WHERE member_id=?1 AND id=(SELECT id FROM care_events WHERE root_event_id=e.root_event_id ORDER BY revision DESC,id DESC LIMIT 1) ORDER BY json_extract(document,'$.occurred_at') DESC,root_event_id DESC"})?;
             let revoked = input
                 .get("include_revoked")
                 .map(|v| v.as_bool().ok_or_else(|| invalid("撤销筛选须为布尔值")))
@@ -218,7 +221,7 @@ impl Application {
             tx.execute("INSERT INTO care_config VALUES(?1,?2,?3) ON CONFLICT(member_id,clothing_id) DO UPDATE SET document=excluded.document",params![member,id,result.to_string()])?;
         } else {
             let previous = if ["care.correct", "care.revoke"].contains(&op) {
-                let d:Option<String>=tx.query_row("SELECT document FROM care_events WHERE member_id=?1 AND root_event_id=?2 ORDER BY revision DESC LIMIT 1",params![member,string(&input,"root_event_id")?],|r|r.get(0)).optional()?;
+                let d:Option<String>=tx.query_row("SELECT document FROM care_events WHERE member_id=?1 AND root_event_id=?2 ORDER BY revision DESC,id DESC LIMIT 1",params![member,string(&input,"root_event_id")?],|r|r.get(0)).optional()?;
                 let p = parse(d.ok_or_else(|| ApiError::new("not_found", "洗护记录不存在"))?)?;
                 if input["expected_revision"].as_u64() != p["revision"].as_u64() {
                     return Err(ApiError::new("version_conflict", "洗护记录已改变"));

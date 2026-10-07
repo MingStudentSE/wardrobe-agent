@@ -128,6 +128,9 @@ fn expected_unique_index_signatures(
         ) {
             expected.insert(crate::legacy_branch_signature(table).to_string());
         }
+        if table == "feedback_receipts" {
+            expected.insert("member_id|operation_key".to_string());
+        }
     }
     expected
 }
@@ -1069,7 +1072,21 @@ impl Application {
                         actual_version,
                         table,
                     );
-                    if columns(&db, table)? != expected_columns
+                    let incoming_columns = columns(&db, table)?;
+                    // <=21 的历史档 feedback_receipts 是两列主键的旧形
+                    // （request/result 未参与主键）；恢复时由迁移升级为四列
+                    // 形状，列结构容忍该 legacy 形状（唯一性由
+                    // expected_unique_index_signatures 扩展承接）。
+                    let legacy_receipt_columns = vec![
+                        ("member_id".into(), "TEXT".into(), 1),
+                        ("operation_key".into(), "TEXT".into(), 2),
+                        ("request".into(), "TEXT".into(), 0),
+                        ("result".into(), "TEXT".into(), 0),
+                    ];
+                    let legacy_receipts = table == "feedback_receipts"
+                        && actual_version <= 21
+                        && incoming_columns == legacy_receipt_columns;
+                    if (!legacy_receipts && incoming_columns != expected_columns)
                         || foreign_keys(&db, table)? != foreign_keys(&self.connection, table)?
                         || unique_index_signatures(&db, table)? != expected_unique
                     {
@@ -1158,6 +1175,7 @@ impl Application {
                 let result = (|| {
                     crate::jobs::retain_submission_guards(&tx)?;
                     tx.execute_batch("PRAGMA defer_foreign_keys=ON;DELETE FROM schedule_notifications;DELETE FROM recognition_suggestions;DELETE FROM import_drafts;DELETE FROM import_batches;DELETE FROM jobs;DELETE FROM encryption_pairings;DELETE FROM encryption_state;DELETE FROM clients;")?;
+                    crate::sync::reset_after_restore(&tx)?;
                     for table in TABLES.iter().rev() {
                         tx.execute_batch(&format!("DELETE FROM \"{table}\""))?;
                     }

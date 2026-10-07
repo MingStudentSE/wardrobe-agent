@@ -34,3 +34,11 @@ Beta 全部交付 F01–F30，本轮仅发行 macOS；Windows/Linux 发行延后
 外部 CLI 使用 `wardrobe-cli <operation> --client-stdin`，从标准输入读取 `{ "token": "连接令牌", "input": { ... } }`。无授权业务请求返回 `unauthorized`。MCP 独立启动 `wardrobe-cli mcp`，通过 stdin 的 `initialize.params.authorization_token` 连接授权后复用，或者在 `tools/call.params.authorization_token` 提供令牌；每次操作仍检查 scope、成员、撤销及到期。
 
 本机人类维护显式使用 `--trusted-local`，等同于拥有数据目录的人工维护权限；不要把该入口提供给外部客户端。该授权层不是同一 OS 用户之间的文件沙箱。设计与后续工具接入见 [ADR 0007](docs/adr/0007-local-client-authorization.md)。
+
+## MVP 收尾记录（历史范围）
+
+以下保留本地已有 MVP 收尾记录；当前完整 Beta 范围及发行平台以本文上方和 Beta 规格为准。
+
+研发试用版：衣橱录入、单品与图片管理、手工搭配、穿着、洗护、统计、推荐反馈、偏好学习和备份恢复已实现。当前优先完成 AI 商品展示图及三平台 MVP 安装包；其余未完成 Beta 功能暂缓，保留 GitHub 票据。详见 [MVP 现状与收尾范围](docs/06-MVP现状与收尾范围.md) 和 [MVP 发行任务 #37](https://github.com/MingStudentSE/wardrobe-agent/issues/37)。
+
+当前源码与测试通过不等于正式安装包已发行。模型协议测试不证明实际生成质量；三平台安装、升级、签名与数据保留需要分别验收。

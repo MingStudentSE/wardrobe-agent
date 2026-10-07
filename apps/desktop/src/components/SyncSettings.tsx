@@ -1,0 +1,51 @@
+/* Hallmark · component scope · Atelier · pre-emit P4 H4 E4 S5 R5 V4
+ * default / hover / focus / active / disabled / loading / error / success */
+import {open as chooseFolder} from '@tauri-apps/plugin-dialog';
+import {useEffect,useRef,useState} from 'react';
+import {api} from '../api';import './SyncSettings.css';
+type Variant={value?:unknown;branch_id?:string;document?:Record<string,unknown>};
+type Conflict={entity_type:string;entity_id:string;field:string;token:string;variants:Variant[]};
+type Status={active_job?:{id:string;member_id:string;state:string}|null;target:null|{directory:string};asset_errors:{id:string;code:string}[];quarantine:{op_id:string;code:string}[]};
+type RunResult={sent:number;received:number;quarantined:number;missing_assets:number;pending?:number;has_more?:boolean};
+const labels:Record<string,string>={name:'名称',size_label:'尺码',favorite:'收藏',status:'状态',items:'搭配单品',lifecycle:'删除与修改',branch:'历史修订',clothing:'单品',outfits:'搭配',outfit_versions:'搭配版本',wear_events:'实际穿着',care_events:'洗护记录'};
+function describe(v:Variant):string{if(v.document){const d=v.document;return [d.name,d.local_date,d.action,d.kind==='revocation'?'撤销':null,d.notes].filter(Boolean).map(String).join(' · ')||'完整历史快照';}if(typeof v.value==='boolean')return v.value?'是':'否';if(v.value===null)return '未填写';if(typeof v.value==='string')return v.value;if(Array.isArray(v.value))return v.value.map(x=>typeof x==='object'&&x!==null&&'snapshot'in x?String((x.snapshot as Record<string,unknown>)?.name??'衣物'):String(x)).join('、');return '已保存的候选值';}
+export function SyncSettings({member,disabled,canMutate,onBusy,onChanged}:{member:string;disabled:boolean;canMutate:()=>boolean;onBusy:(v:boolean)=>void;onChanged:()=>Promise<void>}){
+ const[directory,setDirectory]=useState(''),[status,setStatus]=useState<Status>({target:null,asset_errors:[],quarantine:[]}),[conflicts,setConflicts]=useState<Conflict[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[selected,setSelected]=useState<{conflict:Conflict;value?:unknown;branch_id?:string}|null>(null);
+ const activeJob=useRef<{id:string;member_id:string}|null>(null),runKey=useRef<string|null>(null),stopRequested=useRef(false);
+ const[running,setRunning]=useState(false);
+ const pending=useRef(false),epoch=useRef(0),receipt=useRef<{request:object;key:string}|null>(null);
+ const message=(e:unknown)=>e&&typeof e==='object'&&'message'in e?String(e.message):'同步未完成。本地事实已保留，可以重试。';
+ async function reload(){const expected=epoch.current;const[s,c]=await Promise.all([api<Status>('sync.status'),api<{items:Conflict[]}>('sync.conflicts',{member_id:member})]);if(expected!==epoch.current)return;setStatus(s);setConflicts(c.items);setDirectory(s.target?.directory??'');activeJob.current=s.active_job??null;}
+ useEffect(()=>{const expected=++epoch.current;setSelected(null);void reload().catch(e=>{if(epoch.current===expected)setError(message(e));});return()=>{epoch.current++;};},[member]);
+ async function act(work:()=>Promise<void>,refresh=true){if(pending.current||disabled||!canMutate())return;const expected=epoch.current;pending.current=true;setBusy(true);onBusy(true);setError('');setNotice('');try{await work();if(expected===epoch.current&&refresh){await reload();await onChanged();}}catch(e){if(expected===epoch.current)setError(message(e));}finally{pending.current=false;onBusy(false);if(expected===epoch.current)setBusy(false);}}
+ async function run(){
+  const expected=epoch.current;stopRequested.current=false;setRunning(true);
+  let sent=0,received=0,quarantined=0;
+  try{
+   if(!activeJob.current){runKey.current??=crypto.randomUUID();const submitted=await api<{job_id:string;member_id:string}>('sync.run',{operation_key:runKey.current});activeJob.current={id:submitted.job_id,member_id:submitted.member_id};}
+   const job=activeJob.current;
+   if(stopRequested.current)await api('jobs.cancel',job);
+   while(!stopRequested.current){
+    const current=await api<{state:string;lease_expires:number;result:RunResult;error?:{message?:string}}>('jobs.get',job);
+    if(current.state==='cancelled'){stopRequested.current=true;break;}
+    if(current.state==='succeeded'){activeJob.current=null;runKey.current=null;if(expected===epoch.current)setNotice(`本次发布 ${current.result.sent} 条，读取 ${current.result.received} 条。任务已完成。`);break;}
+    if(current.state==='failed'){activeJob.current=null;runKey.current=null;throw new Error(current.error?.message??'同步任务失败，可以重试。');}
+    if(current.state==='running'&&current.lease_expires>Date.now()){if(expected===epoch.current)setNotice('上次批次尚在处理，等待任务状态更新。');await new Promise(resolve=>setTimeout(resolve,1000));continue;}
+    const processed=await api<{state:string;error?:{message?:string};result:RunResult}>('sync.process',{id:job.id});
+    if(processed.state==='failed')throw new Error(processed.error?.message??'同步任务失败，可以查询任务并重试。');
+    const r=processed.result;sent+=r.sent;received+=r.received;quarantined+=r.quarantined;
+    if(expected===epoch.current)setNotice(`本次发布 ${sent} 条，读取 ${received} 条。${r.missing_assets?`还有 ${r.missing_assets} 张展示图等待重试。`:''}${r.pending?`还有 ${r.pending} 条历史等待前序资料。`:''}${quarantined?`已隔离 ${quarantined} 条异常日志。`:''}${processed.state==='queued'?'正在继续下一批。':''}`);
+    if(processed.state==='succeeded'){activeJob.current=null;runKey.current=null;break;}
+    await new Promise(resolve=>setTimeout(resolve,20));
+   }
+   if(stopRequested.current){activeJob.current=null;runKey.current=null;if(expected===epoch.current)setNotice('同步已停止。本地事实和已完成批次保留，余量下次继续。');}
+  }catch(e){
+   if(stopRequested.current){activeJob.current=null;runKey.current=null;if(expected===epoch.current)setNotice('同步已停止。本地事实和已完成批次保留，余量下次继续。');}else throw e;
+  }finally{if(expected===epoch.current)setRunning(false);}
+ }
+ async function stop(){stopRequested.current=true;const job=activeJob.current;if(job)await api('jobs.cancel',job);}
+
+ async function resolve(){if(!selected)return;const c=selected.conflict;const request={member_id:member,entity_type:c.entity_type,entity_id:c.entity_id,field:c.field,expected_token:c.token,...(selected.branch_id?{branch_id:selected.branch_id}:{value:selected.value})};if(!receipt.current||JSON.stringify(receipt.current.request)!==JSON.stringify(request))receipt.current={request,key:crypto.randomUUID()};await api('sync.resolve',{...request,operation_key:receipt.current.key});receipt.current=null;setSelected(null);setNotice('选择已保存。旧候选和历史仍保留，下次同步会发送这次决定。');}
+ const blocked=busy||disabled;
+ return <section id="sync-settings" className="sync-settings" aria-label="跨设备同步设置"><details><summary>跨设备同步</summary><p className="helper">先在“加密空间与设备”中完成配对，再让两台设备选择同一个文件夹。此处传输加密事实和采用展示图；原图、定位信息和模型凭据保留在各自设备。</p><form onSubmit={e=>{e.preventDefault();void act(async()=>{await api('sync.configure',{provider_kind:'local_folder',directory});setNotice('同步目标已保存。');});}}><fieldset disabled={blocked}><label>同步文件夹<input required value={directory} onChange={e=>setDirectory(e.target.value)}/></label><div className="sync-actions"><button type="button" className="secondary" onClick={()=>void act(async()=>{const folder=await chooseFolder({directory:true,multiple:false});if(typeof folder==='string')setDirectory(folder);},false)}>选择文件夹</button><button>保存同步目标</button></div></fieldset></form><div className="sync-actions"><button disabled={blocked||!status.target} aria-busy={busy} onClick={()=>void act(run)}>{busy?'同步处理中…':'立即同步'}</button>{running&&<button className="secondary" onClick={()=>void stop().catch(e=>setError(message(e)))}>停止后续批次</button>}<button className="secondary" disabled={blocked||!status.target||!status.asset_errors.length} onClick={()=>void act(run)}>重试缺失展示图</button></div>{!status.target&&<p className="helper">尚未配置同步目标。</p>}{notice&&<p role="status">{notice}</p>}{error&&<p className="feedback error" role="alert">{error}</p>}{status.asset_errors.length>0&&<div><h3>待重试展示图</h3><p>事实已保留，无原图的设备仍可编辑和记穿着。展示图到达后会自动生成本机缩略图。</p><ul>{status.asset_errors.map(v=><li key={v.id}>{v.id.slice(-8)} · {v.code==='pending'?'等待下载':v.code}</li>)}</ul></div>}<h3>需要审核的冲突</h3><p className="helper">未审核时显示一致的暂定结果。并发历史全部保留；选择历史分支会追加新的修订或搭配版本。</p>{conflicts.length===0?<p>当前成员没有待审核冲突。</p>:<ol className="sync-conflicts">{conflicts.map(c=><li key={`${c.entity_type}:${c.entity_id}:${c.field}`}><h4>{labels[c.entity_type]??'事实'} · {labels[c.field]??c.field}</h4><p className="helper">记录 {c.entity_id.slice(-8)}</p>{c.field==='lifecycle'?<><p>删除与离线修改同时发生，当前保留删除状态。请决定是否恢复修改后的单品。</p><div className="sync-actions"><button className="secondary" disabled={blocked} onClick={()=>setSelected({conflict:c,value:'deleted'})}>保留删除</button><button className="secondary" disabled={blocked} onClick={()=>setSelected({conflict:c,value:'active'})}>恢复修改后的单品</button></div></>:c.variants.map((v,i)=><div className="sync-candidate" key={v.branch_id??i}><p>{describe(v)}</p><button className="secondary" disabled={blocked} onClick={()=>setSelected({conflict:c,...(v.branch_id?{branch_id:v.branch_id}:{value:v.value})})}>选择候选 {i+1}</button></div>)}</li>)}</ol>}{selected&&<div className="feedback" role="group" aria-label="确认同步冲突选择"><p>确认采用此候选？旧分支和修订资料会完整保留。</p><div className="sync-actions"><button disabled={blocked} onClick={()=>void act(resolve)}>确认采用选择</button><button className="secondary" disabled={blocked} onClick={()=>{setSelected(null);receipt.current=null;}}>取消选择</button></div></div>}{status.quarantine.length>0&&<details><summary>已隔离的异常日志</summary><p className="helper">这些日志未写入事实。其他有效资料继续同步。</p><ul>{status.quarantine.map(v=><li key={v.op_id}>{v.op_id.slice(-8)} · {v.code}</li>)}</ul></details>}</details></section>;
+}

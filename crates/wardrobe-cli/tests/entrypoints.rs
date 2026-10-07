@@ -2047,3 +2047,73 @@ fn real_authorized_cli_and_stdin_mcp_share_persistent_offline_recommendation_ids
         json!([])
     );
 }
+#[test]
+fn cli_and_mcp_enforce_sync_space_scope_and_publish_usable_member_descriptors() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let member = cli(&path, "space.default", json!({}))["result"]["member_id"].clone();
+    let grant=cli(&path,"client.authorize",json!({"name":"limited sync","mode":"limited","operations":["sync.status","sync.run","sync.configure","sync.conflicts","sync.resolve"],"member_ids":[member],"expires_at":null}))["result"].clone();
+    let mut process = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args([
+            "--db",
+            path.to_str().unwrap(),
+            "sync.status",
+            "--client-stdin",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    write!(
+        process.stdin.take().unwrap(),
+        "{}",
+        json!({"token":grant["token"],"input":{"member_id":member}})
+    )
+    .unwrap();
+    let output = process.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["error"]["code"], "member_denied");
+    let requests = [
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"authorization_token":grant["token"]}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"sync.run","arguments":{"member_id":member}}}),
+        json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"sync.conflicts","arguments":{"member_id":member}}}),
+    ];
+    let mut process = Command::new(env!("CARGO_BIN_EXE_wardrobe-cli"))
+        .args(["--db", path.to_str().unwrap(), "mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = process.stdin.take().unwrap();
+    for request in requests {
+        writeln!(stdin, "{request}").unwrap();
+    }
+    drop(stdin);
+    let output = process.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let lines: Vec<Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|v| serde_json::from_str(v).unwrap())
+        .collect();
+    let tools = lines[1]["result"]["tools"].as_array().unwrap();
+    assert!(tools
+        .iter()
+        .all(|v| !["sync.status", "sync.run", "sync.configure"]
+            .contains(&v["name"].as_str().unwrap())));
+    let resolve = tools.iter().find(|v| v["name"] == "sync.resolve").unwrap();
+    assert_eq!(resolve["inputSchema"]["additionalProperties"], false);
+    assert!(resolve["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("expected_token")));
+    let denied: Value =
+        serde_json::from_str(lines[2]["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(denied["error"]["code"], "member_denied");
+    assert_eq!(lines[3]["result"]["isError"], false);
+    let returned: Value =
+        serde_json::from_str(lines[3]["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(returned["items"], json!([]));
+}

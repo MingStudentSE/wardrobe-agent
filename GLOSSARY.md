@@ -87,3 +87,10 @@
 - **补跑窗口（Catch-up Window）**：到期后仍允许补执行的时长，默认最近120分钟，可配置1–1440分钟；恢复时每计划只补最近一次，更早时段记missed，窗口外直接标错过。
 - **执行游标与本地收据（Evaluation Cursor & Local Receipt）**：本机记录的每计划评估位置和已登记执行的安全收据；用于跨重启、跨恢复去重，不属于可移植事实。
 - **通知提交状态（Notification Submission Status）**：通知outbox的真实系统提交记录——pending/submitting/submitted/unknown/failed；submitted只表示系统接口接受，不表示用户看到；unknown与崩溃后不得盲重发，仅明确failed可显式重试。
+
+## Local-folder dual-device sync
+
+- **删除墓碑（Delete Tombstone）**：单品删除以 `status=deleted` 与 `deleted_at` 的完整事实修订进入同步日志；对端按序应用后同样进入回收站，恢复修订可再次激活。回收站单品不出现在默认列表；全新设备只引导当前事实，已删除历史不复活。
+- **受保护分类删除（Protected Category Delete）**：默认分类不可删除；删除自定义分类先在同一事务把引用它的单品迁入其他并保留审计，再写分类墓碑。对端按序收到迁移与墓碑后分类列表与源端一致。
+- **资产发现预算（Asset Discovery Budget）**：每次同步批对每个 blob 目录最多消费固定页数的列举，位置持久化并在耗尽时回卷；已登记的 blob commit 键不再重复解密。已处理提交事后损坏不阻塞后续同步，未处理提交损坏仍整体失败。
+- **发布标记门槛（Publication Marker Gate）**：只有 `.commit` 标记可见的对象才会被对端发现；对象损坏或被截断时同步整体失败，不应用该对象的部分字节，修复后同一日志继续收敛。
