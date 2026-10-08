@@ -12,7 +12,7 @@ async function fits(page:Page,label:string){
  }));expect(issues,label).toEqual([]);
 }
 test('all workspaces and settings fit intermediate and small windows',async({page})=>{
- execFileSync(fileURLToPath(new URL('../../../target/debug/wardrobe-cli',import.meta.url)),['--trusted-local','clothing.create',JSON.stringify({member_id:'default',name:'长名称验收衣物春秋宽松休闲纯棉连帽外套适合日常出门通勤穿着',category:'top'})],{env:{...process.env,WARDROBE_DATA_DIR:process.env.WARDROBE_TEST_DATA_DIR}});
+ execFileSync(process.env.WARDROBE_CLI_BIN??fileURLToPath(new URL('../../../target/debug/wardrobe-cli',import.meta.url)),['--trusted-local','clothing.create',JSON.stringify({member_id:'default',name:'长名称验收衣物春秋宽松休闲纯棉连帽外套适合日常出门通勤穿着',category:'top'})],{env:{...process.env,WARDROBE_DATA_DIR:process.env.WARDROBE_TEST_DATA_DIR}});
  await page.emulateMedia({reducedMotion:'reduce'});await page.goto('/');
  for(const [width,height] of [[375,900],[667,900],[768,900],[900,900],[1024,900],[1440,900],[900,500]]){
  await page.setViewportSize({width,height});
@@ -28,7 +28,7 @@ test('all workspaces and settings fit intermediate and small windows',async({pag
  await page.locator('.garment-open').first().click();await fits(page,`单品详情 ${width}`);await page.getByRole('dialog').getByRole('button',{name:'编辑衣物',exact:true}).click();for(const tab of ['基本资料','照片管理','历史与管理']){await page.getByRole('dialog').getByRole('button',{name:tab,exact:true}).click();await fits(page,`编辑${tab} ${width}`);}await page.getByRole('dialog').getByRole('button',{name:'关闭单品窗口'}).click();
  await nav(page,'设置').click();
  const hub=page.getByRole('region',{name:'设置目录'});
- for(const name of ['穿衣偏好','模型与连接','任务中心','备份与恢复','加密与设备','CLI / MCP']){await hub.getByRole('button',{name:new RegExp(name)}).click();await fits(page,`${name} ${width}`);
+ for(const name of ['穿衣偏好','模型与连接','任务中心','备份与恢复','加密与设备','CLI / MCP','诊断']){await hub.getByRole('button',{name:new RegExp(name)}).click();await fits(page,`${name} ${width}`);
  if(['备份与恢复','加密与设备','CLI / MCP'].includes(name)){for(const summary of await page.locator('.view-panel:not([hidden]) details:not([open])>summary').all()){if(await summary.isVisible())await summary.click();}await fits(page,`${name}展开 ${width}`);}
  if(name==='模型与连接'||name==='穿衣偏好'){await page.getByRole('button',{name:name==='模型与连接'?'＋ 添加模型':'＋ 添加偏好',exact:true}).click();await fits(page,`${name}弹窗 ${width}`);await page.getByRole('dialog').getByRole('button',{name:'关闭单品窗口'}).click();}
  await page.getByRole('button',{name:'← 返回设置'}).click();}

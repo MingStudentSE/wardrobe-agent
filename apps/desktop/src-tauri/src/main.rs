@@ -32,6 +32,7 @@ fn main() {
     wardrobe_core::diagnostics::install_panic_hook();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![application, search_weather_city])
         .run(tauri::generate_context!())
         .expect("无法启动衣橱应用");
