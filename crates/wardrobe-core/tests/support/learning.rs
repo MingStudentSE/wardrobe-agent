@@ -15,16 +15,10 @@ impl LearningTestSeam for Application {
             json!({"member_id":input["member_id"],"job_id":result["job_id"]}),
         )?;
         if job["state"] != "succeeded" {
-            return Err(ApiError {
-                code: job["error"]["code"]
-                    .as_str()
-                    .unwrap_or("recompute_failed")
-                    .to_owned(),
-                message: job["error"]["message"]
-                    .as_str()
-                    .unwrap_or("重算未完成")
-                    .to_owned(),
-            });
+            return Err(ApiError::custom(
+                job["error"]["code"].as_str().unwrap_or("recompute_failed"),
+                job["error"]["message"].as_str().unwrap_or("重算未完成"),
+            ));
         }
         self.execute("learning.get", json!({"member_id":input["member_id"]}))
     }
