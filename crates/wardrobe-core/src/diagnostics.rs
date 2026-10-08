@@ -482,6 +482,35 @@ fn recent_error_item(event: &Value) -> Value {
 use crate::{ApiError, Application};
 
 impl Application {
+    /// 供应商请求事件（#44）：端点类别、模型名、结果类别（ok/http_error/outcome_unknown/error）、
+    /// HTTP 状态与耗时；trace_id 来自任务文档（异步链路）或当前调用（同步验证）。
+    /// 脱敏按构造：绝不记录密钥、请求头、完整请求或响应体。
+    pub(crate) fn log_provider_request(
+        &self,
+        trace_id: Option<&str>,
+        endpoint_kind: &str,
+        model: &str,
+        outcome: &str,
+        http_status: Option<u16>,
+        started: std::time::Instant,
+    ) {
+        let mut fields = json!({
+            "operation": "provider.request",
+            "endpoint_kind": endpoint_kind,
+            "model": model,
+            "outcome": outcome,
+            "duration_ms": started.elapsed().as_millis() as u64,
+        });
+        if let Some(trace) = trace_id {
+            fields["trace_id"] = json!(trace);
+        }
+        if let Some(status) = http_status {
+            fields["http_status"] = json!(status);
+        }
+        self.logger
+            .log_event(Level::Info, "provider_request", fields);
+    }
+
     /// diagnostics.* 分发：仅本机可信入口（authorization::privileged 一律拒绝外部客户端）。
     pub(super) fn diagnostics_execute(
         &self,

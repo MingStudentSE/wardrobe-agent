@@ -1197,6 +1197,167 @@ fn maintenance_job_lifecycle_events_share_the_submitted_trace_id() {
     );
 }
 
+/// 读取一个完整 HTTP 请求（头 + 体），返回原始文本（用于捕获 mock 收到的请求头）。
+fn read_request_text(stream: &mut std::net::TcpStream) -> String {
+    use std::io::Read;
+    let mut bytes = vec![];
+    loop {
+        let mut chunk = [0; 4096];
+        let n = stream.read(&mut chunk).unwrap();
+        assert!(n > 0);
+        bytes.extend_from_slice(&chunk[..n]);
+        if let Some(split) = bytes.windows(4).position(|b| b == b"\r\n\r\n") {
+            let len: usize = String::from_utf8_lossy(&bytes[..split])
+                .lines()
+                .find_map(|l| {
+                    l.to_lowercase()
+                        .strip_prefix("content-length: ")
+                        .map(|v| v.parse().unwrap())
+                })
+                .unwrap_or(0);
+            if bytes.len() >= split + 4 + len {
+                return String::from_utf8_lossy(&bytes).to_string();
+            }
+        }
+    }
+}
+
+/// #44：供应商请求事件——端点类别、模型名、结果类别、耗时，trace 与任务文档一致；
+/// 密钥、请求头、完整响应体绝不入日志（脱敏按构造：事件只含白名单字段）。
+/// worker 的供应商调用发生在 recognition.process（本例经 execute，另一进程同构）。
+#[test]
+fn provider_requests_are_logged_sanitized_and_share_the_job_trace() {
+    use std::io::Write;
+    for (status, expected_outcome, expected_state) in [
+        ("200 OK", "ok", "succeeded"),
+        ("429 Too Many Requests", "http_error", "queued"),
+    ] {
+        let _guard = fs_lock();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+        let (headers_tx, headers_rx) = std::sync::mpsc::channel::<String>();
+        let server = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let request = read_request_text(&mut s);
+            headers_tx.send(request).unwrap();
+            let body = r#"{"choices":[{"message":{"content":"a white shirt"}}]}"#;
+            write!(
+                s,
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let app = Application::open(&dir.path().join("db")).unwrap();
+        let p = app
+            .execute(
+                "provider.save",
+                json!({"name":"脱敏边界","endpoint":endpoint,"model":"trace-model","capabilities":["vision"],"authentication":"bearer"}),
+            )
+            .unwrap();
+        let api_key = format!("sk-trace-secret-{}", uuid::Uuid::now_v7().simple());
+        app.execute(
+            "provider.credential.set",
+            json!({"id":p["id"],"api_key":api_key}),
+        )
+        .unwrap();
+        let path = dir.path().join("fixture.png");
+        image::RgbImage::new(16, 16).save(&path).unwrap();
+        let c = app
+            .execute(
+                "clothing.create",
+                json!({"member_id":"default","name":"手工","category":"top"}),
+            )
+            .unwrap();
+        let a = app
+            .execute("assets.import", json!({"member_id":"default","path":path}))
+            .unwrap();
+        app.execute(
+            "assets.adopt",
+            json!({"member_id":"default","clothing_id":c["id"],"asset_id":a["id"]}),
+        )
+        .unwrap();
+        let job = app
+            .execute(
+                "recognition.create",
+                json!({"member_id":"default","operation_key":"sanitize","clothing_id":c["id"],"provider_id":p["id"],"asset_ids":[a["id"]],"upload_role":"product_display","confirm_upload":true}),
+            )
+            .unwrap();
+        let job_trace = job["trace_id"].as_str().unwrap().to_string();
+        let out = app
+            .execute(
+                "recognition.process",
+                json!({"member_id":"default","id":job["id"]}),
+            )
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(out["state"], expected_state, "{status}");
+        let sent = headers_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(
+            sent.to_lowercase().contains("authorization: bearer "),
+            "测试有效性：mock 必须真的收到 bearer 请求头"
+        );
+
+        let queried = app
+            .execute(
+                "diagnostics.logs.query",
+                json!({"trace_id":job_trace,"operation":"provider.","limit":100}),
+            )
+            .unwrap();
+        let items = queried["items"].as_array().unwrap();
+        let request_event = items
+            .iter()
+            .find(|e| e["event_type"] == "provider_request")
+            .expect("供应商请求事件必须落在任务文档的 trace 上");
+        assert_eq!(request_event["operation"], "provider.request");
+        assert_eq!(request_event["endpoint_kind"], "chat_completions");
+        assert_eq!(request_event["model"], "trace-model");
+        assert_eq!(request_event["outcome"], expected_outcome, "{status}");
+        assert!(request_event["duration_ms"].is_number());
+        // 脱敏按构造：事件只含白名单字段，密钥/请求头/请求与响应体没有容身之处
+        let allowed = [
+            "ts",
+            "level",
+            "event_type",
+            "run_id",
+            "trace_id",
+            "operation",
+            "endpoint_kind",
+            "model",
+            "outcome",
+            "duration_ms",
+            "http_status",
+        ];
+        for key in request_event.as_object().unwrap().keys() {
+            assert!(
+                allowed.contains(&key.as_str()),
+                "供应商请求事件出现白名单外字段 {key}：{request_event}"
+            );
+        }
+        if expected_outcome == "ok" {
+            assert!(request_event.get("http_status").is_none(), "{request_event}");
+        } else {
+            assert_eq!(request_event["http_status"], 429, "{request_event}");
+        }
+        // 全日志文件扫描：密钥与响应内容绝不出现
+        let mut all_text = String::new();
+        for entry in std::fs::read_dir(dir.path().join("logs")).unwrap() {
+            all_text.push_str(&std::fs::read_to_string(entry.unwrap().path()).unwrap());
+        }
+        assert!(!all_text.contains(api_key.as_str()), "供应商密钥不得写入日志");
+        assert!(
+            !all_text.contains("a white shirt"),
+            "完整响应体不得写入日志"
+        );
+        app.execute("provider.credential.remove", json!({"id":p["id"]}))
+            .unwrap();
+    }
+}
+
 #[test]
 fn process_panic_leaves_a_scene_in_the_log() {
     // 钩子触发时会向进程内全部日志汇写入并可能驱动它们清理，

@@ -421,16 +421,28 @@ impl Application {
                 .map_err(|_| ApiError::new("credential_missing", "文本模型凭据不可用"))?;
             request = request.bearer_auth(key);
         }
+        // 供应商请求事件（#44）：trace 取自任务文档；限流重试的每次发送各记一条
+        let provider_trace = self
+            .job_get(json!({"member_id":member,"id":job}))
+            .ok()
+            .and_then(|doc| doc["trace_id"].as_str().map(str::to_owned));
+        let provider_model = p["model"].as_str().unwrap_or("").to_string();
         let response = loop {
             self.text_submitted(member, job, lease, attempt)?;
-            let response = request
+            let request_started = std::time::Instant::now();
+            let response = match request
                 .try_clone()
                 .ok_or_else(|| ApiError::new("provider_error", "无法建立模型请求"))?
                 .send()
-                .map_err(|_| {
-                    ApiError::new("provider_network", "模型连接失败；结果未知，不盲重发")
-                })?;
+            {
+                Ok(response) => response,
+                Err(_) => {
+                    self.log_provider_request(provider_trace.as_deref(),"chat_completions",&provider_model,"outcome_unknown",None,request_started);
+                    return Err(ApiError::new("provider_network", "模型连接失败；结果未知，不盲重发"));
+                }
+            };
             if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                self.log_provider_request(provider_trace.as_deref(),"chat_completions",&provider_model,"http_error",Some(response.status().as_u16()),request_started);
                 let delay = retry_after_ms(
                     response
                         .headers()
@@ -464,11 +476,13 @@ impl Application {
                 continue;
             }
             if !response.status().is_success() {
+                self.log_provider_request(provider_trace.as_deref(),"chat_completions",&provider_model,"http_error",Some(response.status().as_u16()),request_started);
                 return Err(ApiError::new(
                     "provider_error",
                     "模型服务返回错误，已回退规则推荐",
                 ));
             }
+            self.log_provider_request(provider_trace.as_deref(),"chat_completions",&provider_model,"ok",None,request_started);
             break response;
         };
         let mut bytes = vec![];

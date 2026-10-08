@@ -170,15 +170,25 @@ impl Application {
         if let Some(key) = &key {
             discover = discover.bearer_auth(key);
         }
-        let response = discover.send().map_err(|_| {
-            ApiError::new("model_discovery_failed", "无法查询可用模型，尚未发送原图")
-        })?;
+        // 供应商请求事件（#44）：trace 取自任务文档；模型发现与生成各记一条
+        let provider_trace = job["trace_id"].as_str().map(str::to_owned);
+        let provider_model = provider["model"].as_str().unwrap_or("").to_string();
+        let discovery_started = std::time::Instant::now();
+        let response = match discover.send() {
+            Ok(response) => response,
+            Err(_) => {
+                self.log_provider_request(provider_trace.as_deref(),"model_discovery",&provider_model,"error",None,discovery_started);
+                return Err(ApiError::new("model_discovery_failed", "无法查询可用模型，尚未发送原图"));
+            }
+        };
         if !response.status().is_success() {
+            self.log_provider_request(provider_trace.as_deref(),"model_discovery",&provider_model,"http_error",Some(response.status().as_u16()),discovery_started);
             return Err(ApiError::new(
                 "model_discovery_failed",
                 "模型查询被拒绝，请检查账户开通及最终端点，尚未生成",
             ));
         }
+        self.log_provider_request(provider_trace.as_deref(),"model_discovery",&provider_model,"ok",None,discovery_started);
         let models = bounded_json(response, 1024 * 1024)?;
         if !models["data"]
             .as_array()
@@ -236,18 +246,25 @@ impl Application {
         if let Some(key) = &key {
             request = request.bearer_auth(key);
         }
-        let response = request.send().map_err(|_| {
-            ApiError::new(
-                "provider_outcome_unknown",
-                "生成请求结果未知；请检查供应商记录，此任务不会自动重发",
-            )
-        })?;
+        let generation_started = std::time::Instant::now();
+        let response = match request.send() {
+            Ok(response) => response,
+            Err(_) => {
+                self.log_provider_request(provider_trace.as_deref(),"image_generations",&provider_model,"outcome_unknown",None,generation_started);
+                return Err(ApiError::new(
+                    "provider_outcome_unknown",
+                    "生成请求结果未知；请检查供应商记录，此任务不会自动重发",
+                ));
+            }
+        };
         if !response.status().is_success() {
+            self.log_provider_request(provider_trace.as_deref(),"image_generations",&provider_model,"http_error",Some(response.status().as_u16()),generation_started);
             return Err(ApiError::new(
                 "provider_generation_failed",
                 "供应商未返回成功，旧图保留；请检查账户额度、模型和记录",
             ));
         }
+        self.log_provider_request(provider_trace.as_deref(),"image_generations",&provider_model,"ok",None,generation_started);
         let request_id = response
             .headers()
             .get("x-request-id")
