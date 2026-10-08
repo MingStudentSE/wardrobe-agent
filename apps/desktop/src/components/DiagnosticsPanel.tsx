@@ -1,7 +1,8 @@
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
 import {api} from '../api';
 import {settingsEntries} from './SettingsHub';
 import {exportDiagnostics,formatBytes,isTauri,revealExportedFile,type ExportResult} from './diagnostics-export';
+import {beginRecordingWindow,endRecordingWindow,injectedMaxSeconds,MAX_RECORDING_SECONDS} from './reproduction';
 import './Diagnostics.css';
 type RecentError={ts:string;level:string;event_type:string;run_id:string;trace_id?:string;operation?:string;result?:string;reason?:string;message?:string};
 type Summary={
@@ -20,6 +21,8 @@ type TraceState={loading:boolean;items:LogEvent[];error?:string};
 function formatTime(ts:string){const date=new Date(ts);return isNaN(date.getTime())?ts:date.toLocaleString('zh-CN',{hour12:false,month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
 function shortId(id:string){return id?id.slice(0,8):'—';}
 function errorText(e:unknown){return typeof e==='object'&&e&&'message'in e?String((e as {message?:unknown}).message):'操作失败，请重试。';}
+function formatClock(ms:number){const total=Math.max(0,Math.floor(ms/1000));const minutes=Math.floor(total/60),seconds=total%60;return `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;}
+function formatLimit(seconds:number){const minutes=Math.floor(seconds/60);return minutes>0?`${minutes} 分钟`:`${seconds} 秒`;}
 type Metric={label:string;value:string;note:string};
 const CHECK_STATUS_TEXT:{pass:string;warn:string;fail:string}={pass:'通过',warn:'警告',fail:'失败'};
 const SETTING_TITLES:Record<string,string>=Object.fromEntries(settingsEntries.map(entry=>[entry.id,entry.title]));
@@ -35,6 +38,15 @@ export function DiagnosticsPanel({onNavigate}:{onNavigate?:(tab:string)=>void}){
  const [scope,setScope]=useState<Scope>('recent'),[from,setFrom]=useState(''),[to,setTo]=useState('');
  const [exporting,setExporting]=useState(false),[exportError,setExportError]=useState(''),[exportResult,setExportResult]=useState<ExportResult|null>(null);
  const [logsDir,setLogsDir]=useState(''),[openNote,setOpenNote]=useState(''),[openError,setOpenError]=useState('');
+ // 记录复现（#50）：开始/停止标记 + 以窗口为界的 kind=reproduction 导出；录制状态仅存
+ // 内存（recordingRef 与组件状态），刷新页面即视为放弃，不做任何持久化。
+ // 面板一经访问保持挂载（main.tsx 与其他面板同约定）：录制中切换视图/分区不丢状态，
+ // 计时到点即使面板隐藏也照常自动停止并导出，回来即见提示。
+ const [recording,setRecording]=useState<{startedAt:string;limitSeconds:number}|null>(null);
+ const recordingRef=useRef<{startedAt:string;limitSeconds:number}|null>(null);
+ const recBusyRef=useRef(false);
+ const [recBusy,setRecBusy]=useState(false),[recError,setRecError]=useState(''),[recNote,setRecNote]=useState('');
+ const [elapsed,setElapsed]=useState(0),[recResult,setRecResult]=useState<ExportResult|null>(null);
  async function refresh(){
   setLoading(true);setError('');setChecksLoading(true);setChecksError('');
   try{const result=await api<Summary>('diagnostics.summary');setSummary(result);}catch(e){setError(errorText(e));}finally{setLoading(false);}
@@ -42,6 +54,19 @@ export function DiagnosticsPanel({onNavigate}:{onNavigate?:(tab:string)=>void}){
   try{const result=await api<ChecksResult>('diagnostics.checks');setChecks(result);}catch(e){setChecksError(errorText(e));}finally{setChecksLoading(false);}
  }
  useEffect(()=>{let active=true;void refresh();void api<{directory:string}>('data_directory.status').then(status=>{if(active)setLogsDir(status.directory.replace(/\/+$/,'')+'/logs');}).catch(()=>{});return()=>{active=false;};},[]);
+ // 记录计时（#50）：到点自动停止并提示。stopRecording 只读写 ref，闭包取首渲染版本安全。
+ useEffect(()=>{
+  const current=recording;
+  if(!current)return;
+  const deadline=Date.now()+current.limitSeconds*1000;
+  setElapsed(0);
+  const timer=setInterval(()=>{
+   const remain=deadline-Date.now();
+   if(remain<=0){clearInterval(timer);void stopRecording(true);}
+   else setElapsed(current.limitSeconds*1000-remain);
+  },250);
+  return()=>clearInterval(timer);
+ },[recording]);
  async function loadTrace(traceId:string){
   setTraces(old=>({...old,[traceId]:{loading:true,items:[]}}));
   try{const result=await api<{items:LogEvent[]}>('diagnostics.logs.query',{trace_id:traceId,limit:100});setTraces(old=>({...old,[traceId]:{loading:false,items:result.items}}));}
@@ -65,6 +90,39 @@ export function DiagnosticsPanel({onNavigate}:{onNavigate?:(tab:string)=>void}){
   }else{
    setOpenNote(`当前是开发环境，无法打开文件夹窗口；日志目录：${logsDir}`);
   }
+ }
+ // 开始记录：写开始标记事件（返回的 started_at 即窗口起点），打开共享录制窗口，
+ // 此后视图切换与对话框插桩经 reproduction.uiEvent 写入同一日志流。
+ async function startRecording(){
+  if(recBusyRef.current||recordingRef.current)return;
+  recBusyRef.current=true;setRecBusy(true);setRecError('');setRecNote('');setRecResult(null);
+  try{
+   const result=await api<{started_at:string}>('diagnostics.reproduction.start',{});
+   const limitSeconds=injectedMaxSeconds();
+   beginRecordingWindow(limitSeconds);
+   const state={startedAt:result.started_at,limitSeconds};
+   recordingRef.current=state;
+   setElapsed(0);
+   setRecording(state);
+  }catch(e){setRecError(errorText(e));}finally{recBusyRef.current=false;setRecBusy(false);}
+ }
+ // 停止记录：写停止标记事件（stopped_at 即窗口终点），随后以 [started_at, stopped_at]
+ // 为界调用扩展后的 diagnostics.export（kind=reproduction + attach_checks）。
+ // 自动停止（计时到点，auto=true）额外提示已达到最长记录时长。
+ async function stopRecording(auto=false){
+  const current=recordingRef.current;
+  if(!current||recBusyRef.current)return;
+  recBusyRef.current=true;setRecBusy(true);
+  try{
+   const stopped=await api<{stopped_at:string}>('diagnostics.reproduction.stop',{});
+   endRecordingWindow();
+   recordingRef.current=null;
+   setRecording(null);
+   const result=await exportDiagnostics({from:current.startedAt,to:stopped.stopped_at},{kind:'reproduction',attachChecks:true});
+   if(auto)setRecNote(`已达到最长记录时长（${formatLimit(current.limitSeconds)}），已自动停止并导出复现记录。`);
+   if(result)setRecResult(result);
+  }catch(e){setRecError(errorText(e));endRecordingWindow();recordingRef.current=null;setRecording(null);}
+  finally{recBusyRef.current=false;setRecBusy(false);}
  }
  const metrics:Metric[]=summary?[
   {label:'数据库模式',value:`v${summary.database_schema_version}`,note:summary.database_user_version===summary.database_schema_version?'与当前应用一致':`数据库为 v${summary.database_user_version}，需重启升级`},
@@ -108,6 +166,24 @@ export function DiagnosticsPanel({onNavigate}:{onNavigate?:(tab:string)=>void}){
       </li>)}
      </ul>
     </>}
+   </section>
+   <section className="diagnostics-section diagnostics-reproduction" aria-label="记录复现">
+    <h3>记录复现</h3>
+    <p className="diagnostics-reproduction-help">点「开始记录复现」后正常使用应用复现问题，再回到这里点「停止并导出」，得到只含这段时间的单文件复现记录（含操作时间线与基础检查）。记录最长 {formatLimit(MAX_RECORDING_SECONDS)}，到点自动停止；刷新或关闭页面即放弃本次记录。</p>
+    {recording?<div className="diagnostics-recording" role="status">
+     <span className="diagnostics-recording-dot" aria-hidden="true"></span>
+     <span className="diagnostics-recording-text">正在记录操作 · 已记录 <strong className="diagnostics-recording-timer">{formatClock(elapsed)}</strong> / 最长 {formatLimit(recording.limitSeconds)}</span>
+     <button disabled={recBusy} onClick={()=>void stopRecording(false)}>{recBusy?'正在停止并导出…':'停止并导出'}</button>
+    </div>:<div className="diagnostics-recording-idle">
+     <button disabled={recBusy} onClick={()=>void startRecording()}>{recBusy?'正在开始…':'开始记录复现'}</button>
+    </div>}
+    {recNote&&<p role="status" className="diagnostics-reproduction-note">{recNote}</p>}
+    {recError&&<p role="alert" className="feedback error">{recError}</p>}
+    {recResult&&<div role="status" className="diagnostics-export-result">
+     <p>复现记录已导出 {recResult.event_count} 个事件，共 {formatBytes(recResult.bytes)}。</p>
+     <p><code>{recResult.path}</code></p>
+     {isTauri()&&<div><button className="secondary" onClick={()=>void revealExportedFile(recResult.path)}>打开所在文件夹</button></div>}
+    </div>}
    </section>
    <section className="diagnostics-section diagnostics-export" aria-label="导出日志">
     <h3>导出日志</h3>

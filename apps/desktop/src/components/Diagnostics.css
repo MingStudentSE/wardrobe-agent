@@ -48,4 +48,15 @@
 .diagnostics-check-message{font-size:14px;line-height:1.6;min-width:0;overflow-wrap:anywhere}
 .diagnostics-check-goto{white-space:nowrap}
 .diagnostics-check-detail{font-family:var(--font-mono);font-size:12px;color:var(--color-muted);overflow-wrap:anywhere}
+/* 记录复现（ticket #50）：录制状态双通道（红点脉动 + 文字 + 计时，不只靠颜色），
+   尊重 prefers-reduced-motion；控件无 hover/拖拽依赖，375px 换行不横滚。 */
+.diagnostics-reproduction-help{margin:0 0 16px;font-size:13px;color:var(--color-muted);line-height:1.6}
+.diagnostics-recording{display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-height:44px;font-size:14px}
+.diagnostics-recording-dot{width:10px;height:10px;border-radius:50%;background:var(--color-error);flex-shrink:0;animation:diagnostics-recording-pulse 1.6s ease-in-out infinite}
+@keyframes diagnostics-recording-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media(prefers-reduced-motion:reduce){.diagnostics-recording-dot{animation:none}}
+.diagnostics-recording-text{min-width:0;overflow-wrap:anywhere}
+.diagnostics-recording-timer{font-variant-numeric:tabular-nums;font-weight:600}
+.diagnostics-recording-idle{display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-height:44px}
+.diagnostics-reproduction-note{margin:12px 0 0;font-size:13px;color:var(--color-muted);overflow-wrap:anywhere}
 @media(max-width:700px){.diagnostics-section{padding:20px}.diagnostics-window{grid-template-columns:1fr}}
