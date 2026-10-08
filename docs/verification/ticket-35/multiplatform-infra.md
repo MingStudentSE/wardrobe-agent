@@ -8,7 +8,7 @@
 |---|---|---|
 | Linux arm64 | **端到端打通**。VM 内原生构建 deb+AppImage，真实安装并烟测通过 | §5，验证器 JSON 全 pass |
 | Linux x86_64 | 本地 TCG 全模拟**只可用于启动级验证，不可用于构建**（实测 15–27× 差距）；x86_64 产物继续走 GitHub Actions x86_64 runner（既有 CI 证据包 `docs/verification/packaged-ubuntu-24.04/`） | §6 基准数据 |
-| Windows | **VM 未建**：官方 Win11 ARM64 ISO 被微软下载流程挡住（脚本客户端 403、链接由页面 JS 会话生成）；组件清单与命令草案已备好，ISO 就位后一轮可实证 | §7 |
+| Windows | **VM 管线已建成**（自动引导 ISO 工程 + 无人值守安装 + 自动 firstlogon + provision/构建脚本全部就绪并提交）；当前阻塞仅剩 ISO 文件回填（工程过程误删，需浏览器重下，见 §7.0 所需人工动作） | §7 |
 
 ## 2. 环境拓扑
 
@@ -60,11 +60,12 @@ ssh vm 'cd ~/src && RUN_TAURI_BUILD=1 bash scripts/vm/linux-build-and-package.sh
 真实安装与烟测（CI 只做 `dpkg --extract`；本环境升级为 `dpkg -i` 真安装，并因此发现 §5.3 缺陷）：
 
 ```sh
-bash scripts/vm/repack-deb-package-name.sh 电子衣橱_0.1.0_arm64.deb /tmp/wardrobe-desktop_0.1.0_arm64.deb wardrobe-desktop
-sudo dpkg -i /tmp/wardrobe-desktop_0.1.0_arm64.deb
+# 管线在 tauri build 后自动执行（ wardrobe-agent 身份 + dpkg 断言）：
+ls ~/distribution/wardrobe-agent_0.1.0_arm64.deb   # 管线产物（§5.3）
+sudo dpkg -i ~/distribution/wardrobe-agent_0.1.0_arm64.deb
 env -i PATH=/usr/bin:/bin /usr/bin/wardrobe-cli --version
 python3 scripts/verify-packaged-cli.py /usr/bin/wardrobe-cli crates/wardrobe-core/tests/fixtures/generated-colors.heic --report installed-deb-runtime.json
-ldd /usr/bin/wardrobe-desktop   # libheif.so.1/libde265.so.0 均解析到 /usr/bin/../lib/wardrobe-agent/，无 not found
+ldd /usr/bin/wardrobe-desktop  # libheif.so.1/libde265.so.0 均解析到 /usr/bin/../lib/wardrobe-agent/，无 not found
 ```
 
 ## 5. Linux arm64 端到端结果（2026-10-08 实测）
@@ -76,7 +77,7 @@ ldd /usr/bin/wardrobe-desktop   # libheif.so.1/libde265.so.0 均解析到 /usr/b
   - `apps/desktop/src-tauri/target/release/bundle/deb/电子衣橱_0.1.0_arm64.deb`（34,381,616 B）
   - `…/appimage/电子衣橱_0.1.0_aarch64.AppImage`
 - 产物 SHA256（VM 内 sha256sum）：
-  - deb（repack 后 wardrobe-desktop_0.1.0_arm64.deb）`3400b2b2…819419`
+  - deb（正式管线 wardrobe-agent_0.1.0_arm64.deb）`46888f24…47adb`（旧 workaround 包 `3400b2b2…819419` 留档）
   - AppImage `d6547b5f…4ac3a7`
   - target/release/wardrobe-cli `454d7c91…a9f2`
 
@@ -88,11 +89,14 @@ ldd /usr/bin/wardrobe-desktop   # libheif.so.1/libde265.so.0 均解析到 /usr/b
 5. 持久库手工流程：建空间（space.default 得 member_id ULID）→ 授权 → **assets.import 真实 HEIC** → 产出 64×32 webp 预览资产 → assets.get。
 6. AppImage 解包 CLI 同样通过 --version 与建空间烟测。
 
-### 5.3 发现的缺陷：deb 包名违反 Debian policy（本轮重要产出）
-- tauri-bundler 直接以 `productName`（电子衣橱）作为 `Package:` 字段。`dpkg -i` 报 `invalid package name in 'Package' field: must start with an alphanumeric character`（Debian policy 5.6.1 要求 `^[a-z0-9][a-z0-9+.-]+$`）。
-- **既有 CI 的 `dpkg --extract` 烟测不校验 control 文件，因此该缺陷在 `docs/verification/packaged-ubuntu-*/` 证据包中一直未暴露**；macOS DMG 不受影响。
-- 本轮以 `scripts/vm/repack-deb-package-name.sh`（`dpkg-deb -R` 改 control 后重打包）完成验证路径闭环，包名暂定 `wardrobe-desktop`。
-- **正式修复需 release workstream 决策**（影响全平台安装物命名）：将 `tauri.conf.json` 的 `productName` 改为 ASCII（影响窗口标题之外的所有 bundle 文件名，窗口标题由 `app.windows[].title` 独立控制、不受影响），或升级 tauri-bundler 后确认是否支持 deb 包名覆盖。该决策不在本基础设施轮次内代做。
+### 5.3 缺陷修复（2026-10-08 已进正式管线）：deb 包名违反 Debian policy
+- 缺陷：tauri-bundler 直接以 `productName`（电子衣橱）作为 `Package:` 字段，`dpkg -i` 拒装（Debian policy 5.6.1 要求 `^[a-z0-9][a-z0-9+.-]+$`）。既有 CI 的 `dpkg --extract` 烟测不校验 control 文件，因此一直未暴露；macOS DMG 不受影响。
+- 修复决策：采用**方案 (b) 管线强制修复**（productName 保持中文用于窗口标题/桌面项显示，不受影响）：
+  - `scripts/repack-deb-package-name.sh`（提升为正式脚本，CI/本地共用）：检测 `Package:` 不合规时重打包为 ASCII 身份 **`wardrobe-agent`**（`dpkg-deb --ctrl-tarfile | tar -xO` 读字段——注意 `dpkg-deb -f` 本身解析不了坏 control；`-R`/`--ctrl-tarfile` 不解析），写前后双重断言。
+  - 集成点 1：`scripts/vm/linux-build-and-package.sh` 在 tauri build 后强制执行 + `dpkg-deb -f` 硬断言。
+  - 集成点 2：`.github/workflows/media-bundles.yml` 新增 "Debian package-name policy fix (ticket #35)" 步骤，断言后经 `DEB_PATH` 供后续检查使用。
+  - 若上游 tauri-bundler 未来提供 deb 包名覆盖，可移除 repack（脚本是幂等的：输入已合规则直接复制通过）。
+- ARM64 VM 重跑实证：`PIPELINE-OK` → `wardrobe-agent_0.1.0_arm64.deb`（23.8MB，zstd 重压缩；SHA256 `46888f24…47adb`）→ `dpkg -i` 真实安装 `Setting up wardrobe-agent (0.1.0)` → `dpkg -s` install ok installed → ldd 私有解码库解析正常 → `verify-packaged-cli.py` 全 pass（证据 `06-deb-fix-installed-runtime.txt`）。
 
 ## 6. x86_64 本地构建可行性测量（2026-10-08 实测，同法同负载）
 
@@ -105,7 +109,48 @@ ldd /usr/bin/wardrobe-desktop   # libheif.so.1/libde265.so.0 均解析到 /usr/b
 
 **结论**：本地 x86_64 TCG 只可用于「安装/烟测/启动级」验证，**不可用作构建线**。x86_64 产物继续由 GitHub Actions `ubuntu-24.04`（x86_64）runner 产出（既有证据：`docs/verification/packaged-ubuntu-24.04/report.md`，GitHub run 37508783217）；本地 amd64 VM（`scripts/vm/wardrobe-build-vm.sh create-amd64`，已建成可启动）保留用于未来 x86_64 产物的真实安装烟测。
 
-## 7. Windows 路径：阻塞与所需组件
+## 7. Windows 路径：VM 管线已建成，等待 ISO 回填（2026-10-08 第二轮）
+
+### 7.0 本轮进展（VM 管线全部落地）
+- **ISO 工程化（关键突破）**：官方原版 ISO 在 QEMU edk2 上有两条死路——(1) `hdiutil makehybrid` 无法生成 El Torito EFI 引导目录（固件不会自动引导 USB-CD，落到 UEFI Shell）；(2) cdboot 的 "Press any key" 窗口 <2s，QMP input-send-event / 自写 VNC 客户端 / 长 按 三种键注路径全部错过。**解法**：xorriso 以 Microsoft 自带的 `efi/microsoft/boot/efisys_noprompt.bin` 作为 El Torito EFI 引导映像重建 ISO（`-no-emul-boot -e ...`），固件自动引导、无按键、无交互——已实证固件加载 `Boot0001 UEFI QEMU USB HARDRIVE` 并进入 cdboot_noprompt。
+- **遗留给下一轮的精确状态**：xorriso 布局（iso-level 3 无 UDF）上 boot.wim 经 edk2 USB-CD 读取极慢/失败（30 分钟未完成、启动循环），且重建过程中原版与 noprompt ISO 均被误删（`rm` 顺序失误）。**所需人工动作**：浏览器会话重新下载 Win11 ARM64 ISO（26300 en-us，~8.5GB）至 `codex/vm/iso/Win11_ARM64_en-us_26300.iso`；随后执行：
+  1. `cd codex/vm/isobuild && 7z x <原版ISO> -otree` → `cp bootmgfw.efi` 流程同 `scripts/vm/wardrobe-windows-vm.sh` 头注释（含 efisys_noprompt 换轴 + Autounattend.xml 注入 + xorriso 重建）；
+  2. `scripts/vm/wardrobe-windows-vm.sh start`（自动引导 → 无人值守安装 → firstlogon 自动装 NetKVM + OpenSSH）；
+  3. SSH 2224 (build@) → `scripts/vm/windows-provision.ps1`（VS BuildTools ARM64 + Rust + Node + Python + vcpkg libheif:arm64-windows）；
+  4. `scripts/bootstrap-media-windows.ps1 -Triplet arm64-windows` → `cargo build --release -p wardrobe-cli` → `prepare-media-distribution.py --target aarch64-pc-windows-msvc` → `npm run tauri build`（NSIS）→ `verify-packaged-cli.py` 烟测。
+- **TPM**：swtpm 0.10.2 已装（Homebrew 7.0.8 对 swtpm 依赖链存在递归锁死锁，用 `--ignore-dependencies` 绕过）；QEMU 11.1.2 aarch64 的 `tpm-tis-device` 在 HVF 下无法注册 MMIO（HV_BAD_ARGUMENT）、`tpm-crb-device` 不存在 → TPM 以 `TPM=1` 开关预留，当前用 Autounattend 的 LabConfig 绕过（构建 VM 不需要基于 TPM 的证明功能）。
+- **输入通道经验**：QMP input-send-event 对 UEFI Shell 可靠（逐键一会话最稳）；对 cdboot 按键窗口（<2s）不可用；自写最小 VNC 客户端（`scripts/vm/vnc-send-keys.py`，RFB 3.8）可连接但 qemu 在无 FB 请求 ~3s 后断开——均记录为经验教训。
+
+### 7.1 原版 ISO 获取（历史记录）
+| 尝试 | 结果 |
+|---|---|
+| `curl -I https://www.microsoft.com/software-download/windows11arm64`（脚本 UA） | HTTP/2 403 |
+| 浏览器 UA 抓取 | 200，页面存在，但直链由 JS 会话生成 |
+| 用户授权后浏览器下载（2026-10-08 上午） | 成功：`Win11_ARM64_en-us_26300.iso` 8.5GB（已用于本轮 ISO 工程，后因重建顺序失误被删，需重下） |
+
+### 7.2 所需 VS 组件（源自 CI windows leg 与 `scripts/bootstrap-media-windows.ps1`，非推测）
+产品目标 **x86_64-pc-windows-msvc**（CI）；本机 ARM64 宿主构建目标 **aarch64-pc-windows-msvc**（`-Triplet arm64-windows`，libheif vcpkg arm64-windows）：
+- VS 2022 Build Tools + `Microsoft.VisualStudio.Workload.VCTools`：
+  - `Microsoft.VisualStudio.Component.VC.Tools.ARM64`（ARM64 宿主原生工具集）
+  - `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`（后续 x64 交叉）
+  - `Microsoft.VisualStudio.Component.Windows11SDK.26100`
+  - `Microsoft.VisualStudio.Component.VC.Redist.14.Latest`（app-local CRT）
+  - `Microsoft.VisualStudio.Component.VC.CMake.Project`
+- Git/MinGit、Python 3 ARM64、Node 22 ARM64、rustup（aarch64-pc-windows-msvc）、vcpkg pin `2026.07.29`
+
+### 7.3 构建命令草案（VM 内 PowerShell，与 CI 对应；ARM64 本机构建版）
+```powershell
+.\scripts\bootstrap-media-windows.ps1 -MediaRoot C:\wardrobe\media -Triplet arm64-windows
+cargo build --release -p wardrobe-cli
+$vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products * -latest -property installationPath
+$crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\arm64\Microsoft.VC*.CRT" -Directory | Sort-Object FullName | Select-Object -Last 1
+python scripts\prepare-media-distribution.py "$env:VCPKG_ROOT\installed\arm64-windows" target\release\wardrobe-cli.exe C:\distribution --target aarch64-pc-windows-msvc --windows-crt-dir $crt.FullName
+cd apps\desktop; npm ci; npm run tauri build -- --config C:\distribution\tauri-media.json
+# 产物 bundle\nsis\*.exe；.\*.exe /S /D=C:\wardrobe-installed；verify-packaged-cli.py 烟测
+```
+
+## 7a. Windows 章节旧版（保留备查）
+
 
 ### 7.1 ISO 获取障碍（如实记录，2026-10-08 实测）
 | 尝试 | 结果 |
@@ -141,7 +186,6 @@ cd apps\desktop; npm ci; npm run tauri build -- --config C:\distribution\tauri-m
 - 本工作系统盘写入：仅 ~KB 级（shell 历史、known_hosts 指向 /dev/null）。核查过 `~/Library/Caches`（9.1GB，既有用户应用缓存）、`~/.cargo`(1.1G)/`~/.rustup`(581M)（宿主既有工具链，供并行 cargo 测试任务使用）、无 `com.utmapp.UTM`、ms-playwright 缓存 4KB（已被 native-env.sh 重定向）。中间差额来自并行 GUI/cargo 测试任务与 macOS 可清除空间波动。
 
 ## 9. 遗留与建议
-1. Windows：浏览器手动下载 ISO → 建.Win11 ARM VM → 按草案实证（ISO 是唯一阻塞）。
-2. deb 包名缺陷：由 release workstream 决策 ASCII bundle 名或上游覆盖方案；决策后 CI 应把烟测从 `dpkg --extract` 升级为 `dpkg -i`（本环境已示范）。
+2. deb 包名缺陷：已于本轮修复并进正式管线（§5.3）；后续可把 CI 烟测从 `dpkg --extract` 升级为 `dpkg -i`（本环境已示范）。
 3. x86_64 交付线：维持 CI runner 构建 + 本地 VM 安装/烟测；若未来需要本地 x86_64 构建，建议外购/借用 x86_64 硬件或云 runner，而非 TCG。
 4. 重量级验证（VM 内全量 `cargo test --workspace`、cutout 真模型验证）按约束等 #34 完成后运行，命令已在脚本中就位。

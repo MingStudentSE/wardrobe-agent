@@ -50,5 +50,15 @@ if [ "$RUN_TAURI_BUILD" = "1" ]; then
   npm ci
   npm run tauri build -- --config "$DIST/tauri-media.json"
   cd "$SRC"
+  echo "== [mandatory] deb Package-name policy fix + dpkg assertion (ticket #35)"
+  deb=$(find apps/desktop/src-tauri/target/release/bundle/deb -name '*.deb' -type f -print -quit)
+  test -n "$deb" || { echo "no deb produced" >&2; exit 1; }
+  fixed_deb="$(bash scripts/repack-deb-package-name.sh "$deb" "$DIST" wardrobe-agent)"
+  # Hard gate: the shippable deb must carry a Debian-policy-valid Package field
+  # (tauri-bundler would otherwise emit the CJK productName, which dpkg -i refuses).
+  pkg_field="$(dpkg-deb -f "$fixed_deb" Package)"
+  printf '%s' "$pkg_field" | grep -qE '^[a-z0-9][a-z0-9+.-]*$' \
+    || { echo "deb Package field still invalid: $pkg_field" >&2; exit 1; }
+  echo "deb policy check OK: $fixed_deb (Package: $pkg_field)"
 fi
 echo "PIPELINE-OK target=$TARGET_TRIPLE"

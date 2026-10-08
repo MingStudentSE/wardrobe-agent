@@ -1,4 +1,5 @@
-param([Parameter(Mandatory=$true)][string]$MediaRoot)
+param([Parameter(Mandatory=$true)][string]$MediaRoot,
+      [Parameter(Mandatory=$false)][ValidateSet('x64-windows','arm64-windows')][string]$Triplet = 'x64-windows')
 $ErrorActionPreference='Stop'
 New-Item -ItemType Directory -Force $MediaRoot | Out-Null
 $MediaRoot=(Resolve-Path $MediaRoot).Path
@@ -7,7 +8,8 @@ if (!(Test-Path "$vcpkg/.git")) { git clone --depth 1 --branch 2026.07.29 https:
 & "$vcpkg/bootstrap-vcpkg.bat" -disableMetrics
 if ($LASTEXITCODE) { throw 'vcpkg bootstrap failed' }
 # core suppresses default GPL x265 encoder; libde265 is an unconditional dependency.
-& "$vcpkg/vcpkg.exe" install 'libheif[core]:x64-windows' --recurse
+& "$vcpkg/vcpkg.exe" install "libheif[core]:$Triplet" --recurse
+Write-Output "vcpkg triplet: $Triplet"
 if ($LASTEXITCODE) { throw 'HEIC decoder dependencies failed' }
 $env:VCPKG_ROOT=$vcpkg
 $env:VCPKGRS_DYNAMIC='1'
