@@ -251,8 +251,19 @@ impl Application {
                     "需要配置兼容聊天接口的文本模型",
                 ));
             }
+            // 与 rules 路径/purchase 相同的幂等语义：同键重放必须比对
+            // payload，输入变化时显式冲突而不是静默返回旧任务回执。
             if let Some(replay) = self.scenario_existing_receipt(&member, key)? {
-                return Ok(replay);
+                let mut expected = input.clone();
+                expected["member_id"] = json!(member);
+                let stored_payload = replay["payload"].clone();
+                if stored_payload != expected {
+                    return Err(ApiError::new(
+                        "idempotency_conflict",
+                        "同一标识不能替换计划输入",
+                    ));
+                }
+                return Ok(replay["receipt"].clone());
             }
             let mut payload = input.clone();
             payload["member_id"] = json!(member);
@@ -295,6 +306,7 @@ impl Application {
     }
 
     /// 同 (member, operation_key) 的 AI 计划重放：返回任务收据（含终态与计划ID）。
+    /// 附带存储的 payload 供幂等重放比对。
     fn scenario_existing_receipt(&self, member: &str, key: &str) -> Result<Option<Value>, ApiError> {
         let stored: Option<String> = self
             .connection
@@ -309,7 +321,7 @@ impl Application {
         };
         let job: Value = serde_json::from_str(&stored)
             .map_err(|_| ApiError::new("storage_error", "任务记录损坏"))?;
-        Ok(Some(receipt(&job)))
+        Ok(Some(json!({"payload":job["payload"],"receipt":receipt(&job)})))
     }
 
     fn scenario_get(&self, input: Value) -> Result<Value, ApiError> {
@@ -411,10 +423,22 @@ impl Application {
         recomputed["version"] = json!(plan["version"].as_u64().unwrap_or(0) + 1);
         recomputed["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let tx = self.begin_write()?;
-        tx.execute(
-            "UPDATE scenario_plans SET document=?1 WHERE member_id=?2 AND id=?3",
-            params![recomputed.to_string(), member, plan["id"].as_str()],
-        )?;
+        // 乐观锁落在写事务内：版本谓词不匹配即 version_conflict，
+        // 读取与写入之间的并发修改绝不静默丢失。
+        let updated = tx
+            .execute(
+                "UPDATE scenario_plans SET document=?1 WHERE member_id=?2 AND id=?3 AND json_extract(document,'$.version')=?4",
+                params![
+                    recomputed.to_string(),
+                    member,
+                    plan["id"].as_str(),
+                    plan["version"].as_u64().unwrap_or(0)
+                ],
+            )
+            .map_err(|_| ApiError::new("storage_error", "计划保存失败"))?;
+        if updated != 1 {
+            return Err(ApiError::new("version_conflict", "计划已被修改，请重新读取"));
+        }
         tx.commit()?;
         Ok(recomputed)
     }
@@ -437,10 +461,22 @@ impl Application {
         plan["status"] = json!("deleted");
         plan["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let tx = self.begin_write()?;
-        tx.execute(
-            "UPDATE scenario_plans SET document=?1 WHERE member_id=?2 AND id=?3",
-            params![plan.to_string(), member, plan["id"].as_str()],
-        )?;
+        // 与 update 同型的乐观锁：删除只作用于读取时看到的版本，
+        // 并发修改先行提交时显式冲突而不是覆盖。
+        let updated = tx
+            .execute(
+                "UPDATE scenario_plans SET document=?1 WHERE member_id=?2 AND id=?3 AND json_extract(document,'$.version')=?4",
+                params![
+                    plan.to_string(),
+                    member,
+                    plan["id"].as_str(),
+                    plan["version"].as_u64().unwrap_or(0)
+                ],
+            )
+            .map_err(|_| ApiError::new("storage_error", "计划删除失败"))?;
+        if updated != 1 {
+            return Err(ApiError::new("version_conflict", "计划已被修改，请重新读取"));
+        }
         tx.commit()?;
         Ok(plan)
     }

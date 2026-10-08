@@ -1013,3 +1013,54 @@ fn purchase_domain_has_no_auto_buy_and_analysis_flags_are_honest() {
     assert_eq!(analysis["counts_toward_inventory"], false);
     assert_eq!(analysis["auto_purchase"], false);
 }
+
+/// 列表读取有上限（review P2-6）：candidate.list / analysis.list 与
+/// scenario.list 对齐同一上限常量，绝不无限回包。
+#[test]
+fn candidate_and_analysis_lists_are_capped() {
+    let (_dir, app) = setup();
+    const LIMIT: usize = 50;
+    for i in 0..(LIMIT + 2) {
+        app.execute(
+            "purchase.candidate.create",
+            json!({"member_id":"default","name":format!("候选{i:03}"),"category":"top"}),
+        )
+        .unwrap();
+    }
+    let listed = app
+        .execute("purchase.candidate.list", json!({"member_id":"default"}))
+        .unwrap();
+    let items = listed["items"].as_array().unwrap();
+    assert_eq!(items.len(), LIMIT, "候选列表最多返回上限条数: {listed}");
+    // 倒序：最新创建的在前，最旧的被上限截断。
+    assert_eq!(items[0]["facts"]["name"], json!("候选051"));
+    let states: Vec<&str> = items.iter().filter_map(|d| d["state"].as_str()).collect();
+    assert!(states.iter().all(|s| *s == "draft"));
+
+    // 分析列表同上限：对同一候选运行上限+2 次，只返回最近上限条。
+    let candidate_id = items[0]["id"].as_str().unwrap().to_string();
+    let mut last_version = 0u64;
+    for _ in 0..(LIMIT + 2) {
+        let analysis = app
+            .execute(
+                "purchase.analysis.run",
+                json!({"member_id":"default","candidate_id":candidate_id}),
+            )
+            .unwrap();
+        last_version = analysis["version"].as_u64().unwrap();
+    }
+    assert_eq!(last_version, (LIMIT + 2) as u64, "每次分析版本递增");
+    let analyses = app
+        .execute(
+            "purchase.analysis.list",
+            json!({"member_id":"default","candidate_id":candidate_id}),
+        )
+        .unwrap();
+    let analysis_items = analyses["items"].as_array().unwrap();
+    assert_eq!(analysis_items.len(), LIMIT, "分析列表最多返回上限条数");
+    assert_eq!(
+        analysis_items[0]["version"],
+        json!(last_version),
+        "倒序：最新版本在前"
+    );
+}

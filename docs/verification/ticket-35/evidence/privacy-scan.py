@@ -52,10 +52,7 @@ for name, root in targets.items():
     for p in files:
         data = None
         try:
-            if p.stat().st_size <= 220_000_000:
-                data = p.read_bytes()
-            else:
-                data = p.read_bytes()  # all packages are small enough
+            data = p.read_bytes()
         except Exception as e:
             cred_hits.append({"path": str(p), "error": str(e)})
             continue

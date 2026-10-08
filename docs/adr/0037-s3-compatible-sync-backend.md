@@ -1,4 +1,4 @@
-# ADR 0028：S3-compatible 同步后端与 ETag 条件写协调
+# ADR 0037：S3-compatible 同步后端与 ETag 条件写协调
 
 状态：已实施；ticket-29 分支 `codex/ticket-29-s3`，红/绿证据在 `wardrobe-execution/results/continue-20261007/ticket29/`。
 

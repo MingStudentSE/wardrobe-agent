@@ -92,7 +92,8 @@ impl Application {
 }
 
 /// 供根接线汇总的描述符：stylist.ask 与 stylist.worker.run 的闭合 JSON Schema。
-/// 工具环只读（衣物查询、规则搭配、推荐意图列表、确定性统计），不写 WearEvents。
+/// 工具环是只读环 + 受控写工具（衣物查询、规则搭配、推荐意图列表、确定性统计；
+/// 用户明确指令下的穿着/洗护/单品编辑受控记录），写面直接分发既有领域能力。
 pub(super) fn descriptors() -> Vec<Value> {
     let receipt = json!({"type":"object","required":["schema_version","member_id","job_id","state"],"additionalProperties":false,"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"job_id":{"type":"string"},"state":{"enum":["queued","running","waiting_input","succeeded","failed","cancelled"]}}});
     let job_output = jobs::output_schema();

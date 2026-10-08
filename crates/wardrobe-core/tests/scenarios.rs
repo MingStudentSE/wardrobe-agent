@@ -991,3 +991,185 @@ fn scenario_operations_are_registered_with_schemas_and_scope() {
     );
     assert_eq!(unknown.unwrap_err().code, "invalid_input");
 }
+
+// ---------------------------------------------------------------------------
+// 乐观锁并发语义（review P1-2）：update/delete 的版本判定落在写事务内，
+// 「读取与写入之间发生的并发提交」显式 version_conflict，绝不静默覆盖。
+// 模拟并发写者：先占住 SQLite 写锁（BEGIN IMMEDIATE），让被测操作停在
+// begin_write 上（已读完 v1），再在锁内提交版本推进，确定性地制造
+// 读-写窗口，不依赖线程时序。
+// ---------------------------------------------------------------------------
+
+/// 锁住写锁后由独立线程驱动 operation，锁内提交 v2 版本推进，返回线程结果。
+/// 前置：传入的 app 已造好 v1 计划；worker 连接必须在占锁之前打开（否则
+/// Application::open 会排在写锁之后，读不到加锁前的快照）。
+fn run_against_concurrent_commit<F>(
+    worker_app: Application,
+    path: &std::path::Path,
+    plan_id: &str,
+    title_after_concurrent_commit: &str,
+    operation: F,
+) -> Result<Value, wardrobe_core::ApiError>
+where
+    F: FnOnce(Application) -> Result<Value, wardrobe_core::ApiError> + Send + 'static,
+{
+    let raw = rusqlite::Connection::open(path).unwrap();
+    raw.busy_timeout(std::time::Duration::from_secs(5)).unwrap();
+    raw.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let (send, recv) = std::sync::mpsc::channel();
+    let path = path.to_path_buf();
+    let plan_id = plan_id.to_string();
+    let worker = std::thread::spawn(move || {
+        send.send(operation(worker_app)).unwrap();
+    });
+    // 被测操作已读到 v1 并阻塞在写锁上；此时提交并发版本推进。
+    std::thread::sleep(std::time::Duration::from_millis(2000));
+    let doc: String = raw
+        .query_row(
+            "SELECT document FROM scenario_plans WHERE id=?1",
+            [&plan_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let mut doc: Value = serde_json::from_str(&doc).unwrap();
+    doc["version"] = json!(2);
+    doc["title"] = json!(title_after_concurrent_commit);
+    doc["updated_at"] = json!(chrono_now());
+    raw.execute(
+        "UPDATE scenario_plans SET document=?1 WHERE id=?2",
+        rusqlite::params![doc.to_string(), plan_id],
+    )
+    .unwrap();
+    raw.execute_batch("COMMIT").unwrap();
+    let outcome = recv.recv().unwrap();
+    worker.join().unwrap();
+    outcome
+}
+
+fn chrono_now() -> String {
+    // 与被测文档字段同形的时间戳占位；并发写者只关心版本与标题。
+    "2026-10-08T00:00:00+00:00".to_string()
+}
+
+#[test]
+fn concurrent_update_conflicts_instead_of_silently_overwriting_committed_change() {
+    let d = tempfile::tempdir().unwrap();
+    let path = d.path().join("db");
+    let app = Application::open(&path).unwrap();
+    let member = bootstrap_member(&app);
+    let created = seed(
+        &app,
+        &member,
+        &[("礼服A", "dress"), ("礼服B", "one_piece"), ("高跟鞋", "shoes")],
+    );
+    let plan = app
+        .execute(
+            "scenario.plan",
+            json!({"member_id":member,"operation_key":"toctou-update","timezone":"UTC","kind":"event",
+                   "occasion":"wedding","start_date":"2026-10-10","fixed_ids":[created[0]["id"]]}),
+        )
+        .unwrap();
+    assert_eq!(plan["version"], 1);
+    let plan_id = plan["id"].as_str().unwrap().to_string();
+    let worker_member = member.clone();
+    let worker_plan_id = plan_id.clone();
+    // 在占锁之前打开 worker 连接：保证其读取发生在并发提交之前。
+    let worker_app = Application::open(&path).unwrap();
+
+    let outcome = run_against_concurrent_commit(
+        worker_app,
+        &path,
+        &plan_id,
+        "已提交的并发修改",
+        move |app| {
+            app.execute(
+                "scenario.update",
+                json!({"member_id":worker_member,"id":worker_plan_id,"expected_version":1,"title":"迟到的修改"}),
+            )
+        },
+    );
+    let err = outcome.expect_err("并发提交先行时 update 必须显式冲突而不是覆盖");
+    assert_eq!(err.code, "version_conflict", "{err:?}");
+
+    // 已提交的并发修改不被静默覆盖。
+    let final_doc = app
+        .execute("scenario.get", json!({"member_id":member,"id":plan_id}))
+        .unwrap();
+    assert_eq!(final_doc["version"], 2);
+    assert_eq!(final_doc["title"], "已提交的并发修改");
+}
+
+#[test]
+fn concurrent_delete_conflicts_instead_of_silently_overwriting_committed_change() {
+    let d = tempfile::tempdir().unwrap();
+    let path = d.path().join("db");
+    let app = Application::open(&path).unwrap();
+    let member = bootstrap_member(&app);
+    let created = seed(&app, &member, &[("礼服A", "dress"), ("高跟鞋", "shoes")]);
+    let plan = app
+        .execute(
+            "scenario.plan",
+            json!({"member_id":member,"operation_key":"toctou-delete","timezone":"UTC","kind":"event",
+                   "occasion":"wedding","start_date":"2026-10-10","fixed_ids":[created[0]["id"]]}),
+        )
+        .unwrap();
+    assert_eq!(plan["version"], 1);
+    let plan_id = plan["id"].as_str().unwrap().to_string();
+    let worker_member = member.clone();
+    let worker_plan_id = plan_id.clone();
+    let worker_app = Application::open(&path).unwrap();
+
+    let outcome = run_against_concurrent_commit(
+        worker_app,
+        &path,
+        &plan_id,
+        "已提交的并发修改",
+        move |app| app.execute("scenario.delete", json!({"member_id":worker_member,"id":worker_plan_id})),
+    );
+    let err = outcome.expect_err("并发提交先行时 delete 必须显式冲突而不是覆盖");
+    assert_eq!(err.code, "version_conflict", "{err:?}");
+
+    // 删除不得吞掉并发提交：计划仍是并发写者留下的 v2 active 文档。
+    let final_doc = app
+        .execute("scenario.get", json!({"member_id":member,"id":plan_id}))
+        .unwrap();
+    assert_eq!(final_doc["version"], 2);
+    assert_eq!(final_doc["title"], "已提交的并发修改");
+    assert_eq!(final_doc["status"], "active");
+}
+
+// ---------------------------------------------------------------------------
+// AI 计划幂等重放（review P2-5）：同 operation_key 重放必须比对 payload，
+// 输入变化时与 rules 路径/purchase 同语义地 idempotency_conflict。
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ai_plan_same_key_replays_identical_payload_and_conflicts_on_changed_input() {
+    let d = tempfile::tempdir().unwrap();
+    let app = open_app(d.path());
+    let member = bootstrap_member(&app);
+    seed(&app, &member, &[("连衣裙", "dress"), ("高跟鞋", "shoes")]);
+    let provider = app
+        .execute(
+            "provider.save",
+            json!({"name":"fixture replay model","endpoint":"http://127.0.0.1:9/never-called",
+                   "model":"fixture-text","capabilities":["text"],"authentication":"none"}),
+        )
+        .unwrap();
+    let base = json!({"member_id":member,"operation_key":"ai-replay","timezone":"UTC","kind":"event",
+                      "occasion":"wedding","start_date":"2026-10-10","strategy":"ai",
+                      "provider_id":provider["id"]});
+    let receipt = app.execute("scenario.plan", base.clone()).unwrap();
+    assert_eq!(receipt["state"], "queued");
+
+    // 同键同输入：幂等重放同一任务回执（不新建任务）。
+    let replay = app.execute("scenario.plan", base.clone()).unwrap();
+    assert_eq!(replay["job_id"], receipt["job_id"]);
+    assert_eq!(replay["state"], "queued");
+
+    // 同键不同输入：显式冲突，不得静默返回旧任务。
+    let mut changed = base.clone();
+    changed["start_date"] = json!("2026-10-11");
+    let conflict = app.execute("scenario.plan", changed);
+    assert_eq!(conflict.unwrap_err().code, "idempotency_conflict");
+}

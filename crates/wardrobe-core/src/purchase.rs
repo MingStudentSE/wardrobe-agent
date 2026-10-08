@@ -33,6 +33,10 @@ fn parse_stored(raw: String, what: &str) -> Result<Value, ApiError> {
     serde_json::from_str(&raw).map_err(|_| ApiError::new("storage_error", what))
 }
 
+/// 列表读取上限：与 scenario.list 的 PLAN_LIMIT 同一上限常量，
+/// 候选/分析绝不无限回包。
+const LIST_LIMIT: usize = 50;
+
 /// 候选可人工填写的可观察事实与 clothing 事实同字典：纠正走同一校验，
 /// 不出现第二套事实语义。价格/尺码等未知字段保持 null，绝不编造。
 const CANDIDATE_FACT_FIELDS: &[&str] = &[
@@ -483,10 +487,10 @@ impl Application {
             }
         }
         let mut statement = self.connection.prepare(
-            "SELECT document FROM purchase_candidates WHERE member_id=?1 ORDER BY id DESC",
+            "SELECT document FROM purchase_candidates WHERE member_id=?1 ORDER BY id DESC LIMIT ?2",
         )?;
         let mut items = vec![];
-        for row in statement.query_map([member], |r| r.get::<_, String>(0))? {
+        for row in statement.query_map(params![member, LIST_LIMIT], |r| r.get::<_, String>(0))? {
             let doc = parse_stored(row?, "购买候选数据损坏")?;
             if input
                 .get("state")
@@ -592,7 +596,9 @@ impl Application {
         uncertainties.extend(duplicate_uncertainties);
         uncertainties.extend(gap_uncertainties);
         uncertainties.push("分析只覆盖当前可用（active 且不在洗护待洗）的真实库存；候选本身不计入库存、穿着或洞察。".into());
-        let previous: u64 = self.connection.query_row(
+        // 版本号在写事务内取 COUNT：并发分析运行不会取得相同版本。
+        let tx = self.begin_write()?;
+        let previous: u64 = tx.query_row(
             "SELECT COUNT(*) FROM purchase_analyses WHERE member_id=?1 AND candidate_id=?2",
             params![member, candidate["id"].as_str()],
             |r| r.get(0),
@@ -613,7 +619,6 @@ impl Application {
             "counts_toward_inventory":false,
             "auto_purchase":false,
         });
-        let tx = self.begin_write()?;
         tx.execute(
             "INSERT INTO purchase_analyses VALUES(?1,?2,?3,?4)",
             params![
@@ -652,10 +657,12 @@ impl Application {
             .map(|v| v.as_str().ok_or_else(|| invalid("candidate_id 须为字符串")))
             .transpose()?;
         let mut statement = self.connection.prepare(
-            "SELECT document FROM purchase_analyses WHERE member_id=?1 AND (?2 IS NULL OR candidate_id=?2) ORDER BY id DESC",
+            "SELECT document FROM purchase_analyses WHERE member_id=?1 AND (?2 IS NULL OR candidate_id=?2) ORDER BY id DESC LIMIT ?3",
         )?;
         let mut items = vec![];
-        for row in statement.query_map(params![member, candidate_id], |r| r.get::<_, String>(0))? {
+        for row in statement.query_map(params![member, candidate_id, LIST_LIMIT], |r| {
+            r.get::<_, String>(0)
+        })? {
             items.push(parse_stored(row?, "分析结果数据损坏")?);
         }
         Ok(json!({"schema_version":1,"items":items}))

@@ -1,4 +1,4 @@
-# ADR 0028：WebDAV 传输适配器（条件写入、能力探针与凭据隔离）
+# ADR 0038：WebDAV 传输适配器（条件写入、能力探针与凭据隔离）
 
 状态：已实施；分支 `codex/ticket-30-webdav`（基于集成 tip 8a90059），红/绿证据在 `wardrobe-execution/results/continue-20261007/ticket30/`。
 

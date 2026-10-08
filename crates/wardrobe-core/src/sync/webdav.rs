@@ -1,6 +1,6 @@
 //! WebDAV 传输适配器：实现与 LocalFolder 相同的 `SyncStorage` 外部契约。
 //!
-//! 设计边界（ADR 0028）：
+//! 设计边界（ADR 0038）：
 //! - `PROPFIND Depth:1` 列举映射为客户端排序分页枚举，游标语义与 LocalFolder
 //!   一致（严格大于上一个键）。
 //! - 条件写入走服务器判定：`CreateOnly` 用 `If-None-Match: *`；

@@ -892,3 +892,228 @@ fn key_lifecycle_password_change_revocation_and_rotation_sync_semantics() {
     owner.sync_batch().unwrap();
     assert!(names(&owner, &member).contains(&"新设备衬衫".to_owned()));
 }
+
+// ---------------------------------------------------------------------------
+// 纪元轮换后切换远端（review P1-1）：目标键滚动到纪元派生键后，切换远端的
+// 首个批次必须落在新远端。凭据语义由真实 WebDAV 回归钉住；本地文件夹
+// 覆盖同一生命周期的键滚动与发布落点。
+// ---------------------------------------------------------------------------
+
+fn sha256_hex(input: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(input.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+#[test]
+fn epoch_rotation_then_remote_switch_publishes_to_new_remote() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let remote1 = tempfile::tempdir().unwrap();
+    let remote2 = tempfile::tempdir().unwrap();
+    let (owner, peer) = pair(
+        &a.path().join("db"),
+        &b.path().join("db"),
+        "纪元切换空间口令-唯一短语",
+    );
+    let _x = Cleanup(a.path().join("db"));
+    let _y = Cleanup(b.path().join("db"));
+    configure_local(&owner, remote1.path());
+    let member = owner
+        .execute("member.create", json!({"name":"纪元切换家人"}))
+        .unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    item(&owner, &member, "轮换前衬衫");
+    owner.sync_batch().unwrap();
+
+    // 纪元推进（撤销对端）：下一次入队把目标键滚动到纪元派生键。
+    let peer_state: Value = peer.execute("encryption.status", json!({})).unwrap();
+    let peer_device = peer_state["state"]["device_id"].as_str().unwrap().to_owned();
+    owner
+        .execute(
+            "encryption.device.revoke",
+            json!({"device_id":peer_device,"password":"纪元切换空间口令-唯一短语"}),
+        )
+        .unwrap();
+    let space = owner
+        .execute("space.default", json!({}))
+        .unwrap()["space_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    owner.sync_batch().unwrap();
+    let directory1 = std::fs::canonicalize(remote1.path()).unwrap();
+    let rolled_key1 = sha256_hex(
+        &json!({"directory":directory1.to_string_lossy(),"space_id":space,"epoch":2}).to_string(),
+    );
+    let status: Value = owner.execute("sync.status", json!({})).unwrap();
+    assert_eq!(
+        status["target"]["target_key"],
+        json!(rolled_key1),
+        "纪元推进后目标键滚动到纪元派生键: {status}"
+    );
+
+    // 切换到另一个真实本地文件夹远端：完整复制校验通过才切换，旧远端原样保留。
+    let remote1_commits = commit_markers(remote1.path()).len();
+    let switched = owner
+        .execute(
+            "sync.target.switch",
+            json!({"provider_kind":"local_folder","directory":remote2.path()}),
+        )
+        .unwrap();
+    assert!(switched["copied"].as_u64().unwrap() > 0, "{switched}");
+    assert_eq!(
+        commit_markers(remote1.path()).len(),
+        remote1_commits,
+        "切换复制不得改动旧远端"
+    );
+
+    // 切换后首个批次：新事实发布到新远端，旧远端不再有新写入。
+    item(&owner, &member, "切换后衬衫");
+    owner.sync_batch().unwrap();
+    let directory2 = std::fs::canonicalize(remote2.path()).unwrap();
+    let rolled_key2 = sha256_hex(
+        &json!({"directory":directory2.to_string_lossy(),"space_id":space,"epoch":2}).to_string(),
+    );
+    let status: Value = owner.execute("sync.status", json!({})).unwrap();
+    assert_eq!(
+        status["target"]["target_key"],
+        json!(rolled_key2),
+        "切换远端后批次以新远端的纪元派生键发布: {status}"
+    );
+    assert_eq!(
+        commit_markers(remote1.path()).len(),
+        remote1_commits,
+        "切换后不得再写旧远端"
+    );
+    assert!(
+        commit_markers(remote2.path()).len() > remote1_commits,
+        "切换后首个批次落在新远端"
+    );
+}
+
+/// 回归（review P1-1）：纪元轮换滚动目标键时，派生键上可能残留更早周期
+/// 留下的凭据。迁移必须以「当前文档正在使用的键」的凭据为权威无条件覆盖；
+/// 否则「已存在即跳过」会让切换远端后的首个批次拿旧凭据连新远端。
+#[test]
+#[ignore = "requires real Apache WebDAV server and the OS credential store"]
+fn epoch_rotation_migration_overwrites_stale_credential_and_switch_lands_on_new_remote() {
+    let server = webdav_server::WebDavServer::spawn();
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let owner_db = a.path().join("wardrobe.sqlite");
+    let peer_db = b.path().join("wardrobe.sqlite");
+    let (owner, peer) = pair(&owner_db, &peer_db, "epoch 凭据空间口令-唯一短语");
+    let _x = Cleanup(owner_db);
+    let _y = Cleanup(peer_db);
+    let root1 = format!("wd-review-a-{}", uuid::Uuid::now_v7().simple());
+    let configured = owner
+        .execute(
+            "sync.configure",
+            json!({
+                "provider_kind":"webdav","url":server.base_url,"root":root1,
+                "username":webdav_server::USERNAME,"password":webdav_server::PASSWORD,
+            }),
+        )
+        .unwrap();
+    // 明文 http 目标在配置回执与状态页如实标注（review P2-9）。
+    assert_eq!(
+        configured["target"]["transport"],
+        json!("plain-http"),
+        "{configured}"
+    );
+    let member = owner
+        .execute("member.create", json!({"name":"凭据纪元家人"}))
+        .unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    item(&owner, &member, "轮换前衬衫");
+    owner.sync_batch().unwrap();
+
+    // 纪元推进（撤销对端）。
+    let peer_state: Value = peer.execute("encryption.status", json!({})).unwrap();
+    let peer_device = peer_state["state"]["device_id"].as_str().unwrap().to_owned();
+    owner
+        .execute(
+            "encryption.device.revoke",
+            json!({"device_id":peer_device,"password":"epoch 凭据空间口令-唯一短语"}),
+        )
+        .unwrap();
+
+    // 在纪元派生键上预置「上一周期残留的旧凭据」（真实场景：上次轮换迁移
+    // 留下的上一远端凭据；与当前文档权威凭据不同）。
+    let space = owner
+        .execute("space.default", json!({}))
+        .unwrap()["space_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let rolled_key = sha256_hex(&json!({"directory":Value::Null,"space_id":space,"epoch":2}).to_string());
+    keyring::Entry::new("wardrobe-agent.sync", &rolled_key)
+        .unwrap()
+        .set_password("stale-credential-from-previous-cycle")
+        .unwrap();
+
+    // 入队滚动目标键：迁移必须用当前权威凭据覆盖残留，首个批次成功。
+    owner.sync_batch().unwrap();
+    let status: Value = owner.execute("sync.status", json!({})).unwrap();
+    assert_eq!(
+        status["target"]["target_key"],
+        json!(rolled_key),
+        "纪元推进后目标键滚动到纪元派生键: {status}"
+    );
+    assert_eq!(status["target"]["transport"], json!("plain-http"));
+    let stored = keyring::Entry::new("wardrobe-agent.sync", &rolled_key)
+        .unwrap()
+        .get_password()
+        .unwrap();
+    assert_eq!(
+        stored,
+        webdav_server::PASSWORD,
+        "滚动键上的残留凭据必须被当前权威凭据无条件覆盖"
+    );
+
+    // 切换远端（同一服务器的第二个根目录）：复制校验后原子切换；同纪元下
+    // 目标键再次滚动到同一纪元派生键，迁移仍以切换后的权威凭据覆盖，
+    // 首个批次成功发布到新远端。
+    let root2 = format!("wd-review-b-{}", uuid::Uuid::now_v7().simple());
+    let switched = owner
+        .execute(
+            "sync.target.switch",
+            json!({
+                "provider_kind":"webdav","url":server.base_url,"root":root2,
+                "username":webdav_server::USERNAME,"password":webdav_server::PASSWORD,
+            }),
+        )
+        .unwrap();
+    assert!(switched["copied"].as_u64().unwrap() > 0, "{switched}");
+    assert_eq!(switched["target"]["transport"], json!("plain-http"));
+    item(&owner, &member, "切换远端后衬衫");
+    owner.sync_batch().unwrap();
+    let status: Value = owner.execute("sync.status", json!({})).unwrap();
+    assert_eq!(status["target"]["root"], json!(root2), "{status}");
+    assert_eq!(status["target"]["target_key"], json!(rolled_key));
+    assert_eq!(
+        keyring::Entry::new("wardrobe-agent.sync", &rolled_key)
+            .unwrap()
+            .get_password()
+            .unwrap(),
+        webdav_server::PASSWORD,
+        "切换远端后滚动键仍持有新远端权威凭据"
+    );
+
+    // 解除配对清理滚动键凭据。
+    owner.execute("encryption.unpair", json!({})).unwrap();
+    assert!(
+        keyring::Entry::new("wardrobe-agent.sync", &rolled_key)
+            .unwrap()
+            .get_password()
+            .is_err(),
+        "unpair 应清理纪元派生键凭据"
+    );
+}

@@ -127,7 +127,13 @@ pub(super) fn build_target(app: &Application, input: &Value) -> Result<Value, Ap
                 timeout: std::time::Duration::from_secs(30),
             })?;
             sync_store_webdav_password(&target_key, &password)?;
-            json!({"id":"primary","target_key":target_key,"provider_kind":"webdav","url":url,"root":root,"username":username})
+            let mut target = json!({"id":"primary","target_key":target_key,"provider_kind":"webdav","url":url,"root":root,"username":username});
+            // 明文 http（含局域网）不禁止，但配置回执与 sync.status 必须如实
+            // 标注传输方式，供用户自行判断。
+            if url.starts_with("http://") {
+                target["transport"] = json!("plain-http");
+            }
+            target
         }
         Some("s3") => {
             if input.get("directory").is_some() {
@@ -922,9 +928,12 @@ impl Application {
         if blocked_by.is_empty() && retention_passed {
             'publishers: for publisher in &devices {
                 let namespace = format!("{space}/epochs/{epoch}/index/{publisher}");
+                // 按设备全集取最小水位：任一设备缺失该发布者的页位置按 0
+                // 约束（ADR0033「页号 < 所有设备位置的最小值」），绝不跳过
+                // 缺失设备回收其尚未消费的页。
                 let min_position = watermarks
                     .iter()
-                    .filter_map(|w| w["positions"][publisher.as_str()].as_u64())
+                    .map(|w| w["positions"][publisher.as_str()].as_u64().unwrap_or(0))
                     .min()
                     .unwrap_or(0);
                 let head_key = format!("{namespace}/head.index");
@@ -967,10 +976,13 @@ impl Application {
                         if dry_run {
                             continue;
                         }
-                        // 标记先删（发布标记门槛），对象后删。
-                        if storage.delete(key, WriteCondition::Any).is_ok() {
-                            reclaimed_changes += 1;
+                        // 标记先删（发布标记门槛），对象后删；标记删除失败时
+                        // 跳过对象删除——发布标记仍在，页不会被重复回收，
+                        // 对象留在远端是安全方向。
+                        if storage.delete(key, WriteCondition::Any).is_err() {
+                            continue;
                         }
+                        reclaimed_changes += 1;
                         let object_key = key.trim_end_matches(".commit").to_owned() + ".object";
                         match storage.delete(&object_key, WriteCondition::Any) {
                             Ok(()) | Err(_) => {}

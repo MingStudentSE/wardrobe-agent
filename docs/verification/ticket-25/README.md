@@ -1,6 +1,6 @@
 # #25 实施证据（未候选、未验收）
 
-基线已接受 #32 `765e75941c77537d05e3242ff99f9cfc2b4e8267`；独立 `/tmp/wardrobe-ticket-25` / `codex/ticket-25`。尚需合最新integration及完整联合验收。schema21 / ADR0026。
+基线已接受 #32 `765e75941c77537d05e3242ff99f9cfc2b4e8267`；独立 `/tmp/wardrobe-ticket-25` / `codex/ticket-25`。尚需合最新integration及完整联合验收。schema21 / ADR0034。
 
 实际TDD公开Application+临时SQLite：计划创建/重启/CAS修改暂停；真实到期/设备隔离/最新补跑去重/较早错过；durable care worker与取消不发布；limited worker须原业务scope；新计划与修订不得追溯；长停机错过区间；次日目标、不wear；受控真实TCP AI任务等待响应才通知；通知提交前持久claim与unknown不盲重发；portable计划+执行历史及同空间恢复不重复。本目录raw保留各首次失败和修复尝试，文件名含green只表示当时尝试，实际是否通过以结尾exit/test summary为准。
 

@@ -17,9 +17,10 @@ fn migrate_sync_credential(
                 Err(e) if e.code == "storage_unauthorized" => return Ok(()),
                 Err(e) => return Err(e),
             };
-            if sync_webdav_password(new_key).is_err() {
-                sync_store_webdav_password(new_key, &password)?;
-            }
+            // 无条件覆盖：old_key 是当前目标文档正在使用的键，其凭据即权威。
+            // 新键上可能残留更早轮换周期留下的上一远端凭据——若「已存在即
+            // 跳过」，切换远端后的首个批次会拿旧凭据连新远端。
+            sync_store_webdav_password(new_key, &password)?;
         }
         Some("s3") => {
             let credentials = match sync_s3_credentials(old_key) {
@@ -27,18 +28,44 @@ fn migrate_sync_credential(
                 Err(e) if e.code == "storage_auth" => return Ok(()),
                 Err(e) => return Err(e),
             };
-            if sync_s3_credentials(new_key).is_err() {
-                sync_store_s3_credentials(
-                    new_key,
-                    &credentials.access_key_id,
-                    &credentials.secret_access_key,
-                )?;
-            }
+            sync_store_s3_credentials(
+                new_key,
+                &credentials.access_key_id,
+                &credentials.secret_access_key,
+            )?;
         }
         // local_folder 无凭据；其余类型不带凭据。
         _ => {
             let _: &Application = app;
         }
+    }
+    Ok(())
+}
+
+/// 纪元键滚动时搬迁按 (target_key, epoch) 索引的发布者索引状态（页/条目/
+/// 游标/错误/缺失）。只搬 epoch 维度表：纯纪元轮换下这些行只属于旧纪元
+/// （新纪元尚无行），搬运无害；而「切换远端后的下一次入队滚动」必须让
+/// 已逐字节复制到新远端的索引页状态跟随到纪元派生键，否则索引页会从
+/// 第 1 页重开并与远端已有页冲突（sync_identity_conflict）。非 epoch 表
+/// （publications/cursors/pending/quarantine）不搬：纯轮换必须按新纪元
+/// 强制重发布 changes，搬运会错误抑制。
+fn carry_epoch_index_state(
+    tx: &rusqlite::Transaction<'_>,
+    old_key: &str,
+    new_key: &str,
+) -> Result<(), ApiError> {
+    for table in [
+        "sync_index_errors",
+        "sync_missing",
+        "sync_index_read",
+        "sync_index_batches",
+        "sync_index_entries",
+    ] {
+        tx.execute(
+            &format!("UPDATE {table} SET target_id=?1 WHERE target_id=?2"),
+            params![new_key, old_key],
+        )
+        .map_err(|_| error("storage_error"))?;
     }
     Ok(())
 }
@@ -71,6 +98,7 @@ impl Application {
                     "UPDATE sync_targets SET document=?1 WHERE id='primary'",
                     [target.to_string()],
                 )?;
+                carry_epoch_index_state(&tx, &old_key, &key)?;
                 tx.commit()?;
             }
         }
