@@ -2,6 +2,7 @@ import {useCategories} from './useCategories';
 import {useEffect,useRef,useState} from 'react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {api} from './api';
+import {uiEvent} from './components/reproduction';
 import {ImagePreview} from './ImagePreview';
 import {seasons,textFields,arrayFields,minor,message} from './ItemEditor';
 import './create-item.css';
@@ -14,7 +15,7 @@ export function CreateItem({member,disabled,canMutate,onSaved,onClose,onBusy,onD
  function field(k:string,v:string){setValues(o=>({...o,[k]:v}));}
  async function run(work:()=>Promise<void>){if(pending.current||disabled||!canMutate())return;pending.current=true;setBusy(true);onBusy(true);setError('');let done=false;try{await work();done=!!created.current;}catch(e){setError(message(e));}finally{pending.current=false;setBusy(false);onBusy(false);}if(done)onClose();}
  async function choose(){if('__TAURI_INTERNALS__' in window){await run(async()=>{const path=await open({multiple:false,filters:[{name:'衣物照片',extensions:['jpg','jpeg','png','webp','heic','heif']}]});if(typeof path==='string'){const result=await api<{id:string}>('assets.import',{member_id:member,path});setAsset(result.id);onDirty();}});}else file.current?.click();}
- return <section className="create-item" id="entry" aria-label="录入单品"><form onSubmit={e=>{e.preventDefault();void run(async()=>{
+ return <section className="create-item" id="entry" aria-label="录入单品"><form onSubmit={e=>{e.preventDefault();void uiEvent('dialog_submit','录入单品');void run(async()=>{
  if(!created.current){const input:Record<string,unknown>={member_id:member,name:values.name.trim(),category:values.category,seasons:season,favorite,color:[],sub_category:values.sub_category||null,currency:values.price?'CNY':null,purchase_price_minor:values.price?minor(values.price,'CNY'):null,purchase_date:values.purchase_date||null};for(const k of Object.keys(textFields))input[k]=values[k]?.trim()||null;for(const k of Object.keys(arrayFields))input[k]=(values[k]||'').split(/[,，]/).map(v=>v.trim()).filter(Boolean);const result=await api<{id:string}>('clothing.create',input);created.current=result.id;}
  if(asset)await api('assets.adopt',{member_id:member,clothing_id:created.current,asset_id:asset});await onSaved();
  });}}>

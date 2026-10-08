@@ -268,6 +268,13 @@ impl Logger {
         self.log_event(Level::Error, "open", fields);
     }
 
+    /// 复现记录标记（#50）：调用方捕获时间戳并随字段写入，使事件落盘 ts 与
+    /// 返回给前端的窗口端点完全一致（fields 合并覆盖基础 ts，见 log_event）。
+    /// 事件只含 phase 与 ts，无可注入内容。
+    pub(crate) fn log_reproduction_marker(&self, phase: &str, ts: &str) {
+        self.log_event(Level::Info, "reproduction", json!({"phase": phase, "ts": ts}));
+    }
+
     /// 通用事件入口（run_start、panic；#43 的 diagnostics.ui_event 等复用）。
     /// `fields` 必须由调用方按构造脱敏后组装。
     pub(crate) fn log_event(&self, level: Level, event_type: &str, fields: Value) {
@@ -522,7 +529,58 @@ impl Application {
             "diagnostics.logs.query" => self.diagnostics_logs_query(input),
             "diagnostics.export" => self.diagnostics_export(input),
             "diagnostics.checks" => self.diagnostics_checks(input),
+            "diagnostics.ui_event" => self.diagnostics_ui_event(input),
+            "diagnostics.reproduction.start" => self.diagnostics_reproduction_marker(input, "start"),
+            "diagnostics.reproduction.stop" => self.diagnostics_reproduction_marker(input, "stop"),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
+        }
+    }
+
+    /// diagnostics.ui_event（#50）：把前端关键交互写入同一日志流形成用户操作时间线。
+    /// 封闭白名单：type 须为 view_switch / dialog_open / dialog_submit 之一，
+    /// label 须为 1–40 字符的简短界面文案（前端固定文案，非用户输入内容）；
+    /// 白名单外类型与超长标签拒绝且不落盘。事件只含 type 与 label 两个字段，
+    /// 不接受自由文本——脱敏按构造不变，不引入旁路。
+    pub(super) fn diagnostics_ui_event(&self, input: Value) -> Result<Value, ApiError> {
+        const UI_EVENT_TYPES: [&str; 3] = ["view_switch", "dialog_open", "dialog_submit"];
+        const UI_EVENT_LABEL_MAX_CHARS: usize = 40;
+        let kind = match input.get("type") {
+            Some(Value::String(text)) => text.as_str(),
+            _ => return Err(ApiError::new("invalid_input", "type 须为白名单事件类型")),
+        };
+        if !UI_EVENT_TYPES.contains(&kind) {
+            return Err(ApiError::new("invalid_input", "事件类型不在白名单内"));
+        }
+        let label = match input.get("label") {
+            Some(Value::String(text)) => text.as_str(),
+            _ => return Err(ApiError::new("invalid_input", "label 须为简短界面文案")),
+        };
+        let chars = label.chars().count();
+        if chars == 0 || chars > UI_EVENT_LABEL_MAX_CHARS {
+            return Err(ApiError::new(
+                "invalid_input",
+                &format!("label 须为 1–{UI_EVENT_LABEL_MAX_CHARS} 字符的界面文案"),
+            ));
+        }
+        self.logger.log_event(Level::Info, "ui", json!({"type": kind, "label": label}));
+        Ok(json!({"schema_version": 1}))
+    }
+
+    /// diagnostics.reproduction.start / stop（#50）：写入显式标记事件并返回标记时刻。
+    /// 核心不持有录制状态（刷新页面即放弃，前端负责计时与自动停止）；
+    /// 标记事件只含 phase 与 ts，调用方以两端时刻为界调用扩展后的 diagnostics.export。
+    pub(super) fn diagnostics_reproduction_marker(
+        &self,
+        input: Value,
+        phase: &str,
+    ) -> Result<Value, ApiError> {
+        let _ = input;
+        let ts = timestamp();
+        self.logger.log_reproduction_marker(phase, &ts);
+        if phase == "start" {
+            Ok(json!({"schema_version": 1, "started_at": ts}))
+        } else {
+            Ok(json!({"schema_version": 1, "stopped_at": ts}))
         }
     }
 
@@ -777,6 +835,33 @@ impl Application {
             Window::All => "all",
             Window::Explicit(..) => "window",
         };
+        // #50 加法扩展：kind（产物 meta 种类，默认 diagnostics；reproduction 用于记录复现）
+        // 与 attach_checks（meta 附导出时刻的基础检查结果）。两个新参皆可缺省——
+        // 不传时选取、排序、meta 其余字段与 #45 完全一致。
+        let kind_name = match input.get("kind") {
+            None | Some(Value::Null) => "diagnostics",
+            Some(Value::String(text)) => match text.as_str() {
+                "diagnostics" | "reproduction" => text.as_str(),
+                _ => {
+                    return Err(ApiError::new(
+                        "invalid_input",
+                        "kind 须为 diagnostics 或 reproduction",
+                    ))
+                }
+            },
+            Some(_) => {
+                return Err(ApiError::new(
+                    "invalid_input",
+                    "kind 须为 diagnostics 或 reproduction",
+                ))
+            }
+        };
+        let attach_checks = match input.get("attach_checks") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(value)) => *value,
+            Some(_) => return Err(ApiError::new("invalid_input", "attach_checks 须为布尔值")),
+        };
+
         // 事件选取与查询同口径：ts 不可解析的事件不进入导出（损坏行静默跳过）
         let event_millis =
             |event: &Value| -> Option<i64> {
@@ -828,8 +913,8 @@ impl Application {
             .iter()
             .map(|event| recent_error_item(event))
             .collect();
-        let meta = json!({
-            "kind": "diagnostics",
+        let mut meta = json!({
+            "kind": kind_name,
             "schema_version": 1,
             "app_version": env!("CARGO_PKG_VERSION"),
             "os": std::env::consts::OS,
@@ -844,6 +929,11 @@ impl Application {
             "level_counts": level_counts,
             "recent_errors": recent_errors,
         });
+        // attach_checks：附导出时刻的基础检查结果（记录复现停止导出时为记录时刻体检）
+        if attach_checks {
+            meta["checks"] = self.diagnostics_checks(json!({}))?;
+        }
+
         let mut content = String::new();
         content.push_str(&meta.to_string());
         content.push('\n');
@@ -1563,11 +1653,11 @@ pub(super) fn descriptors() -> Vec<Value> {
         }),
         json!({
             "name":"diagnostics.export",
-            "description":"仅可信本机入口导出诊断文件到指定路径：单文件 JSONL，首行 meta（应用版本、操作系统、数据库模式版本、导出时间、覆盖时间范围、run_id 列表、按级别计数、最近错误摘要），其后为按时间排序的日志事件；范围 session（本次启动）/recent（默认，最近 24 小时跨重启）/all（保留期内全部）或显式 from–to 起止时间窗（含端点，与 scope 互斥）",
+            "description":"仅可信本机入口导出诊断文件到指定路径：单文件 JSONL，首行 meta（应用版本、操作系统、数据库模式版本、导出时间、覆盖时间范围、run_id 列表、按级别计数、最近错误摘要；kind=reproduction 时附基础检查结果），其后为按时间排序的日志事件；范围 session（本次启动）/recent（默认，最近 24 小时跨重启）/all（保留期内全部）或显式 from–to 起止时间窗（含端点，与 scope 互斥）",
             "effect":{"kind":"query","network":"none","local_files":true,"async":null},
             "examples":[{
                 "request":{"path":"</绝对/本地/诊断文件>.jsonl","scope":"recent"},
-                "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","产物只来自日志文件与摘要投影：不含数据库、图片与凭据（脱敏与普通日志同一构造）","scope 缺省为 recent；显式 from/to 须成对提供且含端点","写入目标文件（已存在则覆盖）；保存对话框与 dev 回退路径由桌面端入口负责"]
+                "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","产物只来自日志文件与摘要投影：不含数据库、图片与凭据（脱敏与普通日志同一构造）","scope 缺省为 recent；显式 from/to 须成对提供且含端点","kind 缺省 diagnostics；kind=reproduction 与 attach_checks=true 用于记录复现的窗口导出","写入目标文件（已存在则覆盖）；保存对话框与 dev 回退路径由桌面端入口负责"]
             }],
             "inputSchema":{
                 "type":"object",
@@ -1577,10 +1667,53 @@ pub(super) fn descriptors() -> Vec<Value> {
                     "path":{"type":"string","minLength":1,"description":"导出目标文件路径（单文件 JSONL）"},
                     "scope":{"enum":["session","recent","all"],"description":"范围：本次启动 / 最近 24 小时跨重启（默认）/ 保留期内全部"},
                     "from":{"type":"string","description":"RFC3339 显式窗口起点（含）；须与 to 成对提供，与 scope 互斥"},
-                    "to":{"type":"string","description":"RFC3339 显式窗口终点（含）；须与 from 成对提供，与 scope 互斥"}
+                    "to":{"type":"string","description":"RFC3339 显式窗口终点（含）；须与 from 成对提供，与 scope 互斥"},
+                    "kind":{"enum":["diagnostics","reproduction"],"description":"产物 meta 种类；缺省 diagnostics；记录复现停止导出时为 reproduction"},
+                    "attach_checks":{"type":"boolean","description":"true 时 meta 附带导出时刻的 diagnostics.checks 结果（记录复现用）；缺省 false"}
                 }
             },
             "outputSchema":export_schema()
+        }),
+        json!({
+            "name":"diagnostics.ui_event",
+            "description":"仅可信本机入口把前端关键交互写入同一日志流形成用户操作时间线（记录复现期间由桌面端调用）：封闭白名单事件类型（view_switch 视图切换 / dialog_open 对话框打开 / dialog_submit 对话框提交）加简短界面文案标签；白名单外类型与超长标签拒绝且不落盘，不接受自由文本",
+            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            "examples":[{
+                "request":{"type":"view_switch","label":"穿搭库"},
+                "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","type 须为封闭白名单之一；label 须为 1–40 字符的前端固定界面文案（如「穿搭库」），不是用户输入内容","事件只含 type 与 label：脱敏按构造不变，不引入旁路"]
+            }],
+            "inputSchema":{
+                "type":"object",
+                "additionalProperties":false,
+                "required":["type","label"],
+                "properties":{
+                    "type":{"enum":["view_switch","dialog_open","dialog_submit"],"description":"白名单事件类型"},
+                    "label":{"type":"string","minLength":1,"maxLength":40,"description":"简短界面文案（前端固定文案，如「穿搭库」「记录穿着」）"}
+                }
+            },
+            "outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"type":"integer","const":1}},"additionalProperties":false}
+        }),
+        json!({
+            "name":"diagnostics.reproduction.start",
+            "description":"仅可信本机入口写入复现记录的开始标记事件并返回标记时刻（记录复现流程由桌面端调用）；核心不持有录制状态，最长时长与自动停止由前端计时负责",
+            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            "examples":[{
+                "request":{},
+                "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","写入一条 event_type=reproduction、phase=start 的标记事件，返回的 started_at 与落盘 ts 一致，可作导出窗口起点（含端点）","不接受任何输入字段"]
+            }],
+            "inputSchema":{"type":"object","properties":{},"additionalProperties":false},
+            "outputSchema":{"type":"object","required":["schema_version","started_at"],"properties":{"schema_version":{"type":"integer","const":1},"started_at":{"type":"string","description":"开始标记事件落盘时刻（RFC3339，窗口起点含端点）"}},"additionalProperties":false}
+        }),
+        json!({
+            "name":"diagnostics.reproduction.stop",
+            "description":"仅可信本机入口写入复现记录的停止标记事件并返回标记时刻；随后桌面端以窗口起止为界调用 diagnostics.export（kind=reproduction、attach_checks=true）得到单文件复现记录",
+            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            "examples":[{
+                "request":{},
+                "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","写入一条 event_type=reproduction、phase=stop 的标记事件，返回的 stopped_at 与落盘 ts 一致，可作导出窗口终点（含端点）","不接受任何输入字段"]
+            }],
+            "inputSchema":{"type":"object","properties":{},"additionalProperties":false},
+            "outputSchema":{"type":"object","required":["schema_version","stopped_at"],"properties":{"schema_version":{"type":"integer","const":1},"stopped_at":{"type":"string","description":"停止标记事件落盘时刻（RFC3339，窗口终点含端点）"}},"additionalProperties":false}
         }),
     ]
 }

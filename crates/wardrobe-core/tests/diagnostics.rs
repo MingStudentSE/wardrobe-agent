@@ -638,7 +638,7 @@ fn external_clients_can_never_gain_diagnostics_scope() {
         )
         .unwrap();
     let token = grant["token"].as_str().unwrap();
-    for operation in ["diagnostics.summary", "diagnostics.checks", "diagnostics.logs.query", "diagnostics.export"] {
+    for operation in ["diagnostics.summary", "diagnostics.checks", "diagnostics.logs.query", "diagnostics.export", "diagnostics.ui_event", "diagnostics.reproduction.start", "diagnostics.reproduction.stop"] {
         let denied = app.execute_as_client(token, operation, json!({})).unwrap_err();
         assert_eq!(denied.code, "scope_denied", "{operation}: {denied:?}");
     }
@@ -2172,6 +2172,143 @@ fn doctor_report_degrades_to_filesystem_checks_when_database_cannot_open() {
     let wal = items.iter().find(|i| i["id"] == "database_wal").unwrap();
     assert_eq!(wal["status"], "warn", "依赖数据库的项如实说明无法检查：{wal}");
     assert_eq!(report["checks"]["counts"]["fail"], 1, "{report}");
+}
+
+/// #50：`diagnostics.ui_event` 封闭白名单——合法类型落盘为 event_type=ui 的事件
+///（只含公共字段与 type/label），白名单外类型、缺失/超长标签与未知字段被拒绝，
+/// 且被拒绝的 ui 事件不落盘（脱敏按构造不变：事件没有携带任意内容的容身之处）。
+#[test]
+fn ui_event_accepts_only_whitelisted_types_and_short_labels() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    let samples = [
+        ("view_switch", "穿搭库"),
+        ("dialog_open", "新增衣物"),
+        ("dialog_submit", "记录穿着"),
+    ];
+    for (kind, label) in samples {
+        app.execute("diagnostics.ui_event", json!({"type":kind,"label":label}))
+            .unwrap();
+    }
+    let events = log_events(dir.path());
+    let ui: Vec<&Value> = events.iter().filter(|e| e["event_type"] == "ui").collect();
+    assert_eq!(ui.len(), 3, "恰好三条 ui 事件：{events:?}");
+    for (event, (kind, label)) in ui.iter().zip(samples) {
+        assert_eq!(event["type"], json!(kind), "{event}");
+        assert_eq!(event["label"], json!(label), "{event}");
+        assert_eq!(event["level"], "info", "{event}");
+        assert_eq!(event["run_id"], wardrobe_core::diagnostics::run_id(), "{event}");
+        assert!(chrono::DateTime::parse_from_rfc3339(event["ts"].as_str().unwrap()).is_ok(), "{event}");
+        let allowed = ["ts", "level", "event_type", "run_id", "type", "label"];
+        for key in event.as_object().unwrap().keys() {
+            assert!(allowed.contains(&key.as_str()), "ui 事件出现白名单外字段 {key}：{event}");
+        }
+    }
+    // 白名单外类型、缺 label、空 label、超长 label、未知字段、非法类型值：全部拒绝
+    for bad in [
+        json!({"type":"free_text","label":"任意内容"}),
+        json!({"type":"view_switch"}),
+        json!({"type":"view_switch","label":""}),
+        json!({"type":"view_switch","label":"x".repeat(41)}),
+        json!({"type":"view_switch","label":"穿搭库","extra":"字段"}),
+        json!({"type":123,"label":"穿搭库"}),
+    ] {
+        let error = app.execute("diagnostics.ui_event", bad.clone()).unwrap_err();
+        assert_eq!(error.code, "invalid_input", "{bad}: {error:?}");
+    }
+    let after = log_events(dir.path());
+    assert_eq!(
+        after.iter().filter(|e| e["event_type"] == "ui").count(),
+        3,
+        "被拒绝的 ui 事件不得落盘：{after:?}"
+    );
+}
+
+/// #50：记录复现——开始/停止标记事件落盘（event_type=reproduction，phase=start/stop，
+/// 返回的时间与落盘 ts 一致）；以窗口起止为界的导出只含窗口内事件，meta 标
+/// kind=reproduction 并附记录时刻的 checks 结果；不传新参的导出与 #45 完全一致
+///（meta.kind=diagnostics 且无 checks 键）。
+#[test]
+fn reproduction_markers_bound_the_window_and_export_carries_reproduction_meta_with_checks() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    // 窗口前的操作：窗口导出不得包含（隔开 2ms 避免毫秒边界同点）
+    app.execute("member.list", json!({})).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let start = app.execute("diagnostics.reproduction.start", json!({})).unwrap();
+    assert_eq!(start["schema_version"], 1, "{start}");
+    let started_at = start["started_at"].as_str().expect("started_at 须为 RFC3339").to_string();
+    // 窗口内：一次真实操作 + 一条用户操作时间线事件
+    app.execute("space.default", json!({})).unwrap();
+    app.execute("diagnostics.ui_event", json!({"type":"view_switch","label":"穿搭库"})).unwrap();
+    let stop = app.execute("diagnostics.reproduction.stop", json!({})).unwrap();
+    assert_eq!(stop["schema_version"], 1, "{stop}");
+    let stopped_at = stop["stopped_at"].as_str().expect("stopped_at 须为 RFC3339").to_string();
+
+    // 标记事件落盘，且落盘 ts 与返回的窗口端点完全一致
+    let events = log_events(dir.path());
+    let markers: Vec<&Value> = events.iter().filter(|e| e["event_type"] == "reproduction").collect();
+    assert_eq!(markers.len(), 2, "开始/停止标记各一条：{events:?}");
+    assert_eq!(markers[0]["phase"], "start", "{markers:?}");
+    assert_eq!(markers[0]["ts"], json!(started_at), "落盘 ts 须与 started_at 一致：{markers:?}");
+    assert_eq!(markers[1]["phase"], "stop", "{markers:?}");
+    assert_eq!(markers[1]["ts"], json!(stopped_at), "落盘 ts 须与 stopped_at 一致：{markers:?}");
+
+    // 以标记为界的窗口导出（含端点）：含两端标记、窗口内操作与 ui 事件，不含窗口前操作
+    let target = dir.path().join("复现记录.jsonl");
+    let (output, meta, exported) = export_lines(
+        &app,
+        &target,
+        json!({"from":started_at,"to":stopped_at,"kind":"reproduction","attach_checks":true}),
+    );
+    assert!(exported.iter().any(|e| e["event_type"] == "reproduction" && e["phase"] == "start"), "{exported:?}");
+    assert!(exported.iter().any(|e| e["event_type"] == "reproduction" && e["phase"] == "stop"), "{exported:?}");
+    assert!(exported.iter().any(|e| e["event_type"] == "ui" && e["type"] == "view_switch"), "{exported:?}");
+    assert!(exported.iter().any(|e| e["operation"] == "space.default"), "{exported:?}");
+    assert!(
+        !exported.iter().any(|e| e["operation"] == "member.list"),
+        "窗口前操作不得进入复现导出：{exported:?}"
+    );
+    assert_eq!(meta["kind"], "reproduction", "{meta}");
+    let checks = &meta["checks"];
+    assert_eq!(checks["schema_version"], 1, "{meta}");
+    assert_eq!(checks["checks"].as_array().unwrap().len(), 10, "附记录时刻的十项检查：{meta}");
+    assert_eq!(checks["counts"], json!({"pass":10,"warn":0,"fail":0}), "{meta}");
+    // 输出契约与 #45 同形：路径与统计字段不变
+    assert_eq!(output["schema_version"], 1, "{output}");
+    assert_eq!(output["path"], json!(target.to_string_lossy()), "{output}");
+    assert_eq!(output["event_count"], json!(exported.len()), "{output}");
+
+    // #45 回归钉住：不传新参，meta.kind 仍为 diagnostics 且没有 checks 键
+    let (_, plain_meta, _) = export_lines(&app, &dir.path().join("plain.jsonl"), json!({"scope":"session"}));
+    assert_eq!(plain_meta["kind"], "diagnostics", "{plain_meta}");
+    assert!(plain_meta.get("checks").is_none(), "不传新参不得附 checks：{plain_meta}");
+    // 新参数自身校验：非法 kind、非布尔 attach_checks、未知字段
+    for bad in [
+        json!({"path":"x.jsonl","kind":"video"}),
+        json!({"path":"x.jsonl","attach_checks":"yes"}),
+        json!({"path":"x.jsonl","kind":"reproduction","extra":1}),
+    ] {
+        let error = app.execute("diagnostics.export", bad.clone()).unwrap_err();
+        assert_eq!(error.code, "invalid_input", "{bad}: {error:?}");
+    }
+}
+
+/// #50：标记操作输入严格（不接受任何字段），开始/停止标记不携带可注入内容。
+#[test]
+fn reproduction_markers_accept_no_input_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    for operation in ["diagnostics.reproduction.start", "diagnostics.reproduction.stop"] {
+        let error = app.execute(operation, json!({"phase":"forged"})).unwrap_err();
+        assert_eq!(error.code, "invalid_input", "{operation}: {error:?}");
+        app.execute(operation, json!({})).unwrap();
+    }
+    let events = log_events(dir.path());
+    let markers: Vec<&Value> = events.iter().filter(|e| e["event_type"] == "reproduction").collect();
+    assert_eq!(markers.len(), 2, "{events:?}");
+    assert_eq!(markers[0]["phase"], "start", "{markers:?}");
+    assert_eq!(markers[1]["phase"], "stop", "{markers:?}");
 }
 
 /// #48 doctor 降级：位置标记 pending 且迁移锁被占用（切换进行中）→ 打开被拒，

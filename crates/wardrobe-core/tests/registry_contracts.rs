@@ -2159,11 +2159,87 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
         assert_eq!(error.code, "invalid_input", "{bad}: {error:?}");
     }
 
+    // #50 记录复现：ui_event 白名单拒绝、reproduction 标记与复现导出扩展的运行时契约
+    let ui = app
+        .execute("diagnostics.ui_event", json!({"type":"view_switch","label":"穿搭库"}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("diagnostics.ui_event"), &ui, "diagnostics.ui_event");
+    let error = app
+        .execute("diagnostics.ui_event", json!({"type":"free_text","label":"任意"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+    let start = app.execute("diagnostics.reproduction.start", json!({})).unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.reproduction.start"),
+        &start,
+        "diagnostics.reproduction.start",
+    );
+    assert!(start["started_at"].is_string(), "{start}");
+    let stop = app.execute("diagnostics.reproduction.stop", json!({})).unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.reproduction.stop"),
+        &stop,
+        "diagnostics.reproduction.stop",
+    );
+    assert!(stop["stopped_at"].is_string(), "{stop}");
+    let error = app
+        .execute("diagnostics.reproduction.start", json!({"phase":"forged"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+    // 复现导出（kind=reproduction + attach_checks）：输出契约与普通导出同形
+    let reproduction_target = export_dir.path().join("contract-reproduction.jsonl");
+    let reproduction = app
+        .execute(
+            "diagnostics.export",
+            json!({
+                "path": reproduction_target.to_string_lossy(),
+                "from": start["started_at"],
+                "to": stop["stopped_at"],
+                "kind":"reproduction",
+                "attach_checks":true,
+            }),
+        )
+        .unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.export"),
+        &reproduction,
+        "diagnostics.export(reproduction)",
+    );
+    let first_line = std::fs::read_to_string(&reproduction_target)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_string();
+    let meta: Value = serde_json::from_str(&first_line).unwrap();
+    assert_eq!(meta["kind"], json!("reproduction"), "{meta}");
+    assert_eq!(meta["checks"]["schema_version"], json!(1), "{meta}");
+    // scope 元数据：新增三个操作同为仅本机可信入口
+    for name in [
+        "diagnostics.ui_event",
+        "diagnostics.reproduction.start",
+        "diagnostics.reproduction.stop",
+    ] {
+        let descriptor = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        assert_eq!(descriptor["scope"]["access"], json!("trusted-local-only"), "{name}");
+        assert_eq!(
+            descriptor["scope"]["primary_grant_required"],
+            json!(false),
+            "{name}"
+        );
+    }
+
     let family = [
         ("diagnostics.summary", "query", true),
         ("diagnostics.checks", "query", true),
         ("diagnostics.logs.query", "query", true),
         ("diagnostics.export", "query", true),
+        ("diagnostics.ui_event", "query", true),
+        ("diagnostics.reproduction.start", "query", true),
+        ("diagnostics.reproduction.stop", "query", true),
     ];
     assert_family_effects_and_examples(&descriptors, &family);
 }

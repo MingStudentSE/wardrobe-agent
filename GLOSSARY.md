@@ -87,3 +87,5 @@
 - **运行会话（run_id）**：每次进程启动生成一次的标识；跨天、跨文件的同一运行以 run_id 关联，日志初始化进程内幂等（GUI 每命令重开 Application 不产生新 run_id）。
 - **诊断摘要（Diagnostics Summary）**：仅本机可信入口的只读健康投影——数据库模式版本、本机安装代际、按状态任务计数、供应商结果未知计数、最近错误、日志占用保留信息与丢弃计数；与持久任务实际状态一致。
 - **基础检查（Basic Checks）**：仅本机可信入口的只读体检清单（`diagnostics.checks`，与 CLI `doctor` 同源）——固定十项各报 pass/warn/fail、通俗中文消息、建议去向设置页标识与技术明细；只诊断不自动修复，不修改任何配置或数据。
+- **复现记录（Reproduction Recording）**：诊断页「开始记录复现 → 正常使用 → 停止并导出」得到的单文件窗口导出——窗口起止为显式标记事件（`diagnostics.reproduction.start/stop`），meta 标 `kind: reproduction` 并附记录时刻的基础检查结果；最长 10 分钟由前端计时自动停止，录制状态不持久化（刷新页面即放弃），记录不改变任何日志级别或脱敏行为。
+- **用户操作时间线（UI Event Timeline）**：前端关键交互（视图切换、对话框打开/提交）经 `diagnostics.ui_event` 写入全链路日志的事件序列（event_type=ui）；仅接受封闭白名单事件类型与简短界面文案标签，不接受自由文本，仅本机可信入口。
