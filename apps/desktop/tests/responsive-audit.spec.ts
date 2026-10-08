@@ -28,7 +28,7 @@ test('all workspaces and settings fit intermediate and small windows',async({pag
  await page.locator('.garment-open').first().click();await fits(page,`单品详情 ${width}`);await page.getByRole('dialog').getByRole('button',{name:'编辑衣物',exact:true}).click();for(const tab of ['基本资料','照片管理','历史与管理']){await page.getByRole('dialog').getByRole('button',{name:tab,exact:true}).click();await fits(page,`编辑${tab} ${width}`);}await page.getByRole('dialog').getByRole('button',{name:'关闭单品窗口'}).click();
  await nav(page,'设置').click();
  const hub=page.getByRole('region',{name:'设置目录'});
- for(const name of ['穿衣偏好','模型与连接','任务中心','备份与恢复','加密与设备','CLI / MCP']){await hub.getByRole('button',{name:new RegExp(name)}).click();await fits(page,`${name} ${width}`);
+ for(const name of ['穿衣偏好','模型与连接','任务中心','备份与恢复','加密与设备','CLI / MCP','诊断']){await hub.getByRole('button',{name:new RegExp(name)}).click();await fits(page,`${name} ${width}`);
  if(['备份与恢复','加密与设备','CLI / MCP'].includes(name)){for(const summary of await page.locator('.view-panel:not([hidden]) details:not([open])>summary').all()){if(await summary.isVisible())await summary.click();}await fits(page,`${name}展开 ${width}`);}
  if(name==='模型与连接'||name==='穿衣偏好'){await page.getByRole('button',{name:name==='模型与连接'?'＋ 添加模型':'＋ 添加偏好',exact:true}).click();await fits(page,`${name}弹窗 ${width}`);await page.getByRole('dialog').getByRole('button',{name:'关闭单品窗口'}).click();}
  await page.getByRole('button',{name:'← 返回设置'}).click();}

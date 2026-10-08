@@ -1,0 +1,38 @@
+/* 诊断面板（ticket #47）：沿用设置页视觉语言；无 hover/拖拽依赖，375px 可用，键盘可达。 */
+.diagnostics-section{background:var(--color-surface);border:1px solid var(--color-rule);border-radius:16px;padding:24px;margin-bottom:24px}
+.diagnostics-section h3{margin:0 0 16px;font-size:17px}
+.diagnostics-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:16px}
+.diagnostics-metrics .diagnostics-metric{border:1px solid var(--color-rule);background:var(--color-panel);padding:16px 20px;border-radius:14px;min-width:0}
+.diagnostics-metrics span{display:block;font-size:13px;color:var(--color-muted);margin-bottom:8px}
+.diagnostics-metrics strong{display:block;font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.diagnostics-metrics small{display:block;font-size:12px;color:var(--color-muted);margin-top:6px;line-height:1.6}
+.diagnostics-logs-row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;border-top:1px solid var(--color-rule);margin-top:20px;padding-top:16px}
+.diagnostics-logs-row code{font-family:var(--font-mono);font-size:12px;color:var(--color-muted);overflow-wrap:anywhere}
+.diagnostics-logs-path{margin:12px 0 0;font-size:13px;color:var(--color-muted);overflow-wrap:anywhere}
+.diagnostics-export fieldset{border:0;padding:0;margin:0 0 16px;display:grid;gap:4px}
+.diagnostics-export legend{padding:0;margin-bottom:8px;font-size:13px;color:var(--color-muted)}
+.diagnostics-export fieldset label{display:flex;align-items:center;gap:10px;font-size:14px;min-height:44px}
+.workbench .diagnostics-export input[type=radio]{width:16px;min-height:16px;height:16px;accent-color:var(--color-accent);flex-shrink:0}
+.diagnostics-window{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.diagnostics-window label{display:grid;gap:8px;font-size:13px}
+.diagnostics-export-result{margin-top:16px;padding:16px;border-radius:12px;background:var(--color-accent-soft);display:grid;gap:8px;font-size:13px}
+.diagnostics-export-result p{margin:0}
+.diagnostics-export-result code{font-family:var(--font-mono);font-size:12px;overflow-wrap:anywhere}
+.diagnostics-export-result>div{display:flex;flex-wrap:wrap;gap:12px}
+.diagnostics-errors{list-style:none;padding:0;margin:0;display:grid;gap:12px}
+.diagnostics-error{border:1px solid var(--color-rule);border-radius:12px;background:var(--color-panel)}
+.diagnostics-error>summary{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:12px 16px;min-height:44px;cursor:pointer;font-size:13px}
+.diagnostics-error>summary::before{content:'＋';color:var(--color-accent);flex-shrink:0}
+.diagnostics-error[open]>summary::before{content:'−'}
+.diagnostics-error-time{color:var(--color-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.diagnostics-error-operation{font-weight:600;overflow-wrap:anywhere}
+.diagnostics-error-code{font-family:var(--font-mono);font-size:12px;color:var(--color-error)}
+.diagnostics-session-badge{font-size:12px;border-radius:20px;padding:4px 10px;background:var(--color-panel);color:var(--color-muted);white-space:nowrap}
+.diagnostics-session-badge.current{background:var(--color-accent-soft);color:var(--color-accent)}
+.diagnostics-trace-id{font-family:var(--font-mono);font-size:12px;color:var(--color-muted);overflow-wrap:anywhere}
+.diagnostics-trace{border-top:1px solid var(--color-rule);padding:16px;display:grid;gap:12px}
+.diagnostics-trace p{margin:0}
+.diagnostics-trace ol{margin:0;padding-left:20px;display:grid;gap:10px;font-size:13px;font-variant-numeric:tabular-nums}
+.diagnostics-trace li{overflow-wrap:anywhere}
+.diagnostics-reason{display:block;font-family:var(--font-mono);font-size:12px;color:var(--color-error);margin-top:4px;overflow-wrap:anywhere}
+@media(max-width:700px){.diagnostics-section{padding:20px}.diagnostics-window{grid-template-columns:1fr}}
