@@ -269,7 +269,9 @@ impl Application {
     ) -> Result<Value, ApiError> {
         let keys = input_keys(&input);
         let started = std::time::Instant::now();
-        let mut outcome = run(self, operation, input);
+        // 业务调用期间暴露线程局部 trace 上下文：创建持久任务的操作经 jobs::insert
+        // 把本次调用的 trace_id 写入任务文档（#44 异步链路贯穿的唯一传递通道）。
+        let mut outcome = diagnostics::with_trace(&trace_id, || run(self, operation, input));
         self.logger.log_operation(
             &trace_id,
             operation,

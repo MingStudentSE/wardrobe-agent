@@ -45,7 +45,7 @@ pub(super) fn insert(
     kind: &str,
     key: &str,
     payload: Value,
-) -> Result<Value, ApiError> {
+) -> Result<(Value, bool), ApiError> {
     let existing: Option<String> = tx
         .query_row(
             "SELECT document FROM jobs WHERE member_id=?1 AND kind=?2 AND operation_key=?3",
@@ -62,7 +62,7 @@ pub(super) fn insert(
                 "同一操作标识不能替换任务输入",
             ));
         }
-        return Ok(doc);
+        return Ok((doc, false));
     }
     let guard:Option<String>=tx.query_row("SELECT payload_hash FROM local_submission_guards WHERE space_id=(SELECT id FROM workspace) AND member_id=?1 AND kind=?2 AND operation_key=?3",params![member,kind,key],|row|row.get(0)).optional()?;
     if let Some(hash) = guard {
@@ -78,15 +78,93 @@ pub(super) fn insert(
         ));
     }
     let now = chrono::Utc::now().to_rfc3339();
-    let doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"kind":kind,"operation_key":key,"state":"queued","progress":0,"attempts":0,"next_due":0,"lease_token":null,"lease_expires":0,"payload":payload,"result":null,"error":null,"created_at":now,"updated_at":now});
+    let mut doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"kind":kind,"operation_key":key,"state":"queued","progress":0,"attempts":0,"next_due":0,"lease_token":null,"lease_expires":0,"payload":payload,"result":null,"error":null,"created_at":now,"updated_at":now});
+    // 链路贯穿（#44）：创建任务的应用调用把本次 trace_id 写入任务文档；
+    // worker 侧直接入队（trusted seam）没有调用上下文，可选字段缺省。
+    if let Some(trace) = crate::diagnostics::current_trace() {
+        doc["trace_id"] = json!(trace);
+    }
     save(tx, &doc)?;
-    Ok(doc)
+    Ok((doc, true))
 }
 pub(super) fn save(tx: &Transaction<'_>, doc: &Value) -> Result<(), ApiError> {
     tx.execute("INSERT INTO jobs VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![doc["id"].as_str(),doc["member_id"].as_str(),doc["kind"].as_str(),doc["operation_key"].as_str(),doc.to_string()])?;
     Ok(())
 }
 impl Application {
+    /// 创建任务文档并按需发出 `job.enqueue` 事件；调用方在同一事务上 commit。
+    pub(super) fn insert_job(
+        &self,
+        tx: &Transaction<'_>,
+        member: &str,
+        kind: &str,
+        key: &str,
+        payload: Value,
+    ) -> Result<Value, ApiError> {
+        let (doc, created) = insert(tx, member, kind, key, payload)?;
+        if created {
+            self.log_job_transition(&doc, "enqueue", None);
+        }
+        Ok(doc)
+    }
+    /// 保存任务文档；状态发生变化时以任务文档里的 trace_id 发迁移事件（#44）。
+    /// 事件在 commit 前尽力写入：若 commit 失败，同 trace 的操作事件会记录真实结果。
+    pub(super) fn save_job(&self, tx: &Transaction<'_>, doc: &Value) -> Result<(), ApiError> {
+        let before: Option<Value> = tx
+            .query_row(
+                "SELECT document FROM jobs WHERE id=?1",
+                params![doc["id"].as_str()],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .and_then(|raw| serde_json::from_str(&raw).ok());
+        save(tx, doc)?;
+        let state_from = before.as_ref().and_then(|prev| prev["state"].as_str());
+        // 状态变化即迁移；状态不变但 attempts 增加（running→running）是租约接管，同样留痕
+        let attempts_before = before
+            .as_ref()
+            .and_then(|prev| prev["attempts"].as_u64())
+            .unwrap_or(0);
+        let reclaimed = doc["attempts"].as_u64().unwrap_or(0) > attempts_before;
+        if state_from != doc["state"].as_str() || reclaimed {
+            self.log_job_transition(doc, "state", state_from);
+        }
+        Ok(())
+    }
+    /// 任务链路事件（#44）：trace_id 取自任务文档——worker 可能运行在另一进程，
+    /// 链路只能经任务文档传递，不依赖进程状态。字段按构造脱敏（只含任务元数据）。
+    pub(crate) fn log_job_transition(&self, doc: &Value, action: &str, state_from: Option<&str>) {
+        // jobs 文档的类别在 kind；maintenance 文档在 operation
+        let job_kind = doc["kind"]
+            .as_str()
+            .or_else(|| doc["operation"].as_str())
+            .unwrap_or("");
+        let mut fields = json!({
+            "operation": format!("job.{action}"),
+            "job_id": doc["id"],
+            "job_kind": job_kind,
+            "state_to": doc["state"],
+            "attempts": doc["attempts"].as_u64().unwrap_or(0),
+        });
+        if let Some(from) = state_from {
+            fields["state_from"] = json!(from);
+        }
+        if let Some(trace) = doc["trace_id"].as_str() {
+            fields["trace_id"] = json!(trace);
+        }
+        if let Some(code) = doc["error"]["code"].as_str() {
+            fields["error_code"] = json!(code);
+        }
+        if doc["state"] == "queued" {
+            if let Some(due) = doc["next_due"].as_i64() {
+                if due > 0 {
+                    fields["next_due"] = json!(due);
+                }
+            }
+        }
+        self.logger
+            .log_event(crate::diagnostics::Level::Info, "job", fields);
+    }
     /// Trusted worker seam; external clients use the authorized Application API.
     pub fn job_enqueue(
         &self,
@@ -96,7 +174,7 @@ impl Application {
         payload: Value,
     ) -> Result<Value, ApiError> {
         let tx = self.begin_write()?;
-        let doc = insert(&tx, member, kind, key, payload)?;
+        let doc = self.insert_job(&tx, member, kind, key, payload)?;
         tx.commit()?;
         Ok(doc)
     }
@@ -147,7 +225,7 @@ impl Application {
         doc["lease_expires"] = json!(now + lease_seconds as i64 * 1000);
         doc["attempts"] = json!(doc["attempts"].as_u64().unwrap_or(0) + 1);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        save(&tx, &doc)?;
+        self.save_job(&tx, &doc)?;
         tx.commit()?;
         Ok(doc)
     }
@@ -190,7 +268,7 @@ impl Application {
             doc["next_due"] = json!(chrono::Utc::now().timestamp_millis() + delay);
         }
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        save(&tx, &doc)?;
+        self.save_job(&tx, &doc)?;
         tx.commit()?;
         Ok(doc)
     }
@@ -230,15 +308,15 @@ impl Application {
         doc["lease_token"] = Value::Null;
         doc["lease_expires"] = json!(0);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        save(&tx, &doc)?;
+        self.save_job(&tx, &doc)?;
         tx.commit()?;
         Ok(doc)
     }
 }
 pub(super) fn output_schema() -> Value {
-    json!({"type":"object","required":["schema_version","id","member_id","kind","operation_key","state","progress","attempts","next_due","lease_expires","lease_token","payload","result","error","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"kind":{"type":"string"},"operation_key":{"type":"string"},"state":{"enum":["queued","running","waiting_input","succeeded","failed","cancelled"]},"progress":{"type":"integer","minimum":0,"maximum":100},"attempts":{"type":"integer","minimum":0},"next_due":{"type":"integer"},"lease_expires":{"type":"integer"},"lease_token":{"type":["string","null"]},"submitted_at":{"type":"string"},"payload":{},"result":{},"error":{"type":["object","null"]},"created_at":{"type":"string"},"updated_at":{"type":"string"}}})
+    json!({"type":"object","required":["schema_version","id","member_id","kind","operation_key","state","progress","attempts","next_due","lease_expires","lease_token","payload","result","error","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"kind":{"type":"string"},"operation_key":{"type":"string"},"state":{"enum":["queued","running","waiting_input","succeeded","failed","cancelled"]},"progress":{"type":"integer","minimum":0,"maximum":100},"attempts":{"type":"integer","minimum":0},"next_due":{"type":"integer"},"lease_expires":{"type":"integer"},"lease_token":{"type":["string","null"]},"submitted_at":{"type":"string"},"trace_id":{"type":"string","description":"创建该任务的应用调用链路标识；worker 直接入队的任务缺省"},"payload":{},"result":{},"error":{"type":["object","null"]},"created_at":{"type":"string"},"updated_at":{"type":"string"}}})
 }
 pub(super) fn descriptors() -> Vec<Value> {
     ["get","list","cancel","retry"].iter().map(|action|{let required=if *action=="list"{vec!["member_id"]}else{vec!["member_id","id"]};let output=if *action=="list"{json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":output_schema()}}})}else{output_schema()};let (effect,examples)=match *action {
-            "get"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<任务收据或任务列表中的任务ID>"},"prerequisites":["读取持久任务文档（含payload/result/error与进度）","查询不重发任务；结果未知时先查询再决定"]}])),"list"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按任务ID倒序返回当前成员全部本机持久任务文档"]}])),"cancel"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<任务ID>"},"prerequisites":["已完成（succeeded）任务不能取消","取消不保证撤回供应商已消耗额度"]}])),"retry"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<失败或取消的任务ID>"},"prerequisites":["仅failed/cancelled任务可重试并回到queued","已提交供应商的生成/推荐任务拒绝盲重发（submission_already_sent）；请核对供应商记录后显式创建新意图","本示例不自动执行"]}])),_=>unreachable!()};json!({"name":format!("jobs.{action}"),"description":"本机持久任务查询与逐项取消重试","effect":effect,"examples":examples,"inputSchema":{"type":"object","required":required,"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}},"outputSchema":output})}).collect()
+            "get"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<任务收据或任务列表中的任务ID>"},"prerequisites":["读取持久任务文档（含payload/result/error与进度）","任务文档携带创建调用的链路标识 trace_id（worker直接入队的任务缺省）；用 diagnostics.logs.query 按它还原异步链路","查询不重发任务；结果未知时先查询再决定"]}])),"list"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按任务ID倒序返回当前成员全部本机持久任务文档，含创建调用的链路标识 trace_id（worker直接入队的任务缺省）"]}])),"cancel"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<任务ID>"},"prerequisites":["已完成（succeeded）任务不能取消","取消不保证撤回供应商已消耗额度"]}])),"retry"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<失败或取消的任务ID>"},"prerequisites":["仅failed/cancelled任务可重试并回到queued","已提交供应商的生成/推荐任务拒绝盲重发（submission_already_sent）；请核对供应商记录后显式创建新意图","本示例不自动执行"]}])),_=>unreachable!()};json!({"name":format!("jobs.{action}"),"description":"本机持久任务查询与逐项取消重试","effect":effect,"examples":examples,"inputSchema":{"type":"object","required":required,"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}},"outputSchema":output})}).collect()
 }

@@ -87,11 +87,11 @@ impl Application {
         let mut ids = vec![];
         for (index, (name, source)) in staged.into_iter().enumerate() {
             let payload = json!({"batch_id":id,"index":index,"filename":name,"source_path":if Path::new(paths[index].as_str().unwrap()).is_absolute(){Path::new(paths[index].as_str().unwrap()).to_path_buf()}else{std::env::current_dir().map_err(|_|ApiError::new("storage_error","无法定位当前文件目录"))?.join(paths[index].as_str().unwrap())},"local_path":source.as_ref().ok(),"asset_id":uuid::Uuid::now_v7().to_string()});
-            let mut job = jobs::insert(&tx, &member, "import", &format!("{id}/{index}"), payload)?;
+            let mut job = self.insert_job(&tx, &member, "import", &format!("{id}/{index}"), payload)?;
             if let Err(error) = source {
                 job["state"] = json!("failed");
                 job["error"] = json!({"code":error.code,"message":error.message,"retryable":false});
-                jobs::save(&tx, &job)?;
+                self.save_job(&tx, &job)?;
             }
             ids.push(job["id"].clone());
         }
@@ -328,7 +328,7 @@ impl Application {
             asset_ids.push(asset_id);
             job["state"] = json!("succeeded");
             job["result"]["clothing_id"] = clothing["id"].clone();
-            jobs::save(&tx, &job)?;
+            self.save_job(&tx, &job)?;
         }
         clothing["asset_ids"] = json!(asset_ids);
         clothing["display_asset_id"] = asset_ids.first().cloned().unwrap_or(Value::Null);
@@ -385,7 +385,7 @@ impl Application {
                     if current["lease_token"] != job["lease_token"] {
                         return Err(ApiError::new("lease_lost", "任务已取消"));
                     }
-                    jobs::save(&tx, &job)?;
+                    self.save_job(&tx, &job)?;
                     tx.commit()?;
                 }
                 self.asset_import_with_id(

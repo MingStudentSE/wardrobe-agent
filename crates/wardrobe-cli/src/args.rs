@@ -32,6 +32,20 @@ pub struct ProfileCommand {
     pub force: bool,
 }
 
+pub struct LogsCommand {
+    pub db: Option<PathBuf>,
+    pub profile: Option<String>,
+    pub level: Option<String>,
+    pub since: Option<String>,
+    pub until: Option<String>,
+    pub trace_id: Option<String>,
+    pub run_id: Option<String>,
+    pub operation: Option<String>,
+    pub keyword: Option<String>,
+    pub limit: Option<u64>,
+    pub cursor: Option<String>,
+}
+
 pub enum Parsed {
     Help(Option<String>),
     Schema(String),
@@ -39,6 +53,7 @@ pub enum Parsed {
     Mcp { db: Option<PathBuf>, profile: Option<String> },
     Execute(Execution),
     Profile(ProfileCommand),
+    Logs(LogsCommand),
 }
 
 fn invalid_arguments(message: &str) -> ApiError {
@@ -132,9 +147,9 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                 other if other.starts_with('-') && other != "-" => {
                     if positionals
                         .first()
-                        .is_some_and(|c| c.starts_with("profile."))
+                        .is_some_and(|c| *c == "logs" || c.starts_with("profile."))
                     {
-                        // profile 子命令自带旗标（--data-dir/--force），由其分支解析
+                        // logs/profile 子命令自带旗标（--level 等 / --data-dir/--force），由其分支解析
                         positionals.push(arg);
                         i += 1;
                         continue;
@@ -193,6 +208,57 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                 ));
             }
             Ok(Parsed::Mcp { db, profile })
+        }
+        Some("logs") => {
+            if input.is_some() {
+                return Err(invalid_arguments("logs 子命令不接受标准输入方式"));
+            }
+            // 过滤参数命名与 diagnostics.logs.query 输入字段对齐（trace-id/run-id 为 kebab 形式）
+            const FILTERS: &[&str] = &[
+                "--level", "--since", "--until", "--trace-id", "--run-id",
+                "--operation", "--keyword", "--limit", "--cursor",
+            ];
+            let mut filters: Vec<(&str, String)> = Vec::new();
+            let mut rest: Vec<&str> = positionals[1..].to_vec();
+            while let Some(arg) = rest.first().copied() {
+                let Some(flag) = FILTERS.iter().copied().find(|flag| *flag == arg) else {
+                    return Err(invalid_arguments(&format!("logs 子命令不支持参数 {arg}")));
+                };
+                if filters.iter().any(|(seen, _)| *seen == &flag[2..]) {
+                    return Err(invalid_arguments(&format!("{flag} 只能出现一次")));
+                }
+                match rest.get(1) {
+                    Some(value) => filters.push((&flag[2..], value.to_string())),
+                    None => return Err(invalid_arguments(&format!("{flag} 缺少值"))),
+                }
+                rest.drain(..2);
+            }
+            let value = |name: &str| {
+                filters
+                    .iter()
+                    .find(|(seen, _)| *seen == name)
+                    .map(|(_, value)| value.clone())
+            };
+            let limit = match value("limit") {
+                None => None,
+                Some(text) => match text.parse::<u64>() {
+                    Ok(limit) => Some(limit),
+                    Err(_) => return Err(invalid_arguments("--limit 必须为整数")),
+                },
+            };
+            Ok(Parsed::Logs(LogsCommand {
+                db,
+                profile,
+                level: value("level"),
+                since: value("since"),
+                until: value("until"),
+                trace_id: value("trace-id"),
+                run_id: value("run-id"),
+                operation: value("operation"),
+                keyword: value("keyword"),
+                limit,
+                cursor: value("cursor"),
+            }))
         }
         Some(command) if command.starts_with("profile.") => {
             let action = match command {
