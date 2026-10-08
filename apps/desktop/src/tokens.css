@@ -4,7 +4,7 @@
  --color-image: oklch(94.4% .013 240); --color-ink: oklch(28% .025 245); --color-muted: oklch(47% .025 245);
  --color-rule: oklch(87% .022 240); --color-accent: oklch(43% .105 245); --color-accent-soft: oklch(92% .038 240);
  --color-accent-ink: oklch(28% .025 245); --color-action: oklch(85% .075 240); --color-action-hover: oklch(80% .085 240); --color-focus: oklch(43% .105 245); --color-error: oklch(43% .16 26);
- --color-success: oklch(40% .07 145); --color-overlay: oklch(20% .025 245 / .28); --color-transparent: transparent;
+ --color-success: oklch(40% .07 145); --color-warning: oklch(42% .1 70); --color-overlay: oklch(20% .025 245 / .28); --color-transparent: transparent;
  --font-display: "Songti SC", "Noto Serif CJK SC", serif; --font-body: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; --font-mono: "SFMono-Regular", Consolas, monospace;
  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
  --text-xs:12px; --text-sm:14px; --text-md:16px; --text-lg:20px; --text-xl:24px; --text-display:clamp(28px,3vw,38px);

@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {api} from '../api';
+import {settingsEntries} from './SettingsHub';
 import './Diagnostics.css';
 type RecentError={ts:string;level:string;event_type:string;run_id:string;trace_id?:string;operation?:string;result?:string;reason?:string;message?:string};
 type Summary={
@@ -10,6 +11,8 @@ type Summary={
  recent_errors:RecentError[];
  logs:{total_bytes:number;file_count:number;retention_days:number;max_total_bytes:number;dropped_events:number};
 };
+type CheckItem={id:string;status:'pass'|'warn'|'fail';message:string;setting:string|null;detail:string};
+type ChecksResult={schema_version:number;checks:CheckItem[];counts:{pass:number;warn:number;fail:number}};
 type LogEvent={ts:string;level:string;event_type:string;run_id:string;operation?:string;duration_ms?:number;result?:string;reason?:string;message?:string};
 type ExportResult={path:string;event_count:number;bytes:number;covered_from:string|null;covered_to:string|null};
 type Scope='session'|'recent'|'all'|'window';
@@ -21,13 +24,26 @@ function stamp(){const now=new Date(),pad=(value:number)=>String(value).padStart
 function shortId(id:string){return id?id.slice(0,8):'—';}
 function errorText(e:unknown){return typeof e==='object'&&e&&'message'in e?String((e as {message?:unknown}).message):'操作失败，请重试。';}
 type Metric={label:string;value:string;note:string};
-export function DiagnosticsPanel(){
+const CHECK_STATUS_TEXT:{pass:string;warn:string;fail:string}={pass:'通过',warn:'警告',fail:'失败'};
+const SETTING_TITLES:Record<string,string>=Object.fromEntries(settingsEntries.map(entry=>[entry.id,entry.title]));
+function CheckIcon({status}:{status:CheckItem['status']}){const paths:Record<CheckItem['status'],React.ReactNode>={
+ pass:<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-4 9 3 3 5-6"/>,
+ warn:<path d="M12 4 2.5 20h19L12 4Zm0 6v4m0 3v.5"/>,
+ fail:<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-3 6 6 6m0-6-6 6"/>};
+ return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[status]}</svg>;}
+export function DiagnosticsPanel({onNavigate}:{onNavigate?:(tab:string)=>void}){
  const [summary,setSummary]=useState<Summary|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState('');
+ const [checks,setChecks]=useState<ChecksResult|null>(null),[checksLoading,setChecksLoading]=useState(true),[checksError,setChecksError]=useState('');
  const [traces,setTraces]=useState<Record<string,TraceState>>({});
  const [scope,setScope]=useState<Scope>('recent'),[from,setFrom]=useState(''),[to,setTo]=useState('');
  const [exporting,setExporting]=useState(false),[exportError,setExportError]=useState(''),[exportResult,setExportResult]=useState<ExportResult|null>(null);
  const [logsDir,setLogsDir]=useState(''),[openNote,setOpenNote]=useState(''),[openError,setOpenError]=useState('');
- async function refresh(){setLoading(true);setError('');try{const result=await api<Summary>('diagnostics.summary');setSummary(result);}catch(e){setError(errorText(e));}finally{setLoading(false);}}
+ async function refresh(){
+  setLoading(true);setError('');setChecksLoading(true);setChecksError('');
+  try{const result=await api<Summary>('diagnostics.summary');setSummary(result);}catch(e){setError(errorText(e));}finally{setLoading(false);}
+  // 基础检查与健康摘要同一操作源（diagnostics.checks），独立加载互不阻塞
+  try{const result=await api<ChecksResult>('diagnostics.checks');setChecks(result);}catch(e){setChecksError(errorText(e));}finally{setChecksLoading(false);}
+ }
  useEffect(()=>{let active=true;void refresh();void api<{directory:string}>('data_directory.status').then(status=>{if(active)setLogsDir(status.directory.replace(/\/+$/,'')+'/logs');}).catch(()=>{});return()=>{active=false;};},[]);
  async function loadTrace(traceId:string){
   setTraces(old=>({...old,[traceId]:{loading:true,items:[]}}));
@@ -90,6 +106,26 @@ export function DiagnosticsPanel(){
     </div>
     {openNote&&<p role="status" className="diagnostics-logs-path">{openNote}</p>}
     {openError&&<p role="alert" className="feedback error">{openError}</p>}
+   </section>
+   <section className="diagnostics-section" aria-label="基础检查">
+    <h3>基础检查</h3>
+    {checksLoading&&<p role="status">正在运行基础检查…</p>}
+    {checksError&&<div className="feedback error" role="alert"><p>{checksError}</p><button className="secondary" onClick={()=>void refresh()}>重试</button></div>}
+    {checks&&!checksLoading&&<>
+     <p role="status" className="diagnostics-checks-summary">
+      {checks.counts.fail?`${checks.counts.fail} 项失败`:checks.counts.warn?`${checks.counts.warn} 项警告`:'全部通过'} · 共 {checks.checks.length} 项体检，只诊断不改配置
+     </p>
+     <ul className="diagnostics-checks">
+      {checks.checks.map(item=><li key={item.id} className={`diagnostics-check diagnostics-check-${item.status}`}>
+       <div className="diagnostics-check-head">
+        <span className="diagnostics-check-status"><CheckIcon status={item.status}/>{CHECK_STATUS_TEXT[item.status]}</span>
+        <strong className="diagnostics-check-message">{item.message}</strong>
+        {item.setting&&<button className="secondary diagnostics-check-goto" onClick={()=>onNavigate?.(item.setting!)}>去「{SETTING_TITLES[item.setting]??item.setting}」</button>}
+       </div>
+       <code className="diagnostics-check-detail">{item.detail}</code>
+      </li>)}
+     </ul>
+    </>}
    </section>
    <section className="diagnostics-section diagnostics-export" aria-label="导出日志">
     <h3>导出日志</h3>

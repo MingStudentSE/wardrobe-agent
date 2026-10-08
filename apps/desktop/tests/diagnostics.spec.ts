@@ -64,3 +64,26 @@ test('failed operation shows in recent errors and expands trace events',async({p
  await expect(trace).toContainText('not_found');
  await noHorizontalScroll(page);
 });
+test('basic checks list renders ten passing items with a navigation link',async({page})=>{
+ const panel=await openDiagnostics(page);
+ const section=panel.getByRole('region',{name:'基础检查'});
+ await expect(section).toBeVisible();
+ const items=section.locator('.diagnostics-check');
+ await expect(items).toHaveCount(10);
+ // 正常环境（全新数据目录）全部通过：状态图标与状态文字并存，不只靠颜色
+ await expect(section.locator('.diagnostics-check-pass')).toHaveCount(10);
+ await expect(section.locator('.diagnostics-check-warn')).toHaveCount(0);
+ await expect(section.locator('.diagnostics-check-fail')).toHaveCount(0);
+ await expect(section.locator('.diagnostics-checks-summary')).toContainText('全部通过');
+ for(const item of await items.all()){
+  await expect(item.locator('.diagnostics-check-status')).toContainText(/通过|警告|失败/);
+  await expect(item.locator('.diagnostics-check-detail')).toContainText(/=/);
+ }
+ // 去向链接：未配置模型 → 去「模型与连接」，点击跳转对应设置页（无 hover/拖拽依赖）
+ const goto=section.locator('.diagnostics-check-goto');
+ await expect(goto).toHaveCount(1);
+ await expect(goto).toContainText('模型与连接');
+ await goto.click();
+ await expect(page.locator('.settings-breadcrumb')).toContainText('模型与连接');
+ await noHorizontalScroll(page);
+});
