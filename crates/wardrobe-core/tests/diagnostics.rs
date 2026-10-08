@@ -333,3 +333,32 @@ fn debug_level_adds_input_keys_while_default_info_stays_lean() {
         "debug 级别记录输入字段名（仅字段名，不含值）：{created}"
     );
 }
+
+#[test]
+fn process_panic_leaves_a_scene_in_the_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let _app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    wardrobe_core::diagnostics::install_panic_hook();
+    let marker = "崩溃现场标记-9a3f";
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        panic!("{marker}");
+    }));
+    let events = log_events(dir.path());
+    let panics: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event_type"] == "panic")
+        .collect();
+    assert!(
+        panics
+            .iter()
+            .any(|e| e["message"].as_str().unwrap_or("").contains(marker)),
+        "panic 必须留下带原始消息的日志现场：{panics:?}"
+    );
+    let scene = panics
+        .iter()
+        .find(|e| e["message"].as_str().unwrap_or("").contains(marker))
+        .unwrap();
+    assert_eq!(scene["level"], "error");
+    assert_eq!(scene["run_id"], wardrobe_core::diagnostics::run_id());
+    assert!(scene["location"].as_str().unwrap().contains("diagnostics.rs"), "{scene}");
+}

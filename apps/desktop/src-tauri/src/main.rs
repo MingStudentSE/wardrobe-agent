@@ -9,10 +9,7 @@ async fn application(
             .execute(&operation, input)
     })
     .await
-    .map_err(|_| wardrobe_core::ApiError {
-        code: "execution_failed".into(),
-        message: "本地操作未完成，请重试".into(),
-    })?
+    .map_err(|_| wardrobe_core::ApiError::custom("execution_failed", "本地操作未完成，请重试"))?
 }
 #[tauri::command]
 async fn search_weather_city(name: String) -> Result<serde_json::Value, String> {
@@ -30,6 +27,9 @@ async fn search_weather_city(name: String) -> Result<serde_json::Value, String> 
     }).await.map_err(|_| "城市搜索未完成，请重试。".to_string())?
 }
 fn main() {
+    // 日志核心：进程级 panic 钩子（幂等），崩溃现场写入数据目录 logs/。
+    // application 命令每次调用都 Application::open，日志初始化进程内幂等、run_id 每进程仅生成一次。
+    wardrobe_core::diagnostics::install_panic_hook();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![application, search_weather_city])

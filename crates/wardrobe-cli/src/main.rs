@@ -6,6 +6,8 @@ use std::{
 };
 use wardrobe_core::{ApiError, Application};
 fn main() {
+    // 日志核心：进程级 panic 钩子（幂等），崩溃现场写入数据目录 logs/
+    wardrobe_core::diagnostics::install_panic_hook();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let parsed = match args::parse(&args) {
         Err(error) => fail(error),

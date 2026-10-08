@@ -425,7 +425,8 @@ mod tests {
     fn write_failures_silently_increment_the_drop_counter() {
         // 父路径是文件，目录创建与写入必然失败；日志不得 panic 或阻塞
         let logger = Logger::new(Path::new("/dev/null/wardrobe"), LogLimits::default());
-        assert_eq!(logger.dropped_events(), 0);
+        // 若本测试是进程内首个 Logger，run_start 已经写入并计数；从当前基线起断言增量
+        let before = logger.dropped_events();
         logger.log_event(Level::Info, "run_start", json!({"run_id": run_id()}));
         logger.log_operation(
             new_trace_id().as_str(),
@@ -434,7 +435,7 @@ mod tests {
             &[],
             &Ok(json!({})),
         );
-        assert!(logger.dropped_events() > 0, "写入失败必须计数");
+        assert!(logger.dropped_events() > before, "写入失败必须计数");
     }
 
     #[test]
