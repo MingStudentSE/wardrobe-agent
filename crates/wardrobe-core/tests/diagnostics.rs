@@ -3,7 +3,28 @@
 
 use serde_json::{json, Value};
 use std::os::unix::fs::PermissionsExt;
+use std::sync::{Arc, Mutex, MutexGuard};
 use wardrobe_core::Application;
+
+/// panic 钩子是进程级的：触发时向本进程注册过的全部日志汇写 panic 事件，
+/// 进而驱动其他测试 logger 的轮转与惰性清理（删旧文件）。用进程内互斥把
+/// "会触发 panic 写入"的测试与"对 logs/ 做文件断言"的测试隔开，
+/// 保证 `--test-threads` 并行下确定性（#42）。
+static LOG_FS_LOCK: Mutex<()> = Mutex::new(());
+fn fs_lock() -> MutexGuard<'static, ()> {
+    LOG_FS_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 文件在列出后恰好被并发清理删掉：视为"已被清理"，跳过而非报错。
+/// 与源码 `cleanup`/`scan` 对 NotFound 的容忍同语义（#42，CLI 与 GUI 两进程共享
+/// 同一 logs 目录时是真实场景）。
+fn stat_or_cleaned(path: &std::path::Path) -> Option<u64> {
+    match std::fs::metadata(path) {
+        Ok(meta) => Some(meta.len()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => panic!("stat {path:?} 失败：{error}"),
+    }
+}
 
 /// 读取数据目录 logs/ 下全部 JSONL 事件（按构造只应存在 wardrobe-*.jsonl）。
 fn log_events(dir: &std::path::Path) -> Vec<Value> {
@@ -15,7 +36,12 @@ fn log_events(dir: &std::path::Path) -> Vec<Value> {
             name.starts_with("wardrobe-") && name.ends_with(".jsonl"),
             "日志目录只应包含按天命名的事件文件，实际 {name}"
         );
-        let content = std::fs::read_to_string(entry.path()).unwrap();
+        let content = match std::fs::read_to_string(entry.path()) {
+            Ok(content) => content,
+            // 列出后被并发清理删掉：视为"已被清理"，跳过
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => panic!("读取 {:?} 失败：{error}", entry.path()),
+        };
         for line in content.lines().filter(|line| !line.trim().is_empty()) {
             events.push(serde_json::from_str(line).expect("每行必须是合法 JSON 事件"));
         }
@@ -218,6 +244,9 @@ fn tiny_file_limit_rotates_daily_files_without_losing_events() {
 
 #[test]
 fn total_cap_and_retention_evict_old_files_keeping_recent_events() {
+    // 本测试的 logger 上限极小，其他测试触发的 panic 钩子写入会驱动它清理；
+    // 与触发 panic 写入的测试互斥，避免并发断言文件时被删（#42）
+    let _guard = fs_lock();
     let dir = tempfile::tempdir().unwrap();
     let logs = dir.path().join("logs");
     std::fs::create_dir_all(&logs).unwrap();
@@ -251,7 +280,11 @@ fn total_cap_and_retention_evict_old_files_keeping_recent_events() {
     let mut names = Vec::new();
     for entry in std::fs::read_dir(&logs).unwrap() {
         let path = entry.unwrap().path();
-        total += std::fs::metadata(&path).unwrap().len();
+        // 并发清理者可能恰在此刻删掉该文件：视为"已被清理"，跳过
+        let Some(size) = stat_or_cleaned(&path) else {
+            continue;
+        };
+        total += size;
         names.push(path.file_name().unwrap().to_string_lossy().to_string());
     }
     assert!(
@@ -334,8 +367,95 @@ fn debug_level_adds_input_keys_while_default_info_stays_lean() {
     );
 }
 
+/// #42 竞态回归现场：panic 钩子是进程级的，触发时向进程内全部日志汇写 panic 事件，
+/// 驱动极小上限 logger 的轮转与惰性清理（删旧文件）；与外部观察者的
+/// `read_dir → metadata` 断言循环并发时构成 TOCTOU。本测试把"并发清理者"与
+/// "文件观察者"放进同一个测试的两个线程，确定性复现该交错。
+#[test]
+fn concurrent_cleanup_keeps_observers_and_business_running() {
+    // 触发 panic 钩子（向进程内全部日志汇写入并驱动清理）期间，
+    // 不得与其他测试的文件断言并发（#42）
+    let _guard = fs_lock();
+    let dir = tempfile::tempdir().unwrap();
+    let logs = dir.path().join("logs");
+    std::fs::create_dir_all(&logs).unwrap();
+    // 注入保留 0 天：清理者除总量驱逐外还会持续删过期文件，制造高频删除
+    let yesterday = (chrono::Local::now().date_naive() - chrono::Duration::days(1))
+        .format("%Y-%m-%d");
+    std::fs::write(
+        logs.join(format!("wardrobe-{yesterday}.jsonl")),
+        "{\"event_type\":\"stale\"}\n",
+    )
+    .unwrap();
+    let app = wardrobe_core::Application::open_with_limits(
+        &dir.path().join("wardrobe.sqlite"),
+        wardrobe_core::diagnostics::LogLimits {
+            max_file_bytes: 300,
+            max_total_bytes: 500,
+            retention_days: 0,
+        },
+    )
+    .unwrap();
+    wardrobe_core::diagnostics::install_panic_hook();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let scanner = {
+        let logs = logs.clone();
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            let mut seen_bytes = 0u64;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                for entry in std::fs::read_dir(&logs).unwrap() {
+                    let path = entry.unwrap().path();
+                    let name = path.file_name().unwrap().to_string_lossy().to_string();
+                    assert!(
+                        name.starts_with("wardrobe-") && name.ends_with(".jsonl"),
+                        "日志目录只应包含按天命名的事件文件，实际 {name}"
+                    );
+                    // 与 total_cap 断言循环同型的观察：文件被并发清理删掉即 NotFound，
+                    // 视为"已被清理"跳过，不得报错（#42 修复的验收口径）
+                    let Some(size) = stat_or_cleaned(&path) else {
+                        continue;
+                    };
+                    seen_bytes += size;
+                    match std::fs::read_to_string(&path) {
+                        Ok(_) => {}
+                        // stat 与 read 之间被并发清理删掉：同样视为"已被清理"
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                        Err(error) => panic!("读取 {path:?} 失败：{error}"),
+                    }
+                }
+            }
+            seen_bytes
+        })
+    };
+    let marker = "并发清理竞态标记-4c2e";
+    for _ in 0..80 {
+        // 触发 panic 钩子：向本进程全部日志汇（含本测试的极小上限 logger）写 error 事件
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            panic!("{marker}");
+        }));
+        app.execute("space.default", json!({})).unwrap();
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    scanner.join().expect("观察循环不得因并发清理而报错");
+    // 过期文件已被清理删除
+    assert!(
+        !logs.join(format!("wardrobe-{yesterday}.jsonl")).exists(),
+        "超过保留期的文件必须被清理"
+    );
+    // 业务操作全部成功（上方 unwrap 已证），且最新事件仍在（活动文件不被清理）
+    let operations = log_events(dir.path())
+        .iter()
+        .filter(|e| e["event_type"] == "operation")
+        .count();
+    assert!(operations >= 1, "总量清理不得吞掉当前事件");
+}
+
 #[test]
 fn process_panic_leaves_a_scene_in_the_log() {
+    // 钩子触发时会向进程内全部日志汇写入并可能驱动它们清理，
+    // 期间不得与其他测试的文件断言并发（#42）
+    let _guard = fs_lock();
     let dir = tempfile::tempdir().unwrap();
     let _app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
     wardrobe_core::diagnostics::install_panic_hook();

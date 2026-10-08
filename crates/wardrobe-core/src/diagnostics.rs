@@ -177,6 +177,8 @@ impl Logger {
                 else {
                     continue;
                 };
+                // 并发容忍：另一进程（CLI 与 GUI 共享同一 logs 目录）可能正在清理，
+                // stat 时文件已消失（NotFound）——视为"已被清理"，跳过而非报错
                 let Ok(meta) = entry.metadata() else { continue };
                 if !meta.is_file() {
                     continue;
@@ -337,6 +339,8 @@ impl Logger {
             else {
                 continue;
             };
+            // 并发容忍：另一进程可能正在清理同一目录，stat 时文件已消失（NotFound）
+            // ——视为"已被清理"，跳过而非报错
             let Ok(meta) = entry.metadata() else { continue };
             if !meta.is_file() {
                 continue;
