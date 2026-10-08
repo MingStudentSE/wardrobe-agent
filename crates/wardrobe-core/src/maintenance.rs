@@ -339,8 +339,9 @@ impl Application {
             doc["trace_id"] = json!(trace);
         }
         save(&tx, &doc)?;
-        self.log_job_transition(&doc, "enqueue", None);
+        let pending = crate::jobs::PendingJobEvent::enqueue(&doc);
         tx.commit()?;
+        self.emit_job_event(Some(pending));
         Ok(public(doc))
     }
     pub(super) fn maintenance_raw_get(&self, id: &str) -> Result<Value, ApiError> {
@@ -507,11 +508,12 @@ impl Application {
         };
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         save(&tx, &doc)?;
-        // 取消/重试的迁移留痕（#44）；状态未变（幂等返回路径已提前返回）不产生噪音
-        if state_before.as_deref() != doc["state"].as_str() {
-            self.log_job_transition(&doc, "state", state_before.as_deref());
-        }
+        // 取消/重试的迁移留痕（#44）；状态未变（幂等返回路径已提前返回）不产生噪音。
+        // 事件在 commit 成功后发出：commit 失败不残留未发生的事件。
+        let pending = (state_before.as_deref() != doc["state"].as_str())
+            .then(|| crate::jobs::PendingJobEvent::state(&doc, state_before.as_deref()));
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(public(doc))
     }
     fn maintenance_run(&self, id: &str) -> Result<Value, ApiError> {
@@ -546,9 +548,11 @@ impl Application {
         doc["_lease_expires"] = json!(now() + 300_000);
         doc["attempts"] = json!(doc["attempts"].as_u64().unwrap_or(0) + 1);
         save(&tx, &doc)?;
-        // 领取或租约接管（expired 时 state_from=running）都以文档 trace 留痕（#44）
-        self.log_job_transition(&doc, "state", state_before.as_deref());
+        // 领取或租约接管（expired 时 state_from=running）都以文档 trace 留痕（#44）；
+        // 事件在 commit 成功后发出：commit 失败不残留未发生的事件
+        let pending = crate::jobs::PendingJobEvent::state(&doc, state_before.as_deref());
         tx.commit()?;
+        self.emit_job_event(Some(pending));
         let control = Control::new(self, &doc);
         let operation = doc["operation"].as_str().unwrap();
         let result = if operation == "data_directory.move" {
@@ -587,9 +591,10 @@ impl Application {
         }
         finished["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         finished["_lease"] = Value::Null;
-        self.log_job_transition(&finished, "state", Some("running"));
+        let pending = crate::jobs::PendingJobEvent::state(&finished, Some("running"));
         save(&tx, &finished)?;
         tx.commit()?;
+        self.emit_job_event(Some(pending));
         Ok(public(finished))
     }
 }

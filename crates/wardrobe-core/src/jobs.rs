@@ -11,6 +11,24 @@ pub(super) struct PendingJobEvent {
     action: &'static str,
     state_from: Option<String>,
 }
+impl PendingJobEvent {
+    /// 入队事件凭据（jobs 与 maintenance 文档共用同一事件形状）。
+    pub(super) fn enqueue(doc: &Value) -> Self {
+        Self {
+            doc: doc.clone(),
+            action: "enqueue",
+            state_from: None,
+        }
+    }
+    /// 状态迁移事件凭据：state_from 为 None 时事件不含该字段（与直调历史一致）。
+    pub(super) fn state(doc: &Value, state_from: Option<&str>) -> Self {
+        Self {
+            doc: doc.clone(),
+            action: "state",
+            state_from: state_from.map(str::to_owned),
+        }
+    }
+}
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),kind TEXT NOT NULL,operation_key TEXT NOT NULL,document TEXT NOT NULL,UNIQUE(member_id,kind,operation_key)); CREATE INDEX IF NOT EXISTS jobs_member ON jobs(member_id,id);")?;
     Ok(())

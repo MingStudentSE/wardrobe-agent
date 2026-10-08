@@ -76,6 +76,69 @@ fn commit_failure_leaves_no_job_transition_events() {
     assert_eq!(events[1]["state_from"], "queued");
     assert_eq!(events[1]["trace_id"], job["trace_id"], "事件字段保持不变");
 }
+
+/// maintenance 链路（独立 maintenance_jobs 表）同样遵守「事件在 commit 成功后写入」：
+/// 同 A3 的延迟外键触发器注入（AFTER UPDATE ON maintenance_jobs），失败路径零 job
+/// 事件；移除注入后同一领取与完成迁移的事件照常发出，字段不变。
+#[test]
+fn maintenance_commit_failure_leaves_no_job_transition_events() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("db");
+    let app = Application::open(&db).unwrap();
+    let directory = dir.path().join("backup");
+    let queued = app
+        .execute("backup.create", json!({"directory":directory}))
+        .unwrap();
+    let id = queued["id"].as_str().unwrap().to_string();
+    // 入队已提交成功：恰好一条 enqueue 事件；维护文档的 job_kind 取 operation 字段
+    let before = job_events(&app);
+    assert_eq!(before.len(), 1, "入队后只有 enqueue 事件：{before:?}");
+    assert_eq!(before[0]["operation"], "job.enqueue");
+    assert_eq!(before[0]["job_id"], json!(id));
+    assert_eq!(before[0]["job_kind"], "backup.create");
+
+    {
+        let trap = rusqlite::Connection::open(&db).unwrap();
+        trap.execute_batch(
+            "CREATE TABLE commit_trap(job_id TEXT REFERENCES maintenance_jobs(id) DEFERRABLE INITIALLY DEFERRED);
+             CREATE TRIGGER maintenance_commit_trap AFTER UPDATE ON maintenance_jobs BEGIN
+               INSERT INTO commit_trap VALUES('commit-failure-parent');
+             END;",
+        )
+        .unwrap();
+        let failed = app.execute("maintenance.worker.run", json!({"id":id}));
+        assert_eq!(
+            failed.unwrap_err().code,
+            "storage_error",
+            "注入的 commit 失败必须以存储错误浮出"
+        );
+        // commit 失败：任务回滚为 queued，且不产生任何 job 事件（事件不得先于 commit）
+        let events = job_events(&app);
+        assert_eq!(events.len(), 1, "commit 失败不得残留 job 事件：{events:?}");
+        assert_eq!(events[0]["operation"], "job.enqueue");
+        drop(trap);
+    }
+    // 移除注入后同一任务照常执行：领取（queued→running）与完成（running→succeeded）
+    // 的迁移事件在各自 commit 成功后照常发出，字段不变。
+    {
+        let cleanup = rusqlite::Connection::open(&db).unwrap();
+        cleanup
+            .execute_batch("DROP TRIGGER maintenance_commit_trap; DROP TABLE commit_trap;")
+            .unwrap();
+    }
+    let finished = app.execute("maintenance.worker.run", json!({"id":id})).unwrap();
+    assert_eq!(finished["state"], "succeeded");
+    let events = job_events(&app);
+    assert_eq!(events.len(), 3, "成功执行补上领取与完成迁移事件：{events:?}");
+    assert_eq!(events[1]["operation"], "job.state");
+    assert_eq!(events[1]["job_id"], json!(id));
+    assert_eq!(events[1]["state_to"], "running");
+    assert_eq!(events[1]["state_from"], "queued");
+    assert_eq!(events[2]["operation"], "job.state");
+    assert_eq!(events[2]["state_to"], "succeeded");
+    assert_eq!(events[2]["state_from"], "running");
+    assert_eq!(events[1]["trace_id"], queued["trace_id"], "事件字段保持不变");
+}
 #[test]
 fn concurrent_workers_have_one_lease_cancel_prevents_late_finish_and_expiry_recovers() {
     let dir = tempfile::tempdir().unwrap();
