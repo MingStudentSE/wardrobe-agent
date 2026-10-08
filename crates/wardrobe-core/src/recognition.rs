@@ -107,7 +107,7 @@ impl Application {
             ));
         }
         let payload = json!({"request":input,"provider":provider,"asset_ids":ids,"upload_role":role,"assets":assets,"baseline":clothing,"submission":"not_submitted"});
-        let job = jobs::insert(&tx, &member, "recognition", key, payload)?;
+        let job = self.insert_job(&tx, &member, "recognition", key, payload)?;
         tx.commit()?;
         Ok(job)
     }
@@ -491,7 +491,7 @@ impl Application {
                 "任务已取消或租约到期，不再发送图片",
             ));
         }
-        jobs::save(&tx, &job)?;
+        self.save_job(&tx, &job)?;
         tx.commit()?;
         let response=match request.send(){Ok(r)=>r,Err(_)=>return self.job_finish(&member,id,&lease,"waiting_input",Value::Null,json!({"code":"submission_unknown","message":"提交后的连接失败，结果未知；不会自动再次上传","retryable":false}))};
         let status = response.status();
@@ -517,7 +517,7 @@ impl Application {
             {
                 return Err(ApiError::new("lease_lost", "任务已取消或过期，不恢复队列"));
             }
-            jobs::save(&tx, &job)?;
+            self.save_job(&tx, &job)?;
             tx.commit()?;
             return self.job_finish(&member,id,&lease,"failed",Value::Null,json!({"code":if retry{"provider_rate_limit"}else{"provider_rejected"},"message":"供应商拒绝请求，仍可手工保存","http_status":status.as_u16(),"retryable":retry,"retry_after_ms":delay}));
         }
@@ -559,7 +559,7 @@ impl Application {
         job["payload"]["submission"] = json!("received");
         job["result"] = json!({"suggestion_id":proposal["id"]});
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        jobs::save(&tx, &job)?;
+        self.save_job(&tx, &job)?;
         tx.commit()?;
         Ok(job)
     }

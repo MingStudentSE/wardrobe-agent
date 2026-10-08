@@ -151,7 +151,7 @@ impl Application {
                 current["lease_token"] = Value::Null;
                 current["lease_expires"] = json!(0);
                 current["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-                crate::jobs::save(&tx, &current)?;
+                self.save_job(&tx, &current)?;
                 tx.commit()?;
                 Ok(current)
             }

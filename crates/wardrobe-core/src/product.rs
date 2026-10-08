@@ -70,7 +70,7 @@ impl Application {
                 doc["state"] = json!("waiting_input");
                 doc["lease_token"] = Value::Null;
                 doc["error"] = json!({"code":"provider_outcome_unknown","message":"请求已提交且结果未知；供应商无查询接口，请检查供应商记录，不能重发此任务","retryable":false});
-                crate::jobs::save(&tx, &doc)?;
+                self.save_job(&tx, &doc)?;
                 tx.commit()?;
                 return Ok(doc);
             }
@@ -127,7 +127,7 @@ impl Application {
         doc["lease_expires"] = json!(0);
         doc["result"] = json!({"asset_id":asset["id"],"request_id":request_id,"verified_capabilities":["image_generation"]});
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        crate::jobs::save(&tx, &doc)?;
+        self.save_job(&tx, &doc)?;
         tx.commit()?;
         Ok(doc)
     }
@@ -227,7 +227,7 @@ impl Application {
             check_lease(&current, lease)?;
             current["submitted_at"] = json!(chrono::Utc::now().to_rfc3339());
             current["progress"] = json!(25);
-            crate::jobs::save(&tx, &current)?;
+            self.save_job(&tx, &current)?;
             tx.commit()?;
         }
         let mut request = client
@@ -346,7 +346,7 @@ impl Application {
         )?;
         job["state"] = json!("succeeded");
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        crate::jobs::save(&tx, &job)?;
+        self.save_job(&tx, &job)?;
         tx.commit()?;
         Ok(job)
     }

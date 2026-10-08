@@ -416,7 +416,7 @@ impl Application {
             }
             job
         } else {
-            super::jobs::insert(
+            self.insert_job(
                 &tx,
                 &member,
                 "learning_recompute",
@@ -739,7 +739,7 @@ impl Application {
         job["lease_token"] = Value::Null;
         job["lease_expires"] = json!(0);
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        super::jobs::save(&tx, &job)?;
+        self.save_job(&tx, &job)?;
         tx.commit()?;
         Ok(doc)
     }

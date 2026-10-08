@@ -45,7 +45,7 @@ pub(super) fn insert(
     kind: &str,
     key: &str,
     payload: Value,
-) -> Result<Value, ApiError> {
+) -> Result<(Value, bool), ApiError> {
     let existing: Option<String> = tx
         .query_row(
             "SELECT document FROM jobs WHERE member_id=?1 AND kind=?2 AND operation_key=?3",
@@ -62,7 +62,7 @@ pub(super) fn insert(
                 "同一操作标识不能替换任务输入",
             ));
         }
-        return Ok(doc);
+        return Ok((doc, false));
     }
     let guard:Option<String>=tx.query_row("SELECT payload_hash FROM local_submission_guards WHERE space_id=(SELECT id FROM workspace) AND member_id=?1 AND kind=?2 AND operation_key=?3",params![member,kind,key],|row|row.get(0)).optional()?;
     if let Some(hash) = guard {
@@ -85,13 +85,86 @@ pub(super) fn insert(
         doc["trace_id"] = json!(trace);
     }
     save(tx, &doc)?;
-    Ok(doc)
+    Ok((doc, true))
 }
 pub(super) fn save(tx: &Transaction<'_>, doc: &Value) -> Result<(), ApiError> {
     tx.execute("INSERT INTO jobs VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![doc["id"].as_str(),doc["member_id"].as_str(),doc["kind"].as_str(),doc["operation_key"].as_str(),doc.to_string()])?;
     Ok(())
 }
 impl Application {
+    /// 创建任务文档并按需发出 `job.enqueue` 事件；调用方在同一事务上 commit。
+    pub(super) fn insert_job(
+        &self,
+        tx: &Transaction<'_>,
+        member: &str,
+        kind: &str,
+        key: &str,
+        payload: Value,
+    ) -> Result<Value, ApiError> {
+        let (doc, created) = insert(tx, member, kind, key, payload)?;
+        if created {
+            self.log_job_transition(&doc, "enqueue", None);
+        }
+        Ok(doc)
+    }
+    /// 保存任务文档；状态发生变化时以任务文档里的 trace_id 发迁移事件（#44）。
+    /// 事件在 commit 前尽力写入：若 commit 失败，同 trace 的操作事件会记录真实结果。
+    pub(super) fn save_job(&self, tx: &Transaction<'_>, doc: &Value) -> Result<(), ApiError> {
+        let before: Option<Value> = tx
+            .query_row(
+                "SELECT document FROM jobs WHERE id=?1",
+                params![doc["id"].as_str()],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .and_then(|raw| serde_json::from_str(&raw).ok());
+        save(tx, doc)?;
+        let state_from = before.as_ref().and_then(|prev| prev["state"].as_str());
+        // 状态变化即迁移；状态不变但 attempts 增加（running→running）是租约接管，同样留痕
+        let attempts_before = before
+            .as_ref()
+            .and_then(|prev| prev["attempts"].as_u64())
+            .unwrap_or(0);
+        let reclaimed = doc["attempts"].as_u64().unwrap_or(0) > attempts_before;
+        if state_from != doc["state"].as_str() || reclaimed {
+            self.log_job_transition(doc, "state", state_from);
+        }
+        Ok(())
+    }
+    /// 任务链路事件（#44）：trace_id 取自任务文档——worker 可能运行在另一进程，
+    /// 链路只能经任务文档传递，不依赖进程状态。字段按构造脱敏（只含任务元数据）。
+    pub(crate) fn log_job_transition(&self, doc: &Value, action: &str, state_from: Option<&str>) {
+        // jobs 文档的类别在 kind；maintenance 文档在 operation
+        let job_kind = doc["kind"]
+            .as_str()
+            .or_else(|| doc["operation"].as_str())
+            .unwrap_or("");
+        let mut fields = json!({
+            "operation": format!("job.{action}"),
+            "job_id": doc["id"],
+            "job_kind": job_kind,
+            "state_to": doc["state"],
+            "attempts": doc["attempts"].as_u64().unwrap_or(0),
+        });
+        if let Some(from) = state_from {
+            fields["state_from"] = json!(from);
+        }
+        if let Some(trace) = doc["trace_id"].as_str() {
+            fields["trace_id"] = json!(trace);
+        }
+        if let Some(code) = doc["error"]["code"].as_str() {
+            fields["error_code"] = json!(code);
+        }
+        if doc["state"] == "queued" {
+            if let Some(due) = doc["next_due"].as_i64() {
+                if due > 0 {
+                    fields["next_due"] = json!(due);
+                }
+            }
+        }
+        self.logger
+            .log_event(crate::diagnostics::Level::Info, "job", fields);
+    }
     /// Trusted worker seam; external clients use the authorized Application API.
     pub fn job_enqueue(
         &self,
@@ -101,7 +174,7 @@ impl Application {
         payload: Value,
     ) -> Result<Value, ApiError> {
         let tx = self.begin_write()?;
-        let doc = insert(&tx, member, kind, key, payload)?;
+        let doc = self.insert_job(&tx, member, kind, key, payload)?;
         tx.commit()?;
         Ok(doc)
     }
@@ -152,7 +225,7 @@ impl Application {
         doc["lease_expires"] = json!(now + lease_seconds as i64 * 1000);
         doc["attempts"] = json!(doc["attempts"].as_u64().unwrap_or(0) + 1);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        save(&tx, &doc)?;
+        self.save_job(&tx, &doc)?;
         tx.commit()?;
         Ok(doc)
     }
@@ -195,7 +268,7 @@ impl Application {
             doc["next_due"] = json!(chrono::Utc::now().timestamp_millis() + delay);
         }
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        save(&tx, &doc)?;
+        self.save_job(&tx, &doc)?;
         tx.commit()?;
         Ok(doc)
     }
@@ -235,7 +308,7 @@ impl Application {
         doc["lease_token"] = Value::Null;
         doc["lease_expires"] = json!(0);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        save(&tx, &doc)?;
+        self.save_job(&tx, &doc)?;
         tx.commit()?;
         Ok(doc)
     }

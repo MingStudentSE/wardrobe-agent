@@ -144,7 +144,7 @@ impl Application {
             job["lease_token"] = Value::Null;
             job["lease_expires"] = json!(0);
             job["error"] = json!({"code":"provider_outcome_unknown","message":"结果未知，无法查询；请核对供应商或显式选择离线规则","retryable":false});
-            crate::jobs::save(&tx, &job)?;
+            self.save_job(&tx, &job)?;
             tx.commit()?;
             return Ok(job);
         }
@@ -522,7 +522,7 @@ impl Application {
         job["next_due"] = json!(0);
         job["last_outcome"] = json!("unknown");
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        crate::jobs::save(&tx, &job)?;
+        self.save_job(&tx, &job)?;
         tx.commit()?;
         Ok(())
     }
@@ -548,7 +548,7 @@ impl Application {
         if response["id"].as_str().is_some_and(|v| v.len() <= 200) {
             job["provider_request_id"] = response["id"].clone();
         }
-        crate::jobs::save(&tx, &job)?;
+        self.save_job(&tx, &job)?;
         tx.commit()?;
         Ok(())
     }
@@ -566,7 +566,7 @@ impl Application {
         job["next_due"] = json!(chrono::Utc::now().timestamp_millis().saturating_add(delay));
         job["error"] = json!({"code":"provider_rate_limit","message":"供应商限流，遵守Retry-After后重试","retryable":true});
         let retry = job["rate_retries"].as_u64().unwrap_or(0) < 2;
-        crate::jobs::save(&tx, &job)?;
+        self.save_job(&tx, &job)?;
         tx.commit()?;
         Ok(retry)
     }
@@ -577,7 +577,7 @@ impl Application {
         job["state"] = json!("queued");
         job["lease_token"] = Value::Null;
         job["lease_expires"] = json!(0);
-        crate::jobs::save(&tx, &job)?;
+        self.save_job(&tx, &job)?;
         tx.commit()?;
         Ok(())
     }
@@ -592,7 +592,7 @@ impl Application {
         let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
         text_lease(&job, lease)?;
         job["last_outcome"] = json!(outcome);
-        crate::jobs::save(&tx, &job)?;
+        self.save_job(&tx, &job)?;
         tx.commit()?;
         Ok(())
     }

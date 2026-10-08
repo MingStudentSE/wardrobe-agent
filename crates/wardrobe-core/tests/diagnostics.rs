@@ -993,6 +993,210 @@ fn created_jobs_carry_the_submitting_call_trace_id() {
     );
 }
 
+/// #44：worker 执行与任务状态迁移（排队、运行、租约接管、失败、重试、终态）
+/// 以任务文档里的 trace_id 写日志事件。worker 可能在另一进程运行：
+/// 这里的 worker 步骤全部走 trusted seam 直连（不经 Application API 调用），
+/// 事件 trace 只能来自任务文档，不依赖进程状态。
+#[test]
+fn job_lifecycle_events_are_queryable_by_the_job_trace_id() {
+    let _guard = fs_lock();
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("wardrobe.sqlite");
+    let app = Application::open(&db).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let image = dir.path().join("lifecycle.png");
+    image::RgbImage::from_pixel(8, 8, image::Rgb([255, 255, 255]))
+        .save(&image)
+        .unwrap();
+    let batch = app
+        .execute(
+            "imports.create",
+            json!({"member_id":member,"operation_key":"lifecycle","paths":[image.to_string_lossy()]}),
+        )
+        .unwrap();
+    let id = batch["job_ids"][0].as_str().unwrap().to_string();
+    let created_trace = app
+        .execute("jobs.get", json!({"member_id":member,"id":&id}))
+        .unwrap()["trace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // worker 直连接缝：排队任务被领取（queued→running）
+    let claimed = app.job_claim(&member, &id, 300).unwrap();
+    assert_eq!(claimed["state"], "running");
+    // 租约接管：把租约过期时刻改到过去（直连 SQL 接缝，先例 mark_provider_outcome_unknown）
+    {
+        let connection = rusqlite::Connection::open(&db).unwrap();
+        connection
+            .execute(
+                "UPDATE jobs SET document=json_set(document,'$.lease_expires',1) WHERE id=?1",
+                [&id],
+            )
+            .unwrap();
+    }
+    let takeover = app.job_claim(&member, &id, 300).unwrap();
+    assert_eq!(takeover["state"], "running");
+    // 失败且可重试：回 queued 并安排延迟（attempts<3）
+    let retried = app
+        .job_finish(
+            &member,
+            &id,
+            takeover["lease_token"].as_str().unwrap(),
+            "failed",
+            Value::Null,
+            json!({"code":"provider_rate_limit","retryable":true}),
+        )
+        .unwrap();
+    assert_eq!(retried["state"], "queued");
+    assert!(retried["next_due"].as_i64().unwrap() > 0, "重试须安排延迟");
+    // 取消排队中的任务：终态 cancelled（succeeded 不能取消，其余状态可）
+    app.execute("jobs.cancel", json!({"member_id":member,"id":&id}))
+        .unwrap();
+
+    // 单一 trace_id 还原整条迁移链
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"trace_id":created_trace,"operation":"job.","limit":100}),
+        )
+        .unwrap();
+    let events = queried["items"].as_array().unwrap();
+    let transitions: Vec<(String, String)> = events
+        .iter()
+        .filter(|e| e["event_type"] == "job")
+        .map(|e| {
+            (
+                e["operation"].as_str().unwrap().to_string(),
+                e["state_to"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        transitions,
+        vec![
+            ("job.enqueue".to_string(), "queued".to_string()),
+            ("job.state".to_string(), "running".to_string()),
+            ("job.state".to_string(), "running".to_string()),
+            ("job.state".to_string(), "queued".to_string()),
+            ("job.state".to_string(), "cancelled".to_string()),
+        ],
+        "同 trace 下必须能还原排队→运行→租约接管→失败重试→取消：{events:?}"
+    );
+    let by_state_from = |from: &str, to: &str| {
+        events
+            .iter()
+            .find(|e| {
+                e["state_from"].as_str().unwrap_or("") == from
+                    && e["state_to"].as_str().unwrap_or("") == to
+            })
+            .unwrap_or_else(|| panic!("缺 state_from={from} state_to={to} 的事件：{events:?}"))
+    };
+    let enqueue = by_state_from("", "queued");
+    assert_eq!(enqueue["operation"], "job.enqueue");
+    assert_eq!(enqueue["job_kind"], "import");
+    let first_claim = events
+        .iter()
+        .filter(|e| e["operation"] == "job.state" && e["state_to"] == "running")
+        .find(|e| e["state_from"] == "queued")
+        .expect("首次领取应来自 queued");
+    assert_eq!(first_claim["attempts"], 1);
+    let takeover_event = events
+        .iter()
+        .find(|e| e["state_from"] == "running" && e["state_to"] == "running")
+        .expect("租约接管必须可辨（state_from=running）：{events:?}");
+    assert_eq!(takeover_event["attempts"], 2);
+    // 可重试失败在 job_finish 内一次持久化完成（failed+回队），事件合并为
+    // running→queued 并携带错误码与重试时刻——失败原因与重试安排同一条事件可读
+    let retry_event = by_state_from("running", "queued");
+    assert_eq!(retry_event["operation"], "job.state");
+    assert_eq!(
+        retry_event["error_code"], "provider_rate_limit",
+        "失败重试事件须带错误码"
+    );
+    assert!(retry_event["next_due"].as_i64().unwrap() > 0);
+    assert_eq!(by_state_from("queued", "cancelled")["job_id"], id);
+
+    // worker 直接入队的任务（无 trace）：迁移事件仍写入，只是缺省 trace_id
+    let orphan = app
+        .job_enqueue(&member, "local-test", "orphan-lifecycle", json!({}))
+        .unwrap();
+    let orphan_id = orphan["id"].as_str().unwrap().to_string();
+    app.job_claim(&member, &orphan_id, 300).unwrap();
+    let orphan_events = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"job.","keyword":&orphan_id,"limit":100}),
+        )
+        .unwrap();
+    let orphan_running = orphan_events["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["job_id"] == orphan_id && e["state_to"] == "running")
+        .expect("无 trace 任务的迁移事件仍须写入");
+    assert!(
+        orphan_running.get("trace_id").is_none(),
+        "无链路任务不得伪造 trace_id：{orphan_running}"
+    );
+    assert_eq!(orphan_running["event_type"], "job");
+    assert!(orphan_running["run_id"].is_string());
+}
+
+/// #44：维护任务（独立任务系统）同样贯穿——创建调用写入 trace_id，
+/// enqueue/领取/终态迁移事件以文档 trace 可查。
+#[test]
+fn maintenance_job_lifecycle_events_share_the_submitted_trace_id() {
+    let _guard = fs_lock();
+    let installation = tempfile::tempdir().unwrap();
+    let archive = tempfile::tempdir().unwrap();
+    let app = Application::open(&installation.path().join("wardrobe.sqlite")).unwrap();
+    let directory = archive.path().join("backup");
+    let submitted = app
+        .execute("backup.create", json!({"directory":directory}))
+        .unwrap();
+    let id = submitted["job_id"].as_str().unwrap().to_string();
+    // public 投影保留 trace_id（下划线内部字段被剥离，业务字段不动）
+    let doc = app.execute("maintenance.get", json!({"id":&id})).unwrap();
+    let trace = doc["trace_id"].as_str().unwrap().to_string();
+    app.execute("maintenance.worker.run", json!({"id":&id}))
+        .unwrap();
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"trace_id":trace,"operation":"job.","limit":100}),
+        )
+        .unwrap();
+    let events = queried["items"].as_array().unwrap();
+    let transitions: Vec<(String, String, String)> = events
+        .iter()
+        .filter(|e| e["event_type"] == "job")
+        .map(|e| {
+            (
+                e["operation"].as_str().unwrap().to_string(),
+                e["state_from"].as_str().unwrap_or("").to_string(),
+                e["state_to"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        transitions,
+        vec![
+            ("job.enqueue".to_string(), "".to_string(), "queued".to_string()),
+            ("job.state".to_string(), "queued".to_string(), "running".to_string()),
+            ("job.state".to_string(), "running".to_string(), "succeeded".to_string()),
+        ],
+        "维护任务须以创建调用 trace 还原排队→运行→成功：{events:?}"
+    );
+    assert!(
+        events.iter().all(|e| e["job_kind"] == "backup.create"),
+        "维护事件以操作名作类别：{events:?}"
+    );
+}
+
 #[test]
 fn process_panic_leaves_a_scene_in_the_log() {
     // 钩子触发时会向进程内全部日志汇写入并可能驱动它们清理，

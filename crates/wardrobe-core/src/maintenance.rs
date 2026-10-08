@@ -339,6 +339,7 @@ impl Application {
             doc["trace_id"] = json!(trace);
         }
         save(&tx, &doc)?;
+        self.log_job_transition(&doc, "enqueue", None);
         tx.commit()?;
         Ok(public(doc))
     }
@@ -453,6 +454,7 @@ impl Application {
         let tx = self.begin_write()?;
         let mut doc = load(&tx, id)?;
         self.recover_published_move(&tx, &mut doc)?;
+        let state_before = doc["state"].as_str().map(str::to_owned);
         match operation {
             "maintenance.cancel" => {
                 if doc["state"] == "cancelled" {
@@ -505,6 +507,10 @@ impl Application {
         };
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         save(&tx, &doc)?;
+        // 取消/重试的迁移留痕（#44）；状态未变（幂等返回路径已提前返回）不产生噪音
+        if state_before.as_deref() != doc["state"].as_str() {
+            self.log_job_transition(&doc, "state", state_before.as_deref());
+        }
         tx.commit()?;
         Ok(public(doc))
     }
@@ -533,12 +539,15 @@ impl Application {
             ));
         }
         let published = doc["operation"] == "backup.create" && doc["phase"] == "committing";
+        let state_before = doc["state"].as_str().map(str::to_owned);
         doc["state"] = json!("running");
         doc["phase"] = json!(if published { "committing" } else { "working" });
         doc["_lease"] = json!(uuid::Uuid::now_v7().to_string());
         doc["_lease_expires"] = json!(now() + 300_000);
         doc["attempts"] = json!(doc["attempts"].as_u64().unwrap_or(0) + 1);
         save(&tx, &doc)?;
+        // 领取或租约接管（expired 时 state_from=running）都以文档 trace 留痕（#44）
+        self.log_job_transition(&doc, "state", state_before.as_deref());
         tx.commit()?;
         let control = Control::new(self, &doc);
         let operation = doc["operation"].as_str().unwrap();
@@ -578,6 +587,7 @@ impl Application {
         }
         finished["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         finished["_lease"] = Value::Null;
+        self.log_job_transition(&finished, "state", Some("running"));
         save(&tx, &finished)?;
         tx.commit()?;
         Ok(public(finished))
