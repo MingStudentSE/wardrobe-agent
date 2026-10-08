@@ -269,8 +269,7 @@ impl Logger {
         self.write_line(&event.to_string());
     }
 
-    /// 丢弃计数：#43 经 diagnostics.summary 暴露；此前仅模块内测试使用。
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// 丢弃计数：写入失败静默降级的累计次数，经 diagnostics.summary 暴露。
     pub(crate) fn dropped_events(&self) -> u64 {
         self.lock().dropped_events
     }
@@ -381,6 +380,349 @@ fn timestamp() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
+/// 事件至少要有的公共字段：查询与摘要只投影良构事件，
+/// 手写残行或被截断的事件（如 `{"event_type":"stale"}`）与损坏行同样跳过。
+fn well_formed(event: &Value) -> bool {
+    ["ts", "level", "event_type", "run_id"]
+        .iter()
+        .all(|key| event.get(key).is_some_and(Value::is_string))
+}
+
+impl Logger {
+    /// 按文件时间序（wardrobe-YYYY-MM-DD[.序号].jsonl → 行序，即写入序）读取全部良构事件。
+    /// 尾行截断、非 JSON 行与消失中的文件（并发清理）都跳过，绝不阻断查询。
+    pub(crate) fn read_events(&self) -> Vec<Value> {
+        let mut files: Vec<(chrono::NaiveDate, u32, PathBuf)> = Vec::new();
+        if let Ok(entries) = fs::read_dir(&self.logs_dir) {
+            for entry in entries.flatten() {
+                if let Some((date, seq)) =
+                    parse_log_file_name(&entry.file_name().to_string_lossy())
+                {
+                    files.push((date, seq, entry.path()));
+                }
+            }
+        }
+        files.sort();
+        let mut events = Vec::new();
+        for (_, _, path) in files {
+            let content = match fs::read_to_string(&path) {
+                Ok(content) => content,
+                // 并发清理者恰好删掉该文件，或读取瞬时失败：尽力而为，跳过
+                Err(_) => continue,
+            };
+            for line in content.lines().filter(|line| !line.trim().is_empty()) {
+                match serde_json::from_str::<Value>(line) {
+                    Ok(event) if well_formed(&event) => events.push(event),
+                    _ => continue,
+                }
+            }
+        }
+        events
+    }
+
+    /// 日志占用：总字节数与文件数（并发清理容忍 NotFound）。
+    pub(crate) fn occupancy(&self) -> (u64, u64) {
+        let mut total = 0;
+        let mut count = 0;
+        if let Ok(entries) = fs::read_dir(&self.logs_dir) {
+            for entry in entries.flatten() {
+                if parse_log_file_name(&entry.file_name().to_string_lossy()).is_none() {
+                    continue;
+                }
+                if let Ok(meta) = entry.metadata() {
+                    if meta.is_file() {
+                        total += meta.len();
+                        count += 1;
+                    }
+                }
+            }
+        }
+        (total, count)
+    }
+}
+
+/// 最近错误窗口上限（诊断摘要与 CLI/GUI 共用的同一口径）。
+pub(crate) const RECENT_ERRORS_LIMIT: usize = 20;
+
+/// 把日志事件投影为诊断摘要的最近错误条目：公共字段 + 诊断有用字段，不含耗时与输入摘要。
+fn recent_error_item(event: &Value) -> Value {
+    let mut item = json!({
+        "ts": event["ts"],
+        "level": event["level"],
+        "event_type": event["event_type"],
+        "run_id": event["run_id"],
+    });
+    for key in ["trace_id", "operation", "result", "reason", "message"] {
+        if event.get(key).is_some_and(|value| !value.is_null()) {
+            item[key] = event[key].clone();
+        }
+    }
+    item
+}
+
+use crate::{ApiError, Application};
+
+impl Application {
+    /// diagnostics.* 分发：仅本机可信入口（authorization::privileged 一律拒绝外部客户端）。
+    pub(super) fn diagnostics_execute(
+        &self,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, ApiError> {
+        match operation {
+            "diagnostics.summary" => self.diagnostics_summary(input),
+            "diagnostics.logs.query" => self.diagnostics_logs_query(input),
+            _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
+        }
+    }
+
+    /// 日志查询：按级别、时间范围、trace_id、run_id、操作前缀、关键词过滤，游标分页。
+    /// 游标语义同「分页游标」（GLOSSARY）：调用方须保留查询条件，next_cursor 为 null 表示末页；
+    /// 游标编码 `<事件ts毫秒>-<该毫秒内已返回的匹配事件数>`，对写入追加（更大 ts）稳定。
+    pub(super) fn diagnostics_logs_query(&self, input: Value) -> Result<Value, ApiError> {
+        let level: Option<String> = match input.get("level") {
+            None => None,
+            Some(value) => {
+                let level = value.as_str().ok_or_else(|| {
+                    ApiError::new("invalid_input", "级别筛选必须为字符串")
+                })?;
+                if !["info", "debug", "trace", "error"].contains(&level) {
+                    return Err(ApiError::new("invalid_input", "级别筛选无效"));
+                }
+                Some(level.to_owned())
+            }
+        };
+        let parse_time = |key: &str| -> Result<Option<chrono::DateTime<chrono::FixedOffset>>, ApiError> {
+            match input.get(key) {
+                None | Some(Value::Null) => Ok(None),
+                Some(value) => match value.as_str() {
+                    Some(text) => chrono::DateTime::parse_from_rfc3339(text)
+                        .map(Some)
+                        .map_err(|_| ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
+                    None => Err(ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
+                },
+            }
+        };
+        let since = parse_time("since")?;
+        let until = parse_time("until")?;
+        if let (Some(start), Some(end)) = (since, until) {
+            if start > end {
+                return Err(ApiError::new("invalid_input", "时间范围起止颠倒"));
+            }
+        }
+        let exact = |key: &str| -> Result<Option<String>, ApiError> {
+            match input.get(key) {
+                None | Some(Value::Null) => Ok(None),
+                Some(value) => value
+                    .as_str()
+                    .map(|text| Some(text.to_owned()))
+                    .ok_or_else(|| ApiError::new("invalid_input", &format!("{key} 必须为字符串"))),
+            }
+        };
+        let trace_id = exact("trace_id")?;
+        let run_id_filter = exact("run_id")?;
+        let operation_prefix = exact("operation")?;
+        let keyword = match exact("keyword")? {
+            None => None,
+            Some(text) => {
+                if text.chars().count() > 200 {
+                    return Err(ApiError::new("invalid_input", "关键词最多 200 字符"));
+                }
+                Some(text.to_lowercase())
+            }
+        };
+        let limit = match input.get("limit") {
+            None => 50,
+            Some(value) => value
+                .as_u64()
+                .ok_or_else(|| ApiError::new("invalid_input", "每页数量必须为整数"))?,
+        };
+        if !(1..=100).contains(&limit) {
+            return Err(ApiError::new("invalid_input", "每页数量必须为 1–100"));
+        }
+        let (cursor_millis, cursor_skip) = match input.get("cursor") {
+            None | Some(Value::Null) => (None, 0u64),
+            Some(value) => {
+                let text = value
+                    .as_str()
+                    .ok_or_else(|| ApiError::new("invalid_input", "分页游标必须为字符串"))?;
+                let (millis, skip) = text
+                    .rsplit_once('-')
+                    .and_then(|(millis, skip)| {
+                        Some((millis.parse::<i64>().ok()?, skip.parse::<u64>().ok()?))
+                    })
+                    .ok_or_else(|| ApiError::new("invalid_input", "分页游标无效"))?;
+                (Some(millis), skip)
+            }
+        };
+        let event_millis =
+            |event: &Value| -> Option<i64> {
+                chrono::DateTime::parse_from_rfc3339(event["ts"].as_str()?)
+                    .ok()
+                    .map(|time| time.timestamp_millis())
+            };
+        let events = self.logger.read_events();
+        // 基础筛选：按写入序（文件时间序）；查询只服务 ts 可解析的良构事件，游标推进依赖它
+        let mut matched: Vec<&Value> = events
+            .iter()
+            .filter(|event| {
+                // 游标推进依赖 ts 毫秒：ts 不可解析的事件不进入查询结果
+                if event_millis(event).is_none() {
+                    return false;
+                }
+                if let Some(start) = since {
+                    let stamp = chrono::DateTime::parse_from_rfc3339(event["ts"].as_str().unwrap());
+                    if !stamp.is_ok_and(|stamp| stamp >= start) {
+                        return false;
+                    }
+                }
+                if let Some(end) = until {
+                    let stamp = chrono::DateTime::parse_from_rfc3339(event["ts"].as_str().unwrap());
+                    if !stamp.is_ok_and(|stamp| stamp <= end) {
+                        return false;
+                    }
+                }
+                if let Some(level) = &level {
+                    if event["level"].as_str() != Some(level.as_str()) {
+                        return false;
+                    }
+                }
+                if let Some(trace) = &trace_id {
+                    if event["trace_id"].as_str() != Some(trace.as_str()) {
+                        return false;
+                    }
+                }
+                if let Some(run) = &run_id_filter {
+                    if event["run_id"].as_str() != Some(run.as_str()) {
+                        return false;
+                    }
+                }
+                if let Some(prefix) = &operation_prefix {
+                    if !event["operation"]
+                        .as_str()
+                        .is_some_and(|operation| operation.starts_with(prefix.as_str()))
+                    {
+                        return false;
+                    }
+                }
+                if let Some(keyword) = &keyword {
+                    if !event.to_string().to_lowercase().contains(keyword.as_str()) {
+                        return false;
+                    }
+                }
+                true
+            })
+            .collect();
+        // 游标推进：跳过游标毫秒及此前的事件，再跳过同毫秒内已返回的 skip 条
+        if let Some(cursor) = cursor_millis {
+            let mut seen: u64 = 0;
+            matched.retain(|event| {
+                let millis = event_millis(event).unwrap_or(i64::MIN);
+                if millis < cursor {
+                    return false;
+                }
+                if millis == cursor {
+                    seen += 1;
+                    return seen > cursor_skip;
+                }
+                true
+            });
+        }
+        let more = matched.len() > limit as usize;
+        matched.truncate(limit as usize);
+        let next_cursor = if more {
+            let last_millis = matched
+                .last()
+                .and_then(|event| event_millis(event))
+                .ok_or_else(|| ApiError::new("storage_error", "日志事件时间不可解析"))?;
+            // skip 跨页累计：同毫秒内已返回总数 = 上一游标的 skip（末事件同毫秒时）+ 本页返回数
+            let previous = if cursor_millis == Some(last_millis) {
+                cursor_skip
+            } else {
+                0
+            };
+            let returned = matched
+                .iter()
+                .filter(|event| event_millis(event) == Some(last_millis))
+                .count() as u64;
+            Some(format!("{last_millis}-{}", previous + returned))
+        } else {
+            None
+        };
+        let items: Vec<Value> = matched.into_iter().cloned().collect();
+        Ok(json!({
+            "schema_version": 1,
+            "items": items,
+            "next_cursor": next_cursor,
+        }))
+    }
+
+    /// 健康摘要：只读投影——数据库/模式版本、本机安装代际、按状态任务计数、
+    /// 供应商结果未知计数、最近错误、日志占用保留信息与丢弃计数。
+    pub(super) fn diagnostics_summary(&self, _input: Value) -> Result<Value, ApiError> {
+        // 按状态任务计数：全空间（诊断不经成员授权边界），未知状态不计入以保持 schema 严格
+        let mut jobs_by_state = std::collections::BTreeMap::from([
+            ("queued", 0u64),
+            ("running", 0),
+            ("waiting_input", 0),
+            ("succeeded", 0),
+            ("failed", 0),
+            ("cancelled", 0),
+        ]);
+        {
+            let mut statement = self.connection.prepare(
+                "SELECT coalesce(json_extract(document,'$.state'),'queued') AS state, count(*) FROM jobs GROUP BY state",
+            )?;
+            let mut rows = statement.query([])?;
+            while let Some(row) = rows.next()? {
+                let state: String = row.get(0)?;
+                let count: i64 = row.get(1)?;
+                if let Some(slot) = jobs_by_state.get_mut(state.as_str()) {
+                    *slot = count as u64;
+                }
+            }
+        }
+        // 供应商结果未知：waiting_input 且已提交（口径与恢复守卫的已提交谓词同源，jobs.rs）
+        let provider_outcome_unknown: u64 = self.connection.query_row(
+            "SELECT count(*) FROM jobs WHERE json_extract(document,'$.state')='waiting_input' AND (json_type(document,'$.submitted_at')='text' OR (kind='recognition' AND json_extract(document,'$.payload.submission') IN ('submitted','received','unknown')))",
+            [],
+            |row| row.get::<_, i64>(0).map(|count| count as u64),
+        )?;
+        let database_user_version: u32 = self
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let events = self.logger.read_events();
+        let errors: Vec<&Value> = events
+            .iter()
+            .filter(|event| event["level"] == "error")
+            .collect();
+        let window_start = errors.len().saturating_sub(RECENT_ERRORS_LIMIT);
+        let recent_errors: Vec<Value> = errors[window_start..]
+            .iter()
+            .map(|event| recent_error_item(event))
+            .collect();
+        let (total_bytes, file_count) = self.logger.occupancy();
+        Ok(json!({
+            "schema_version": 1,
+            "database_schema_version": crate::DATABASE_SCHEMA_VERSION,
+            "database_user_version": database_user_version,
+            "installation_generation": self.installation_generation,
+            "current_run_id": run_id(),
+            "jobs_by_state": jobs_by_state,
+            "provider_outcome_unknown": provider_outcome_unknown,
+            "recent_errors": recent_errors,
+            "logs": {
+                "total_bytes": total_bytes,
+                "file_count": file_count,
+                "retention_days": self.logger.limits.retention_days,
+                "max_total_bytes": self.logger.limits.max_total_bytes,
+                "dropped_events": self.logger.dropped_events(),
+            },
+        }))
+    }
+}
+
+
 fn log_file_name(date: chrono::NaiveDate, seq: u32) -> String {
     if seq == 0 {
         format!("wardrobe-{date}.jsonl")
@@ -461,4 +803,87 @@ mod tests {
         assert_eq!(limits.max_total_bytes, 256 * 1024 * 1024);
         assert_eq!(limits.retention_days, 14);
     }
+}
+
+/// 最近错误条目的 outputSchema（摘要与查询共用同一投影形状）。
+pub(crate) fn recent_error_schema() -> Value {
+    json!({
+        "type":"object",
+        "required":["ts","level","event_type","run_id"],
+        "properties":{
+            "ts":{"type":"string","description":"RFC3339 毫秒 UTC"},
+            "level":{"type":"string"},
+            "event_type":{"type":"string"},
+            "run_id":{"type":"string"},
+            "trace_id":{"type":"string"},
+            "operation":{"type":"string"},
+            "result":{"type":"string","description":"错误码"},
+            "reason":{"type":"string","description":"底层真实原因（仅本机可信入口可见）"},
+            "message":{"type":"string","description":"panic 现场消息"}
+        }
+    })
+}
+
+fn summary_schema() -> Value {
+    json!({
+        "type":"object",
+        "required":["schema_version","database_schema_version","database_user_version","installation_generation","current_run_id","jobs_by_state","provider_outcome_unknown","recent_errors","logs"],
+        "properties":{
+            "schema_version":{"type":"integer","const":1},
+            "database_schema_version":{"type":"integer","description":"当前应用要求的数据库模式版本"},
+            "database_user_version":{"type":"integer","description":"数据库实际模式版本"},
+            "installation_generation":{"type":"integer","description":"本机安装代际"},
+            "current_run_id":{"type":"string","description":"当前运行会话标识"},
+            "jobs_by_state":{"type":"object","required":["queued","running","waiting_input","succeeded","failed","cancelled"],"properties":{"queued":{"type":"integer"},"running":{"type":"integer"},"waiting_input":{"type":"integer"},"succeeded":{"type":"integer"},"failed":{"type":"integer"},"cancelled":{"type":"integer"}},"additionalProperties":false},
+            "provider_outcome_unknown":{"type":"integer","description":"已提交且结果未知的持久任务计数"},
+            "recent_errors":{"type":"array","description":"最近错误（时间升序，窗口封顶）","items":recent_error_schema()},
+            "logs":{"type":"object","required":["total_bytes","file_count","retention_days","max_total_bytes","dropped_events"],"properties":{"total_bytes":{"type":"integer","description":"logs/ 目录当前总占用字节"},"file_count":{"type":"integer"},"retention_days":{"type":"integer","description":"保留天数上限"},"max_total_bytes":{"type":"integer","description":"总占用上限字节"},"dropped_events":{"type":"integer","description":"写入失败静默丢弃的事件计数"}},"additionalProperties":false}
+        }
+    })
+}
+
+pub(super) fn descriptors() -> Vec<Value> {
+    vec![
+        json!({
+            "name":"diagnostics.summary",
+            "description":"仅可信本机入口读取健康摘要：数据库模式版本、本机安装代际、按状态任务计数、供应商结果未知计数、最近错误、日志占用保留信息与丢弃计数",
+            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            "examples":[{"request":{},"prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","只读投影：与持久任务实际状态和日志文件一致，不修改任何数据"]}],
+            "inputSchema":{"type":"object","properties":{},"additionalProperties":false},
+            "outputSchema":summary_schema()
+        }),
+        json!({
+            "name":"diagnostics.logs.query",
+            "description":"仅可信本机入口查询日志事件：按级别、时间范围、trace_id、run_id、操作前缀与关键词过滤，游标分页续页",
+            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            "examples":[{
+                "request":{"level":"error","trace_id":"<错误输出携带的链路标识>","limit":50},
+                "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","调用方须保留查询条件并以 next_cursor 续页；next_cursor 为 null 表示末页","事件按构造脱敏：不含密钥、令牌、恢复材料与空间密钥"]
+            }],
+            "inputSchema":{
+                "type":"object",
+                "additionalProperties":false,
+                "properties":{
+                    "level":{"enum":["info","debug","trace","error"],"description":"精确级别匹配"},
+                    "since":{"type":"string","description":"RFC3339 起始时间（含）"},
+                    "until":{"type":"string","description":"RFC3339 结束时间（含）"},
+                    "trace_id":{"type":"string"},
+                    "run_id":{"type":"string"},
+                    "operation":{"type":"string","description":"操作名前缀"},
+                    "keyword":{"type":"string","maxLength":200,"description":"事件文本子串（大小写不敏感）"},
+                    "limit":{"type":"integer","minimum":1,"maximum":100},
+                    "cursor":{"type":"string","description":"上一页 next_cursor；调用方须保留查询条件"}
+                }
+            },
+            "outputSchema":{
+                "type":"object",
+                "required":["schema_version","items","next_cursor"],
+                "properties":{
+                    "schema_version":{"type":"integer","const":1},
+                    "items":{"type":"array","description":"按写入时间序的日志事件","items":{"type":"object","required":["ts","level","event_type","run_id"],"properties":{"ts":{"type":"string"},"level":{"type":"string"},"event_type":{"type":"string"},"run_id":{"type":"string"},"trace_id":{"type":"string"},"operation":{"type":"string"},"duration_ms":{"type":"integer"},"result":{"type":"string"},"reason":{"type":"string"},"input_keys":{"type":"array","items":{"type":"string"}},"message":{"type":"string"},"location":{"type":"string"},"thread":{"type":"string"}}}},
+                    "next_cursor":{"type":["string","null"],"description":"续页游标；null 表示末页"}
+                }
+            }
+        }),
+    ]
 }

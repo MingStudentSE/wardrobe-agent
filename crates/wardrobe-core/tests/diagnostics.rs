@@ -451,6 +451,453 @@ fn concurrent_cleanup_keeps_observers_and_business_running() {
     assert!(operations >= 1, "总量清理不得吞掉当前事件");
 }
 
+/// 把一个任务置为「供应商结果未知」的持久形态（waiting_input + submitted_at），
+/// 与真实流程落盘的文档形状一致（先例：ai_recommendations.rs 的 due_clock_seam 直连 SQL 接缝）。
+fn mark_provider_outcome_unknown(db: &std::path::Path, id: &str) {
+    let connection = rusqlite::Connection::open(db).unwrap();
+    let raw: String = connection
+        .query_row("SELECT document FROM jobs WHERE id=?1", [id], |r| r.get(0))
+        .unwrap();
+    let mut job: Value = serde_json::from_str(&raw).unwrap();
+    job["state"] = json!("waiting_input");
+    job["submitted_at"] = json!(chrono::Utc::now().to_rfc3339());
+    job["error"] = json!({"code":"provider_outcome_unknown","retryable":false});
+    connection
+        .execute(
+            "UPDATE jobs SET document=?1 WHERE id=?2",
+            rusqlite::params![job.to_string(), id],
+        )
+        .unwrap();
+}
+
+#[test]
+fn diagnostics_summary_matches_persisted_job_states_and_reports_log_health() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("wardrobe.sqlite");
+    let app = Application::open(&db).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // 七个任务覆盖全部状态：queued / running / failed / waiting_input / succeeded / cancelled
+    // /供应商结果未知
+    app.job_enqueue(&member, "local-test", "s-q", json!({}))
+        .unwrap();
+    let running = app
+        .job_enqueue(&member, "local-test", "s-r", json!({}))
+        .unwrap();
+    app.job_claim(&member, running["id"].as_str().unwrap(), 30)
+        .unwrap();
+    let failed = app
+        .job_enqueue(&member, "local-test", "s-f", json!({}))
+        .unwrap();
+    let lease = app
+        .job_claim(&member, failed["id"].as_str().unwrap(), 30)
+        .unwrap();
+    app.job_finish(
+        &member,
+        failed["id"].as_str().unwrap(),
+        lease["lease_token"].as_str().unwrap(),
+        "failed",
+        Value::Null,
+        json!({"code":"permanent","retryable":false}),
+    )
+    .unwrap();
+    // 本地待输入（无提交）：waiting_input 但不计入供应商结果未知
+    let waiting = app
+        .job_enqueue(&member, "local-test", "s-w", json!({}))
+        .unwrap();
+    let lease = app
+        .job_claim(&member, waiting["id"].as_str().unwrap(), 30)
+        .unwrap();
+    app.job_finish(
+        &member,
+        waiting["id"].as_str().unwrap(),
+        lease["lease_token"].as_str().unwrap(),
+        "waiting_input",
+        json!({"preview":"local"}),
+        Value::Null,
+    )
+    .unwrap();
+    let done = app
+        .job_enqueue(&member, "local-test", "s-s", json!({}))
+        .unwrap();
+    let lease = app
+        .job_claim(&member, done["id"].as_str().unwrap(), 30)
+        .unwrap();
+    app.job_finish(
+        &member,
+        done["id"].as_str().unwrap(),
+        lease["lease_token"].as_str().unwrap(),
+        "succeeded",
+        json!({}),
+        Value::Null,
+    )
+    .unwrap();
+    let cancelled = app
+        .job_enqueue(&member, "local-test", "s-c", json!({}))
+        .unwrap();
+    app.execute("jobs.cancel", json!({"member_id":member,"id":cancelled["id"]}))
+        .unwrap();
+    let unknown = app
+        .job_enqueue(&member, "recognition", "s-u", json!({}))
+        .unwrap();
+    mark_provider_outcome_unknown(&db, unknown["id"].as_str().unwrap());
+    // 一次失败操作：健康摘要的最近错误须能反映它
+    let failed_call = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":" ","category":"top"}),
+        )
+        .unwrap_err();
+
+    let summary = app.execute("diagnostics.summary", json!({})).unwrap();
+    assert_eq!(summary["schema_version"], 1);
+    assert_eq!(
+        summary["database_schema_version"],
+        json!(wardrobe_core::DATABASE_SCHEMA_VERSION)
+    );
+    assert_eq!(
+        summary["database_user_version"],
+        json!(wardrobe_core::DATABASE_SCHEMA_VERSION)
+    );
+    assert_eq!(summary["installation_generation"], 0, "全新安装代际为 0");
+    assert_eq!(
+        summary["current_run_id"],
+        wardrobe_core::diagnostics::run_id()
+    );
+    assert_eq!(
+        summary["jobs_by_state"],
+        json!({"queued":1,"running":1,"waiting_input":2,"succeeded":1,"failed":1,"cancelled":1}),
+        "按状态计数须与持久任务实际状态一致：{summary}"
+    );
+    assert_eq!(
+        summary["provider_outcome_unknown"], 1,
+        "仅已提交且结果未知的 waiting_input 计入：{summary}"
+    );
+    // 一致性不变量：对持久任务文档逐个套领域谓词重算，与摘要计数一致
+    let listed = app.execute("jobs.list", json!({"member_id":member})).unwrap();
+    let derived = listed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|job| {
+            job["state"] == "waiting_input"
+                && (job["submitted_at"].is_string()
+                    || (job["kind"] == "recognition"
+                        && ["submitted", "received", "unknown"]
+                            .contains(&job["payload"]["submission"].as_str().unwrap_or(""))))
+        })
+        .count();
+    assert_eq!(summary["provider_outcome_unknown"], json!(derived));
+
+    // 最近错误：只含 error 级事件、时间升序、带 trace_id 与错误码
+    let errors = summary["recent_errors"].as_array().unwrap();
+    assert!(
+        errors.iter().all(|e| e["level"] == "error"),
+        "最近错误只收 error 级事件：{errors:?}"
+    );
+    assert!(
+        errors.iter().any(|e| e["operation"] == "clothing.create"
+            && e["result"] == "invalid_input"
+            && e["trace_id"].as_str() == failed_call.trace_id.as_deref()),
+        "失败操作须出现在最近错误中：{errors:?}"
+    );
+    let stamps: Vec<i64> = errors
+        .iter()
+        .map(|e| {
+            chrono::DateTime::parse_from_rfc3339(e["ts"].as_str().unwrap())
+                .unwrap()
+                .timestamp_millis()
+        })
+        .collect();
+    let mut sorted = stamps.clone();
+    sorted.sort();
+    assert_eq!(stamps, sorted, "最近错误按时间升序");
+    assert!(errors.len() <= 20, "最近错误有窗口上限");
+
+    // 日志占用与保留信息、丢弃计数
+    let logs = &summary["logs"];
+    assert!(logs["total_bytes"].as_u64().unwrap() > 0, "{summary}");
+    assert!(logs["file_count"].as_u64().unwrap() >= 1, "{summary}");
+    assert_eq!(logs["retention_days"], 14);
+    assert_eq!(logs["max_total_bytes"], json!(256 * 1024 * 1024));
+    assert_eq!(logs["dropped_events"], 0, "可写目录下无丢弃");
+}
+
+#[test]
+fn external_clients_can_never_gain_diagnostics_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    // 完整授权也拿不到 diagnostics：仅本机可信入口
+    let grant = app
+        .execute(
+            "client.authorize",
+            json!({"name":"全量客户端","mode":"full","operations":[],"member_ids":null,"expires_at":null}),
+        )
+        .unwrap();
+    let token = grant["token"].as_str().unwrap();
+    for operation in ["diagnostics.summary", "diagnostics.logs.query"] {
+        let denied = app.execute_as_client(token, operation, json!({})).unwrap_err();
+        assert_eq!(denied.code, "scope_denied", "{operation}: {denied:?}");
+    }
+    // 限定授权登记包含 diagnostics：登记即拒绝，令牌无从产生
+    let rejected = app
+        .execute(
+            "client.authorize",
+            json!({"name":"诊断越权","mode":"limited","operations":["diagnostics.summary","clothing.list"],"member_ids":null,"expires_at":null}),
+        )
+        .unwrap_err();
+    assert_eq!(rejected.code, "invalid_input", "{rejected:?}");
+    // capabilities 对外部客户端隐藏 diagnostics 描述符
+    let caps = app.execute_as_client(token, "capabilities", json!({})).unwrap();
+    let names: Vec<&str> = caps["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        !names.iter().any(|name| name.starts_with("diagnostics.")),
+        "外部 capabilities 不得出现 diagnostics 操作：{names:?}"
+    );
+    // 可信本机入口不受影响
+    assert_eq!(
+        app.execute("diagnostics.summary", json!({})).unwrap()["schema_version"],
+        1
+    );
+}
+
+#[test]
+fn diagnostics_log_query_filters_level_time_trace_run_operation_and_keyword() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let failed = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":" ","category":"top"}),
+        )
+        .unwrap_err();
+    app.execute("member.list", json!({})).unwrap();
+
+    // 级别过滤：error 级 + 操作前缀钉住失败事件（外部 panic 事件无 operation，天然被排除）
+    let errors = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"level":"error","operation":"clothing."}),
+        )
+        .unwrap();
+    assert_eq!(errors["schema_version"], 1);
+    let items = errors["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{errors}");
+    assert_eq!(items[0]["result"], "invalid_input");
+    assert_eq!(items[0]["trace_id"], failed.trace_id.clone().unwrap());
+    assert_eq!(items[0]["event_type"], "operation");
+
+    // 操作前缀过滤：恰好一次 space.default，且查询自身的事件（diagnostics.*）不被计入
+    let spaces = app
+        .execute("diagnostics.logs.query", json!({"operation":"space."}))
+        .unwrap();
+    let items = spaces["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{spaces}");
+    assert_eq!(items[0]["operation"], "space.default");
+    assert_eq!(items[0]["result"], "ok");
+    let trace = items[0]["trace_id"].as_str().unwrap().to_string();
+    let space_ts = items[0]["ts"].as_str().unwrap().to_string();
+
+    // trace_id 过滤：同一次调用的事件（此处恰一条）
+    let traced = app
+        .execute("diagnostics.logs.query", json!({"trace_id":trace}))
+        .unwrap();
+    let items = traced["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{traced}");
+    assert_eq!(items[0]["operation"], "space.default");
+
+    // run_id 过滤：本进程全部事件共享 run_id
+    let run = wardrobe_core::diagnostics::run_id().to_string();
+    let same_run = app
+        .execute("diagnostics.logs.query", json!({"run_id":run}))
+        .unwrap();
+    let items = same_run["items"].as_array().unwrap();
+    assert!(items.len() >= 3, "{same_run}");
+    assert!(items.iter().all(|e| e["run_id"] == json!(run)));
+    // 标记操作都在
+    for operation in ["space.default", "clothing.create", "member.list"] {
+        assert!(
+            items.iter().any(|e| e["operation"] == operation),
+            "缺少 {operation}：{items:?}"
+        );
+    }
+
+    // 时间范围：since/until 皆含端点；以前缀过滤钉住
+    let after = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"space.","since":space_ts}),
+        )
+        .unwrap();
+    assert_eq!(after["items"].as_array().unwrap().len(), 1, "since 含端点");
+    let later = format!(
+        "{}",
+        (chrono::DateTime::parse_from_rfc3339(&space_ts).unwrap()
+            + chrono::Duration::milliseconds(1))
+        .to_rfc3339()
+    );
+    let none = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"space.","since":later}),
+        )
+        .unwrap();
+    assert_eq!(
+        none["items"].as_array().unwrap().len(),
+        0,
+        "起点之后无 space. 事件"
+    );
+    let until_now = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"space.","until":space_ts}),
+        )
+        .unwrap();
+    assert_eq!(until_now["items"].as_array().unwrap().len(), 1, "until 含端点");
+
+    // 关键词：对事件序列化文本做大小写不敏感子串匹配
+    let keyword = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"keyword":"invalid_input","operation":"clothing."}),
+        )
+        .unwrap();
+    assert_eq!(keyword["items"].as_array().unwrap().len(), 1, "{keyword}");
+    let none = app
+        .execute("diagnostics.logs.query", json!({"keyword":"彻底不存在的词"}))
+        .unwrap();
+    assert_eq!(none["items"].as_array().unwrap().len(), 0);
+
+    // 输入校验：未知字段、非法级别、非法时间、非法 limit 都拒绝
+    for bad in [
+        json!({"member_id":"x"}),
+        json!({"level":"verbose"}),
+        json!({"since":"不是时间"}),
+        json!({"limit":0}),
+        json!({"limit":101}),
+        json!({"cursor":"not-a-cursor"}),
+    ] {
+        let error = app.execute("diagnostics.logs.query", bad.clone()).unwrap_err();
+        assert_eq!(error.code, "invalid_input", "{bad}: {error:?}");
+    }
+}
+
+#[test]
+fn diagnostics_log_query_paginates_with_cursor_until_exhausted() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    // 4 条 clothing.create 事件 + 1 条失败校验事件；前缀钉住集合不受并发事件干扰
+    for name in ["甲", "乙", "丙", "丁"] {
+        app.execute(
+            "clothing.create",
+            json!({"member_id":"default","name":name,"category":"top"}),
+        )
+        .unwrap();
+    }
+    let all = app
+        .execute("diagnostics.logs.query", json!({"operation":"clothing."}))
+        .unwrap();
+    let expected: Vec<Value> = all["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["operation"] == "clothing.create")
+        .cloned()
+        .collect();
+    assert_eq!(expected.len(), 4, "{all}");
+
+    // limit=1 逐页续读：顺序、无重复、末页 next_cursor 为 null
+    let mut page_cursor: Option<String> = None;
+    let mut collected = vec![];
+    for _ in 0..10 {
+        let mut input = json!({"operation":"clothing.create","limit":1});
+        if let Some(cursor) = &page_cursor {
+            input["cursor"] = json!(cursor);
+        }
+        let page = app.execute("diagnostics.logs.query", input).unwrap();
+        let items = page["items"].as_array().unwrap();
+        assert!(items.len() <= 1, "{page}");
+        collected.extend(items.iter().cloned());
+        match page["next_cursor"].as_str() {
+            Some(cursor) => page_cursor = Some(cursor.to_string()),
+            None => break,
+        }
+    }
+    assert_eq!(collected.len(), 4, "{collected:?}");
+    assert_eq!(collected, expected, "分页结果须与全量一致且按时间序");
+    // 游标稳定可重放：同末页游标重放返回同一条（不重复、不漂移）
+    let replay = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"clothing.create","limit":1,"cursor":page_cursor.unwrap()}),
+        )
+        .unwrap();
+    assert_eq!(
+        replay["items"].as_array().unwrap(),
+        &[collected.last().unwrap().clone()],
+        "{replay}"
+    );
+    assert!(replay["next_cursor"].is_null(), "末页 next_cursor 为 null：{replay}");
+    // 越过末尾的游标：空页且 next_cursor 为 null
+    let exhausted = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"clothing.create","cursor":"99999999999999-0"}),
+        )
+        .unwrap();
+    assert_eq!(exhausted["items"].as_array().unwrap().len(), 0, "{exhausted}");
+    assert!(exhausted["next_cursor"].is_null());
+}
+
+#[test]
+fn corrupt_log_lines_do_not_block_diagnostics_queries_or_summary() {
+    // 尾行截断等单文件损坏不阻断查询（父规格健壮性要求）
+    let _guard = fs_lock();
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    let marker = app.execute("space.default", json!({})).unwrap();
+    assert!(marker["member_id"].is_string());
+    let logs = dir.path().join("logs");
+    // 向活动文件追加损坏行：截断 JSON、非 JSON、缺公共字段的良构 JSON
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d");
+    let mut path = logs.join(format!("wardrobe-{today}.jsonl"));
+    if !path.exists() {
+        // 跨日边界兜底：取目录里最新的 wardrobe-*.jsonl
+        let mut names: Vec<String> = std::fs::read_dir(&logs)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with("wardrobe-") && n.ends_with(".jsonl"))
+            .collect();
+        names.sort();
+        path = logs.join(names.pop().unwrap());
+    }
+    {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(file, "{{\"ts\":\"截断的JSON").unwrap();
+        writeln!(file, "这不是JSON").unwrap();
+        writeln!(file, "{{\"event_type\":\"缺公共字段\"}}").unwrap();
+    }
+    let queried = app
+        .execute("diagnostics.logs.query", json!({"operation":"space."}))
+        .unwrap();
+    let items = queried["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "损坏行不得吞掉合法事件：{queried}");
+    assert_eq!(items[0]["operation"], "space.default");
+    let summary = app.execute("diagnostics.summary", json!({})).unwrap();
+    assert_eq!(summary["schema_version"], 1, "摘要同样不受损坏行影响");
+}
+
 #[test]
 fn process_panic_leaves_a_scene_in_the_log() {
     // 钩子触发时会向进程内全部日志汇写入并可能驱动它们清理，
