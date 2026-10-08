@@ -2102,9 +2102,42 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
         .unwrap_err();
     assert_eq!(error.code, "invalid_input");
 
+    // 诊断导出：真实导出钉住 outputSchema；scope 元数据同为仅本机可信入口
+    let export_dir = tempfile::tempdir().unwrap();
+    let target = export_dir.path().join("contract-export.jsonl");
+    let exported = app
+        .execute(
+            "diagnostics.export",
+            json!({"path": target.to_string_lossy(), "scope":"recent"}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("diagnostics.export"), &exported, "diagnostics.export");
+    assert!(target.exists(), "导出文件应已写入");
+    let export_descriptor = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("diagnostics.export"))
+        .unwrap();
+    assert_eq!(export_descriptor["scope"]["access"], json!("trusted-local-only"));
+    assert_eq!(export_descriptor["scope"]["primary_grant_required"], json!(false));
+    // 输入严格：未知字段拒绝
+    let error = app
+        .execute("diagnostics.export", json!({"path":"x.jsonl","member_id":"x"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+    // 范围参数互斥与校验
+    for bad in [
+        json!({"path":"x.jsonl","scope":"today"}),
+        json!({"path":"x.jsonl","from":"2026-01-01T00:00:00Z"}),
+        json!({"path":"x.jsonl","scope":"all","to":"2026-01-01T00:00:00Z"}),
+    ] {
+        let error = app.execute("diagnostics.export", bad.clone()).unwrap_err();
+        assert_eq!(error.code, "invalid_input", "{bad}: {error:?}");
+    }
+
     let family = [
         ("diagnostics.summary", "query", true),
         ("diagnostics.logs.query", "query", true),
+        ("diagnostics.export", "query", true),
     ];
     assert_family_effects_and_examples(&descriptors, &family);
 }

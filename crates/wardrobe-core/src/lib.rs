@@ -323,6 +323,7 @@ impl Application {
                 "limit",
                 "cursor",
             ]),
+            "diagnostics.export" => Some(&["path", "scope", "from", "to"]),
             "member.create" => Some(&["name"]),
             "member.update" => Some(&["member_id", "name"]),
             "member.select" => Some(&["member_id"]),
