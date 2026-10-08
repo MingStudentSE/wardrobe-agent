@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {api} from '../api';
+import {exportDiagnostics,formatBytes,isTauri,revealExportedFile,type ExportResult} from './diagnostics-export';
 import './Diagnostics.css';
 type RecentError={ts:string;level:string;event_type:string;run_id:string;trace_id?:string;operation?:string;result?:string;reason?:string;message?:string};
 type Summary={
@@ -11,13 +12,9 @@ type Summary={
  logs:{total_bytes:number;file_count:number;retention_days:number;max_total_bytes:number;dropped_events:number};
 };
 type LogEvent={ts:string;level:string;event_type:string;run_id:string;operation?:string;duration_ms?:number;result?:string;reason?:string;message?:string};
-type ExportResult={path:string;event_count:number;bytes:number;covered_from:string|null;covered_to:string|null};
 type Scope='session'|'recent'|'all'|'window';
 type TraceState={loading:boolean;items:LogEvent[];error?:string};
-const isTauri=()=>typeof window!=='undefined'&&'__TAURI_INTERNALS__' in window;
 function formatTime(ts:string){const date=new Date(ts);return isNaN(date.getTime())?ts:date.toLocaleString('zh-CN',{hour12:false,month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
-function formatBytes(bytes:number){if(bytes<1024)return `${bytes} B`;if(bytes<1024*1024)return `${(bytes/1024).toFixed(1)} KB`;return `${(bytes/1024/1024).toFixed(1)} MB`;}
-function stamp(){const now=new Date(),pad=(value:number)=>String(value).padStart(2,'0');return `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;}
 function shortId(id:string){return id?id.slice(0,8):'—';}
 function errorText(e:unknown){return typeof e==='object'&&e&&'message'in e?String((e as {message?:unknown}).message):'操作失败，请重试。';}
 type Metric={label:string;value:string;note:string};
@@ -39,30 +36,15 @@ export function DiagnosticsPanel(){
   if(scope==='window'&&(!from||!to)){setExportError('请选择时间窗的起止时间。');return;}
   setExporting(true);
   try{
-   const name=`衣橱日志-${stamp()}.jsonl`;
-   let path:string;
-   if(isTauri()){
-    const {save}=await import('@tauri-apps/plugin-dialog');
-    const picked=await save({defaultPath:name,filters:[{name:'诊断文件',extensions:['jsonl']}]});
-    if(!picked){setExporting(false);return;}
-    path=picked;
-   }else{
-    // dev/e2e 回退：相对路径由开发桥按数据目录展开到 exports/
-    path=`exports/${name}`;
-   }
-   const input:Record<string,unknown>=scope==='window'?{path,from:new Date(from).toISOString(),to:new Date(to).toISOString()}:{path,scope};
-   setExportResult(await api<ExportResult>('diagnostics.export',input));
+   const result=await exportDiagnostics(scope==='window'?{from:new Date(from).toISOString(),to:new Date(to).toISOString()}:{scope});
+   if(result)setExportResult(result);
   }catch(e){setExportError(errorText(e));}finally{setExporting(false);}
- }
- async function revealPath(path:string){
-  const {revealItemInDir}=await import('@tauri-apps/plugin-opener');
-  await revealItemInDir(path);
  }
  async function openLogsDirectory(){
   setOpenError('');setOpenNote('');
   if(!logsDir){setOpenError('暂时无法定位日志目录，请重试。');return;}
   if(isTauri()){
-   try{await revealPath(logsDir);setOpenNote('已在文件夹中显示日志目录。');}
+   try{await revealExportedFile(logsDir);setOpenNote('已在文件夹中显示日志目录。');}
    catch(e){setOpenError(errorText(e));}
   }else{
    setOpenNote(`当前是开发环境，无法打开文件夹窗口；日志目录：${logsDir}`);
@@ -108,7 +90,7 @@ export function DiagnosticsPanel(){
     {exportResult&&<div role="status" className="diagnostics-export-result">
      <p>已导出 {exportResult.event_count} 个事件，共 {formatBytes(exportResult.bytes)}。</p>
      <p><code>{exportResult.path}</code></p>
-     {isTauri()&&<div><button className="secondary" onClick={()=>void revealPath(exportResult.path)}>打开所在文件夹</button></div>}
+     {isTauri()&&<div><button className="secondary" onClick={()=>void revealExportedFile(exportResult.path)}>打开所在文件夹</button></div>}
     </div>}
    </section>
    <section className="diagnostics-section" aria-label="最近错误">
