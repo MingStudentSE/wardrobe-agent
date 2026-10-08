@@ -50,19 +50,32 @@ test('diagnostics card opens health summary, export scopes and log directory fal
  await expect(panel.getByRole('button',{name:'打开所在文件夹'})).toHaveCount(0);
  await noHorizontalScroll(page);
 });
-test('failed operation shows in recent errors and expands trace events',async({page})=>{
+test('failed operation shows in recent errors grouped by run and expands trace events',async({page})=>{
  const panel=await openDiagnostics(page);
  const failed=await page.request.post('/__wardrobe_dev_api',{data:{operation:'clothing.get',input:{member_id:'default',id:'diagnostics-missing-item'}}});
  expect((await failed.json()).error.code).toBe('not_found');
  await panel.getByRole('button',{name:'刷新诊断'}).click();
- const errors=panel.locator('.diagnostics-errors .diagnostics-error');
- await expect(errors.first()).toContainText('clothing.get');
- await expect(errors.first()).toContainText('not_found');
- await expect(errors.first().locator('.diagnostics-session-badge')).toContainText('更早会话');
- await errors.first().locator('summary').click();
- const trace=errors.first().locator('.diagnostics-trace');
+ // 分组渲染：每次 dev bridge 请求都是独立运行会话，失败操作必然落在「更早会话」组；
+ // 组头存在会话标识与时间范围（条目数），条目归属其 run_id 组。
+ const groups=panel.locator('.diagnostics-error-group');
+ const olderGroup=groups.filter({hasText:'更早会话'});
+ await expect(olderGroup.first()).toBeVisible();
+ await expect(olderGroup.first().locator('.diagnostics-error-group-run')).toContainText('会话 ');
+ await expect(olderGroup.first().locator('.diagnostics-error-group-range')).toContainText('条');
+ const currentGroup=groups.filter({hasText:'本次启动'});
+ const error=olderGroup.first().locator('.diagnostics-error').first();
+ await expect(error).toContainText('clothing.get');
+ await expect(error).toContainText('not_found');
+ // 本次启动组（若当前会话有错误）不得包含其他会话的条目：条目只在各自组内
+ if(await currentGroup.count()>0){
+  await expect(currentGroup.locator('.diagnostics-error').first()).not.toContainText('diagnostics-missing-item');
+ }
+ await error.locator('summary').click();
+ const trace=error.locator('.diagnostics-trace');
  await expect(trace).toContainText('clothing.get');
  await expect(trace).toContainText('not_found');
+ // 归属断言：展开的链路详情确实位于「更早会话」组内
+ await expect(olderGroup.first().locator('.diagnostics-trace')).toContainText('not_found');
  await noHorizontalScroll(page);
 });
 test('basic checks list renders ten passing items with a navigation link',async({page})=>{

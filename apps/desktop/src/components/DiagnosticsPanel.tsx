@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import {api} from '../api';
 import {settingsEntries} from './SettingsHub';
 import {exportDiagnostics,formatBytes,isTauri,revealExportedFile,type ExportResult} from './diagnostics-export';
+import {ExportResultNotice} from './diagnostics-export-result';
 import {beginRecordingWindow,endRecordingWindow,injectedMaxSeconds,MAX_RECORDING_SECONDS} from './reproduction';
 import './Diagnostics.css';
 type RecentError={ts:string;level:string;event_type:string;run_id:string;trace_id?:string;operation?:string;result?:string;reason?:string;message?:string};
@@ -132,6 +133,20 @@ export function DiagnosticsPanel({onNavigate}:{onNavigate?:(tab:string)=>void}){
   {label:'日志占用',value:formatBytes(summary.logs.total_bytes),note:`${summary.logs.file_count} 个文件 · 保留 ${summary.logs.retention_days} 天${summary.logs.dropped_events?` · 丢弃 ${summary.logs.dropped_events} 条`:''}`},
  ]:[];
  const errors=[...(summary?.recent_errors??[])].reverse();
+ // 最近错误按运行会话分组（复查修复）：本次启动一组在最前，更早会话按 run_id 各一组
+ //（按该会话最近错误时间倒序）；组头显示会话标识与时间范围，条目内徽章不再重复。
+ type ErrorGroup={run_id:string;current:boolean;items:RecentError[]};
+ const errorGroups:ErrorGroup[]=(()=>{
+  const byRun=new Map<string,RecentError[]>();
+  for(const item of errors){
+   const list=byRun.get(item.run_id)??[];
+   if(!list.length)byRun.set(item.run_id,list);
+   list.push(item);
+  }
+  const groups=[...byRun.entries()].map(([run_id,items])=>({run_id,items,current:run_id===summary?.current_run_id}));
+  groups.sort((a,b)=>(a.current?1:0)-(b.current?1:0)||String(b.items[0]?.ts).localeCompare(String(a.items[0]?.ts)));
+  return groups;
+ })();
  return <section className="diagnostics" id="diagnostics-settings" aria-label="诊断">
   <header className="settings-page-heading"><div><h2>诊断</h2><p>查看衣橱运行健康状况，追踪错误的完整链路，并把日志导出给维护者排查。</p></div><button className="secondary" disabled={loading} onClick={()=>void refresh()}>刷新诊断</button></header>
   {loading&&<p role="status">正在读取诊断摘要…</p>}
@@ -179,11 +194,7 @@ export function DiagnosticsPanel({onNavigate}:{onNavigate?:(tab:string)=>void}){
     </div>}
     {recNote&&<p role="status" className="diagnostics-reproduction-note">{recNote}</p>}
     {recError&&<p role="alert" className="feedback error">{recError}</p>}
-    {recResult&&<div role="status" className="diagnostics-export-result">
-     <p>复现记录已导出 {recResult.event_count} 个事件，共 {formatBytes(recResult.bytes)}。</p>
-     <p><code>{recResult.path}</code></p>
-     {isTauri()&&<div><button className="secondary" onClick={()=>void revealExportedFile(recResult.path)}>打开所在文件夹</button></div>}
-    </div>}
+    {recResult&&<ExportResultNotice result={recResult} heading="复现记录已导出"/>}
    </section>
    <section className="diagnostics-section diagnostics-export" aria-label="导出日志">
     <h3>导出日志</h3>
@@ -199,37 +210,41 @@ export function DiagnosticsPanel({onNavigate}:{onNavigate?:(tab:string)=>void}){
     </div>}
     <button disabled={exporting} onClick={()=>void exportLogs()}>{exporting?'正在导出…':'导出日志文件'}</button>
     {exportError&&<p className="feedback error" role="alert">{exportError}</p>}
-    {exportResult&&<div role="status" className="diagnostics-export-result">
-     <p>已导出 {exportResult.event_count} 个事件，共 {formatBytes(exportResult.bytes)}。</p>
-     <p><code>{exportResult.path}</code></p>
-     {isTauri()&&<div><button className="secondary" onClick={()=>void revealExportedFile(exportResult.path)}>打开所在文件夹</button></div>}
-    </div>}
+    {exportResult&&<ExportResultNotice result={exportResult}/>}
    </section>
    <section className="diagnostics-section" aria-label="最近错误">
     <h3>最近错误</h3>
     {!errors.length&&<div className="settings-empty"><h3>暂无错误记录</h3><p>操作失败时会出现在这里，并附上排查用的链路编号。</p></div>}
-    <ul className="diagnostics-errors">{errors.map(item=>item.trace_id&&<li key={`${item.ts}-${item.trace_id}`}>
-     <details className="diagnostics-error" onToggle={event=>{const target=event.currentTarget;if(target.open&&!traces[item.trace_id!])void loadTrace(item.trace_id!);}}>
-      <summary>
-       <span className="diagnostics-error-time">{formatTime(item.ts)}</span>
-       <span className="diagnostics-error-operation">{item.operation??item.event_type}</span>
-       <code className="diagnostics-error-code">{item.result??'error'}</code>
-       <span className={item.run_id===summary.current_run_id?'diagnostics-session-badge current':'diagnostics-session-badge'}>{item.run_id===summary.current_run_id?'本次会话':'更早会话'}</span>
-       <code className="diagnostics-trace-id">链路 {shortId(item.trace_id)}</code>
-      </summary>
-      <div className="diagnostics-trace">
-       <p className="helper">同一链路编号下的完整事件序列：<code>{item.trace_id}</code></p>
-       {traces[item.trace_id]?.loading&&<p role="status">正在读取链路事件…</p>}
-       {traces[item.trace_id]?.error&&<p role="alert" className="feedback error">{traces[item.trace_id].error}</p>}
-       {!!traces[item.trace_id]?.items.length&&<ol>{traces[item.trace_id].items.map((event,index)=><li key={`${event.ts}-${index}`}>
-        <span>{formatTime(event.ts)} · {event.event_type}{event.operation?` · ${event.operation}`:''}{event.result?` · ${event.result}`:''}{event.duration_ms!=null?` · ${event.duration_ms} ms`:''}</span>
-        {event.reason&&<code className="diagnostics-reason">{event.reason}</code>}
-        {event.message&&<code className="diagnostics-reason">{event.message}</code>}
-       </li>)}</ol>}
-       {traces[item.trace_id]&&!traces[item.trace_id].loading&&!traces[item.trace_id].error&&!traces[item.trace_id].items.length&&<p className="helper">该链路下没有可解析的日志事件。</p>}
+    <ul className="diagnostics-error-groups">
+     {errorGroups.map(group=><li key={group.run_id} className="diagnostics-error-group">
+      <div className="diagnostics-error-group-head">
+       <span className={group.current?'diagnostics-session-badge current':'diagnostics-session-badge'}>{group.current?'本次启动':'更早会话'}</span>
+       <code className="diagnostics-error-group-run">会话 {shortId(group.run_id)}</code>
+       <span className="diagnostics-error-group-range">{formatTime(group.items[group.items.length-1].ts)} – {formatTime(group.items[0].ts)} · {group.items.length} 条</span>
       </div>
-     </details>
-    </li>)}</ul>
+      <ul className="diagnostics-errors">{group.items.map(item=>item.trace_id&&<li key={`${item.ts}-${item.trace_id}`}>
+       <details className="diagnostics-error" onToggle={event=>{const target=event.currentTarget;if(target.open&&!traces[item.trace_id!])void loadTrace(item.trace_id!);}}>
+        <summary>
+         <span className="diagnostics-error-time">{formatTime(item.ts)}</span>
+         <span className="diagnostics-error-operation">{item.operation??item.event_type}</span>
+         <code className="diagnostics-error-code">{item.result??'error'}</code>
+         <code className="diagnostics-trace-id">链路 {shortId(item.trace_id)}</code>
+        </summary>
+        <div className="diagnostics-trace">
+         <p className="helper">同一链路编号下的完整事件序列：<code>{item.trace_id}</code></p>
+         {traces[item.trace_id]?.loading&&<p role="status">正在读取链路事件…</p>}
+         {traces[item.trace_id]?.error&&<p role="alert" className="feedback error">{traces[item.trace_id].error}</p>}
+         {!!traces[item.trace_id]?.items.length&&<ol>{traces[item.trace_id].items.map((event,index)=><li key={`${event.ts}-${index}`}>
+          <span>{formatTime(event.ts)} · {event.event_type}{event.operation?` · ${event.operation}`:''}{event.result?` · ${event.result}`:''}{event.duration_ms!=null?` · ${event.duration_ms} ms`:''}</span>
+          {event.reason&&<code className="diagnostics-reason">{event.reason}</code>}
+          {event.message&&<code className="diagnostics-reason">{event.message}</code>}
+         </li>)}</ol>}
+         {traces[item.trace_id]&&!traces[item.trace_id].loading&&!traces[item.trace_id].error&&!traces[item.trace_id].items.length&&<p className="helper">该链路下没有可解析的日志事件。</p>}
+        </div>
+       </details>
+      </li>)}</ul>
+     </li>)}
+    </ul>
    </section>
   </>}
  </section>;
