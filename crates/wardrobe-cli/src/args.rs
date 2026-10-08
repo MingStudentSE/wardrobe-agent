@@ -46,6 +46,12 @@ pub struct LogsCommand {
     pub cursor: Option<String>,
 }
 
+/// doctor 子命令（#48）：体检报告不接受输入参数，连接方式与 logs 一致（--db/--profile）。
+pub struct DoctorCommand {
+    pub db: Option<PathBuf>,
+    pub profile: Option<String>,
+}
+
 pub enum Parsed {
     Help(Option<String>),
     Schema(String),
@@ -54,6 +60,7 @@ pub enum Parsed {
     Execute(Execution),
     Profile(ProfileCommand),
     Logs(LogsCommand),
+    Doctor(DoctorCommand),
 }
 
 fn invalid_arguments(message: &str) -> ApiError {
@@ -259,6 +266,15 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                 limit,
                 cursor: value("cursor"),
             }))
+        }
+        Some("doctor") => {
+            if positionals.len() > 1 {
+                return Err(invalid_arguments("doctor 不接受输入参数"));
+            }
+            if input.is_some() {
+                return Err(invalid_arguments("doctor 子命令不接受标准输入方式"));
+            }
+            Ok(Parsed::Doctor(DoctorCommand { db, profile }))
         }
         Some(command) if command.starts_with("profile.") => {
             let action = match command {

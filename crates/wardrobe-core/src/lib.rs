@@ -314,6 +314,7 @@ impl Application {
             "imports.commit" => Some(&["member_id", "id", "draft_id", "operation_key", "facts"]),
             "space.default" | "member.list" => Some(&[]),
             "diagnostics.summary" => Some(&[]),
+            "diagnostics.checks" => Some(&[]),
             "diagnostics.logs.query" => Some(&[
                 "level",
                 "since",

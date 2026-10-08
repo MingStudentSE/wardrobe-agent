@@ -35,4 +35,17 @@
 .diagnostics-trace ol{margin:0;padding-left:20px;display:grid;gap:10px;font-size:13px;font-variant-numeric:tabular-nums}
 .diagnostics-trace li{overflow-wrap:anywhere}
 .diagnostics-reason{display:block;font-family:var(--font-mono);font-size:12px;color:var(--color-error);margin-top:4px;overflow-wrap:anywhere}
+/* 基础检查清单（ticket #48）：状态图标+文字双通道（不只靠颜色），去向按钮键盘可达，375px 换行不横滚 */
+.diagnostics-checks-summary{margin:0 0 16px;font-size:13px;color:var(--color-muted)}
+.diagnostics-checks{list-style:none;padding:0;margin:0;display:grid;gap:12px}
+.diagnostics-check{border:1px solid var(--color-rule);border-radius:12px;background:var(--color-panel);padding:12px 16px;display:grid;gap:8px}
+.diagnostics-check-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-height:44px}
+.diagnostics-check-status{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;white-space:nowrap}
+.diagnostics-check-status svg{width:18px;height:18px;flex-shrink:0}
+.diagnostics-check-pass .diagnostics-check-status{color:var(--color-success)}
+.diagnostics-check-warn .diagnostics-check-status{color:var(--color-warning)}
+.diagnostics-check-fail .diagnostics-check-status{color:var(--color-error)}
+.diagnostics-check-message{font-size:14px;line-height:1.6;min-width:0;overflow-wrap:anywhere}
+.diagnostics-check-goto{white-space:nowrap}
+.diagnostics-check-detail{font-family:var(--font-mono);font-size:12px;color:var(--color-muted);overflow-wrap:anywhere}
 @media(max-width:700px){.diagnostics-section{padding:20px}.diagnostics-window{grid-template-columns:1fr}}

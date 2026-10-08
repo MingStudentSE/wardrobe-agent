@@ -40,6 +40,7 @@ fn main() {
         }
         args::Parsed::Profile(command) => run_profile(command),
         args::Parsed::Logs(command) => run_logs(command),
+        args::Parsed::Doctor(command) => run_doctor(command),
         args::Parsed::Execute(execution) => execute(execution),
     }
 }
@@ -119,6 +120,23 @@ fn run_logs(command: args::LogsCommand) {
         }
         Err(e) => fail(e),
     }
+}
+
+fn run_doctor(command: args::DoctorCommand) {
+    let db = match resolve_db(command.db, command.profile) {
+        Ok(db) => db,
+        Err(error) => {
+            if error.code == "storage_error" {
+                println!("{}", json!({"schema_version":1,"error":error}));
+                std::process::exit(1);
+            }
+            fail(error);
+        }
+    };
+    // doctor 与 GUI 诊断页完全同源：core 侧直接执行 diagnostics.summary + diagnostics.checks；
+    // 数据库无法打开时降级为文件系统级体检与失败原因（见 wardrobe_core::diagnostics::doctor_report）。
+    // 产出报告即成功（exit 0）：检查项的 warn/fail 经 checks/counts 字段表达，供脚本解析。
+    println!("{}", json!({"schema_version":1,"result":wardrobe_core::diagnostics::doctor_report(&db)}));
 }
 
 fn run_mcp(db: PathBuf) {
@@ -253,6 +271,7 @@ fn help() -> Value {
             "wardrobe-cli schema <operation>",
             "wardrobe-cli [--db <数据库路径>] [--trusted-local] <operation> ['<JSON>' | --input-stdin | --client-stdin]",
             "wardrobe-cli [--db <数据库路径>] logs [过滤参数]",
+            "wardrobe-cli [--db <数据库路径>] doctor",
             "wardrobe-cli [--db <数据库路径>] mcp"
         ],
         "flags": {
@@ -277,6 +296,11 @@ fn help() -> Value {
                 "--limit": "每页数量 1–100，默认 50",
                 "--cursor": "上一页返回的 next_cursor；续页须保留查询条件，null 表示末页"
             }
+        },
+        "doctor": {
+            "usage": "wardrobe-cli [--db <数据库路径>] doctor",
+            "description": "一条命令完成体检：健康摘要（diagnostics.summary）+ 基础检查清单（diagnostics.checks），与桌面诊断页完全同源；只读体检不自动修复。数据库无法打开时降级输出文件系统级检查与失败原因（error 字段非 null、summary 为 null）",
+            "output": "result.error 为 null 表示正常打开；result.checks.checks 为固定十项检查（id/status/message/setting/detail），counts 汇总 pass/warn/fail；产出报告即 exit 0"
         },
         "data": "数据目录可用 --db 或环境变量 WARDROBE_DATA_DIR 指定；未指定时使用系统应用数据目录，数据库随应用迁移机制移动"
     })

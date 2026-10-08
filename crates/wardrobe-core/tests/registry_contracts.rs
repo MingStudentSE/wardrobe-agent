@@ -2067,8 +2067,33 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
         .unwrap_err();
     assert_eq!(error.code, "invalid_input", "{error:?}");
 
-    let family = [("diagnostics.summary", "query", true)];
+    let family = [
+        ("diagnostics.summary", "query", true),
+        ("diagnostics.checks", "query", true),
+    ];
     assert_family_effects_and_examples(&descriptors, &family);
+
+    // 基础检查：真实运行时输出钉住 outputSchema；scope 同为仅本机可信入口
+    let checks = app.execute("diagnostics.checks", json!({})).unwrap();
+    assert_eq!(checks["schema_version"], 1);
+    assert_result_matches_schema(&schema_of("diagnostics.checks"), &checks, "diagnostics.checks");
+    let items = checks["checks"].as_array().unwrap();
+    assert_eq!(items.len(), 10, "固定十项：{checks}");
+    for item in items {
+        assert!(item["message"].is_string() && item["detail"].is_string(), "{item}");
+        assert!(item["setting"].is_null() || item["setting"].is_string(), "{item}");
+    }
+    let checks_descriptor = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("diagnostics.checks"))
+        .unwrap();
+    assert_eq!(checks_descriptor["scope"]["access"], json!("trusted-local-only"));
+    assert_eq!(checks_descriptor["scope"]["primary_grant_required"], json!(false));
+    // 输入严格：未知字段拒绝
+    let error = app
+        .execute("diagnostics.checks", json!({"repair":true}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
 
     // 日志查询：过滤条件与游标严格声明，运行时输出钉住 outputSchema
     let queried = app
@@ -2136,6 +2161,7 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
 
     let family = [
         ("diagnostics.summary", "query", true),
+        ("diagnostics.checks", "query", true),
         ("diagnostics.logs.query", "query", true),
         ("diagnostics.export", "query", true),
     ];
