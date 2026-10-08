@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+import {restoreDefaultMember} from './support/member-hygiene';
 // Ticket-23 GUI acceptance (issue #23): the 场景计划 tab drives the real
 // Application API through the development bridge (no mock):
 //  - 婚礼/旅行计划基于真实库存生成，逐天方案与去重打包清单可见；
@@ -23,6 +24,7 @@ async function openScenarios(browserPage:import('@playwright/test').Page){
  return panel;
 }
 
+test.beforeEach(async({request})=>{await restoreDefaultMember(request);});
 test('scenario tab plans a wedding and a deduped travel checklist without recording wears',async({page:browserPage})=>{
  page=browserPage;
  const panel=await openScenarios(browserPage);

@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+import {restoreDefaultMember} from './support/member-hygiene';
 import {createServer,IncomingMessage,ServerResponse,Server} from 'node:http';
 // Ticket-22 GUI acceptance: the Stylist tab drives the real Application API
 // through the development bridge (no mock): queued receipt, then the local
@@ -30,6 +31,7 @@ function startFixture():Promise<number>{return new Promise(resolve=>{
  fixture.listen(0,'127.0.0.1',()=>{fixturePort=(fixture.address() as {port:number}).port;resolve(fixturePort);});
 });}
 
+test.beforeEach(async({request})=>{await restoreDefaultMember(request);});
 test.beforeAll(async()=>{await startFixture();});
 test.afterAll(async()=>{fixture?.close();});
 

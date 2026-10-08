@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+import {restoreDefaultMember} from './support/member-hygiene';
 // GUI竞态验收（成员切换/任务状态刷新/切页）：任务中心“刷新状态”的迟到响应
 // 不得把上一成员的定时任务渲染到已切换成员的视图。后端为真实CLI桥，非mock。
 test('成员切换后任务中心不回写上一成员的定时任务',async({page})=>{
@@ -51,3 +52,4 @@ test('成员切换后任务中心不回写上一成员的定时任务',async({pa
  await expect(page.getByText('目前没有后台任务')).toBeVisible();
  await expect(page.getByText('衣橱任务',{exact:true})).toHaveCount(0);
 });
+test.afterEach(async({request})=>{await restoreDefaultMember(request);});

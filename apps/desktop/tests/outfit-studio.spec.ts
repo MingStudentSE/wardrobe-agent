@@ -9,7 +9,7 @@ test('single composer saves an outfit, library edits and recovers it, recommenda
  await composer.getByLabel('搭配名称').fill('穿搭工作室验收');await composer.getByRole('button',{name:'保存这套穿搭'}).click();await expect(composer.getByRole('status')).toContainText('搭配已保存');
  await page.getByRole('navigation').getByRole('button',{name:'穿搭',exact:true}).click();
  await page.getByRole('button',{name:'编辑 穿搭工作室验收',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'调整穿搭'});await expect(dialog.locator('.outfit-garment-picker button')).toHaveCount(25);
+ const dialog=page.getByRole('dialog',{name:'调整穿搭'});const stock=await call('clothing.list',{member_id:'default',status:'active',limit:100});await expect(dialog.locator('.outfit-garment-picker button')).toHaveCount(stock.items.length);
  await dialog.locator('.outfit-garment-picker button:not(:disabled)').first().click();await dialog.getByLabel('搭配名称',{exact:true}).fill('已调整的穿搭');await dialog.getByRole('button',{name:'保存搭配',exact:true}).click();await expect(dialog.getByRole('status')).toContainText('搭配已保存');
  await dialog.getByRole('button',{name:'移入搭配回收站'}).click();await dialog.getByRole('button',{name:'确认移入回收站'}).click();await dialog.getByRole('button',{name:'关闭单品窗口'}).click();
  await page.getByRole('button',{name:'回收站',exact:true}).click();await page.getByRole('button',{name:'编辑 已调整的穿搭',exact:true}).click();await dialog.getByRole('button',{name:'恢复搭配'}).click();await dialog.getByRole('button',{name:'关闭单品窗口'}).click();await page.getByRole('button',{name:'全部穿搭',exact:true}).click();await expect(page.getByRole('button',{name:'编辑 已调整的穿搭',exact:true})).toBeVisible();
