@@ -505,6 +505,54 @@ fn recent_error_item(event: &Value) -> Value {
 
 use crate::{ApiError, Application};
 
+/// 供应商请求事件的调用形状（复查收拢）：trace/模型一次取好、计时随每次真实发送
+/// 重置，每次发送记录一条。`record` 只转发 `log_provider_request`——事件字段与
+/// 落盘格式逐字不变（provider 脱敏测试为安全网）。
+pub(crate) struct ProviderRequestLog {
+    trace_id: Option<String>,
+    model: String,
+    started: std::cell::Cell<std::time::Instant>,
+}
+impl ProviderRequestLog {
+    /// worker 链路：trace 取任务文档（跨进程唯一通道），模型取供应商配置或任务载荷。
+    pub(crate) fn from_job(job: &Value, model: &str) -> Self {
+        Self {
+            trace_id: job["trace_id"].as_str().map(str::to_owned),
+            model: model.to_string(),
+            started: std::cell::Cell::new(std::time::Instant::now()),
+        }
+    }
+    /// 同步验证链路：trace 取当前调用上下文（线程局部，见 with_trace）。
+    pub(crate) fn from_current_call(model: &str) -> Self {
+        Self {
+            trace_id: current_trace(),
+            model: model.to_string(),
+            started: std::cell::Cell::new(std::time::Instant::now()),
+        }
+    }
+    /// 每次真实发送前重置计时起点（限流重试的每次发送各记一条自身耗时）。
+    pub(crate) fn begin_send(&self) {
+        self.started.set(std::time::Instant::now());
+    }
+    /// 记录一次发送的结果类别（ok/http_error/outcome_unknown/error）与 HTTP 状态、耗时。
+    pub(crate) fn record(
+        &self,
+        app: &Application,
+        endpoint_kind: &str,
+        outcome: &str,
+        http_status: Option<u16>,
+    ) {
+        app.log_provider_request(
+            self.trace_id.as_deref(),
+            endpoint_kind,
+            &self.model,
+            outcome,
+            http_status,
+            self.started.get(),
+        );
+    }
+}
+
 impl Application {
     /// 供应商请求事件（#44）：端点类别、模型名、结果类别（ok/http_error/outcome_unknown/error）、
     /// HTTP 状态与耗时；trace_id 来自任务文档（异步链路）或当前调用（同步验证）。

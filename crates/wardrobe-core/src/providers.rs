@@ -96,13 +96,12 @@ impl Application {
             request = request.bearer_auth(key);
         }
         // 供应商请求事件（#44）：同步验证走当前调用链路（线程局部 trace 上下文）
-        let validate_trace = crate::diagnostics::current_trace();
-        let validate_model = p["model"].as_str().unwrap_or("").to_string();
-        let validate_started = std::time::Instant::now();
+        let provider_request =
+            crate::diagnostics::ProviderRequestLog::from_current_call(p["model"].as_str().unwrap_or(""));
         let response = match request.send() {
             Ok(response) => response,
             Err(error) => {
-                self.log_provider_request(validate_trace.as_deref(),"chat_completions",&validate_model,"error",None,validate_started);
+                provider_request.record(self,"chat_completions","error",None);
                 return Err(if error.is_timeout() {
                     ApiError::new("connection_timeout", "连接超时，请检查端点或网络")
                 } else {
@@ -112,7 +111,7 @@ impl Application {
         };
         let status = response.status();
         if !status.is_success() {
-            self.log_provider_request(validate_trace.as_deref(),"chat_completions",&validate_model,"http_error",Some(status.as_u16()),validate_started);
+            provider_request.record(self,"chat_completions","http_error",Some(status.as_u16()));
             return Err(match status.as_u16() {
                 401 | 403 => ApiError::new(
                     "provider_authentication",
@@ -150,10 +149,10 @@ impl Application {
             .as_str()
             .is_none_or(|s| s.trim().is_empty())
         {
-            self.log_provider_request(validate_trace.as_deref(),"chat_completions",&validate_model,"outcome_unknown",Some(status.as_u16()),validate_started);
+            provider_request.record(self,"chat_completions","outcome_unknown",Some(status.as_u16()));
             return Err(ApiError::new("provider_response", "供应商响应缺少文本结果"));
         }
-        self.log_provider_request(validate_trace.as_deref(),"chat_completions",&validate_model,"ok",None,validate_started);
+        provider_request.record(self,"chat_completions","ok",None);
         let mut usage = json!({});
         for field in ["prompt_tokens", "completion_tokens", "total_tokens"] {
             if let Some(count) = result["usage"][field].as_u64() {
