@@ -520,6 +520,7 @@ impl Application {
         match operation {
             "diagnostics.summary" => self.diagnostics_summary(input),
             "diagnostics.logs.query" => self.diagnostics_logs_query(input),
+            "diagnostics.export" => self.diagnostics_export(input),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
         }
     }
@@ -702,6 +703,165 @@ impl Application {
             "schema_version": 1,
             "items": items,
             "next_cursor": next_cursor,
+        }))
+    }
+
+    /// diagnostics.export：单文件 JSONL 诊断导出。首行 meta（环境信息与摘要投影），
+    /// 其后为按时间排序的日志事件。产物只来自日志文件与摘要投影，天然不含数据库、
+    /// 图片与凭据——脱敏与普通日志同一构造。
+    pub(super) fn diagnostics_export(&self, input: Value) -> Result<Value, ApiError> {
+        let path = match input.get("path") {
+            Some(Value::String(text)) if !text.is_empty() => text.clone(),
+            _ => return Err(ApiError::new("invalid_input", "path 须为非空字符串")),
+        };
+        // 范围解析：scope（session/recent/all，默认 recent）或显式 from–to 起止时间窗
+        //（含端点；与 scope 互斥，须成对提供）
+        #[derive(Clone, Copy)]
+        enum Window {
+            Session,
+            Recent,
+            All,
+            Explicit(i64, i64),
+        }
+        let has_from = input.get("from").is_some_and(|value| !value.is_null());
+        let has_to = input.get("to").is_some_and(|value| !value.is_null());
+        let window = if has_from || has_to {
+            if input.get("scope").is_some_and(|value| !value.is_null()) {
+                return Err(ApiError::new(
+                    "invalid_input",
+                    "scope 与显式起止时间不可同时提供",
+                ));
+            }
+            if !has_from || !has_to {
+                return Err(ApiError::new("invalid_input", "显式时间窗须同时提供 from 与 to"));
+            }
+            let parse_time = |key: &str| -> Result<chrono::DateTime<chrono::FixedOffset>, ApiError> {
+                input
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
+                    .ok_or_else(|| ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间")))
+            };
+            let from = parse_time("from")?;
+            let to = parse_time("to")?;
+            if from > to {
+                return Err(ApiError::new("invalid_input", "时间范围起止颠倒"));
+            }
+            Window::Explicit(from.timestamp_millis(), to.timestamp_millis())
+        } else {
+            match input.get("scope") {
+                None | Some(Value::Null) => Window::Recent,
+                Some(Value::String(text)) => match text.as_str() {
+                    "session" => Window::Session,
+                    "recent" => Window::Recent,
+                    "all" => Window::All,
+                    _ => {
+                        return Err(ApiError::new(
+                            "invalid_input",
+                            "scope 须为 session、recent 或 all",
+                        ))
+                    }
+                },
+                Some(_) => {
+                    return Err(ApiError::new(
+                        "invalid_input",
+                        "scope 须为 session、recent 或 all",
+                    ))
+                }
+            }
+        };
+        let scope_name = match window {
+            Window::Session => "session",
+            Window::Recent => "recent",
+            Window::All => "all",
+            Window::Explicit(..) => "window",
+        };
+        // 事件选取与查询同口径：ts 不可解析的事件不进入导出（损坏行静默跳过）
+        let event_millis =
+            |event: &Value| -> Option<i64> {
+                chrono::DateTime::parse_from_rfc3339(event["ts"].as_str()?)
+                    .ok()
+                    .map(|time| time.timestamp_millis())
+            };
+        let cutoff = (chrono::Utc::now() - chrono::Duration::hours(24)).timestamp_millis();
+        let mut selected: Vec<Value> = self
+            .logger
+            .read_events()
+            .into_iter()
+            .filter(|event| {
+                let millis = match event_millis(event) {
+                    Some(millis) => millis,
+                    None => return false,
+                };
+                match window {
+                    Window::Session => event["run_id"].as_str() == Some(run_id()),
+                    Window::Recent => millis >= cutoff,
+                    Window::All => true,
+                    Window::Explicit(from, to) => millis >= from && millis <= to,
+                }
+            })
+            .collect();
+        // 稳定排序：同毫秒事件保持写入序
+        selected.sort_by_key(|event| event_millis(event).unwrap_or(i64::MIN));
+        let covered_from = selected.first().and_then(|e| e["ts"].as_str()).map(String::from);
+        let covered_to = selected.last().and_then(|e| e["ts"].as_str()).map(String::from);
+        let run_ids: std::collections::BTreeSet<String> = selected
+            .iter()
+            .filter_map(|event| event["run_id"].as_str().map(String::from))
+            .collect();
+        let mut level_counts = std::collections::BTreeMap::from([
+            ("info", 0u64),
+            ("debug", 0),
+            ("trace", 0),
+            ("error", 0),
+        ]);
+        for event in &selected {
+            if let Some(slot) = event["level"].as_str().and_then(|level| level_counts.get_mut(level))
+            {
+                *slot += 1;
+            }
+        }
+        let errors: Vec<&Value> = selected.iter().filter(|e| e["level"] == "error").collect();
+        let window_start = errors.len().saturating_sub(RECENT_ERRORS_LIMIT);
+        let recent_errors: Vec<Value> = errors[window_start..]
+            .iter()
+            .map(|event| recent_error_item(event))
+            .collect();
+        let meta = json!({
+            "kind": "diagnostics",
+            "schema_version": 1,
+            "app_version": env!("CARGO_PKG_VERSION"),
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+            "database_schema_version": crate::DATABASE_SCHEMA_VERSION,
+            "exported_at": timestamp(),
+            "scope": scope_name,
+            "covered_from": covered_from,
+            "covered_to": covered_to,
+            "event_count": selected.len(),
+            "run_ids": run_ids.into_iter().collect::<Vec<_>>(),
+            "level_counts": level_counts,
+            "recent_errors": recent_errors,
+        });
+        let mut content = String::new();
+        content.push_str(&meta.to_string());
+        content.push('\n');
+        for event in &selected {
+            content.push_str(&event.to_string());
+            content.push('\n');
+        }
+        std::fs::write(&path, content)
+            .map_err(|_| ApiError::new("storage_error", "诊断导出失败：无法写入目标文件"))?;
+        let bytes = std::fs::metadata(&path)
+            .map(|meta| meta.len())
+            .map_err(|_| ApiError::new("storage_error", "诊断导出失败：无法读取导出文件"))?;
+        Ok(json!({
+            "schema_version": 1,
+            "path": path,
+            "event_count": selected.len(),
+            "bytes": bytes,
+            "covered_from": covered_from,
+            "covered_to": covered_to,
         }))
     }
 
@@ -933,5 +1093,43 @@ pub(super) fn descriptors() -> Vec<Value> {
                 }
             }
         }),
+        json!({
+            "name":"diagnostics.export",
+            "description":"仅可信本机入口导出诊断文件到指定路径：单文件 JSONL，首行 meta（应用版本、操作系统、数据库模式版本、导出时间、覆盖时间范围、run_id 列表、按级别计数、最近错误摘要），其后为按时间排序的日志事件；范围 session（本次启动）/recent（默认，最近 24 小时跨重启）/all（保留期内全部）或显式 from–to 起止时间窗（含端点，与 scope 互斥）",
+            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            "examples":[{
+                "request":{"path":"</绝对/本地/诊断文件>.jsonl","scope":"recent"},
+                "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","产物只来自日志文件与摘要投影：不含数据库、图片与凭据（脱敏与普通日志同一构造）","scope 缺省为 recent；显式 from/to 须成对提供且含端点","写入目标文件（已存在则覆盖）；保存对话框与 dev 回退路径由桌面端入口负责"]
+            }],
+            "inputSchema":{
+                "type":"object",
+                "additionalProperties":false,
+                "required":["path"],
+                "properties":{
+                    "path":{"type":"string","minLength":1,"description":"导出目标文件路径（单文件 JSONL）"},
+                    "scope":{"enum":["session","recent","all"],"description":"范围：本次启动 / 最近 24 小时跨重启（默认）/ 保留期内全部"},
+                    "from":{"type":"string","description":"RFC3339 显式窗口起点（含）；须与 to 成对提供，与 scope 互斥"},
+                    "to":{"type":"string","description":"RFC3339 显式窗口终点（含）；须与 from 成对提供，与 scope 互斥"}
+                }
+            },
+            "outputSchema":export_schema()
+        }),
     ]
+}
+
+/// diagnostics.export 的 outputSchema：路径与导出统计（事件数、字节、覆盖范围）；
+/// meta 细节在产物文件首行，schema_version 与产物 meta 同为 1。
+fn export_schema() -> Value {
+    json!({
+        "type":"object",
+        "required":["schema_version","path","event_count","bytes","covered_from","covered_to"],
+        "properties":{
+            "schema_version":{"type":"integer","const":1},
+            "path":{"type":"string","description":"导出目标文件路径"},
+            "event_count":{"type":"integer","minimum":0,"description":"包含的日志事件数"},
+            "bytes":{"type":"integer","minimum":0,"description":"导出文件字节数"},
+            "covered_from":{"type":["string","null"],"description":"覆盖的最早事件时间（RFC3339）；无事件时为 null"},
+            "covered_to":{"type":["string","null"],"description":"覆盖的最晚事件时间（RFC3339）；无事件时为 null"}
+        }
+    })
 }

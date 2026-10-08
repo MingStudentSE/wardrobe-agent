@@ -39,6 +39,7 @@ fn main() {
             run_mcp(db)
         }
         args::Parsed::Profile(command) => run_profile(command),
+        args::Parsed::Logs(command) => run_logs(command),
         args::Parsed::Execute(execution) => execute(execution),
     }
 }
@@ -69,6 +70,52 @@ fn run_profile(command: args::ProfileCommand) {
         Err(e) if e.code == "storage_error" => {
             println!("{}", json!({"schema_version":1,"error":e}));
             std::process::exit(1);
+        }
+        Err(e) => fail(e),
+    }
+}
+
+fn run_logs(command: args::LogsCommand) {
+    let db = match resolve_db(command.db, command.profile) {
+        Ok(db) => db,
+        Err(error) => {
+            if error.code == "storage_error" {
+                println!("{}", json!({"schema_version":1,"error":error}));
+                std::process::exit(1);
+            }
+            fail(error);
+        }
+    };
+    let app = match Application::open(&db) {
+        Ok(app) => app,
+        Err(e) => {
+            println!("{}", json!({"schema_version":1,"error":e}));
+            std::process::exit(1);
+        }
+    };
+    // CLI 是可信本机入口：logs 直接执行 diagnostics.logs.query（外部客户端无法获得该 scope）
+    let mut input = serde_json::Map::new();
+    let text = |value: Option<String>| value.map(|value| json!(value));
+    for (field, value) in [
+        ("level", text(command.level)),
+        ("since", text(command.since)),
+        ("until", text(command.until)),
+        ("trace_id", text(command.trace_id)),
+        ("run_id", text(command.run_id)),
+        ("operation", text(command.operation)),
+        ("keyword", text(command.keyword)),
+        ("limit", command.limit.map(|value| json!(value))),
+        ("cursor", text(command.cursor)),
+    ] {
+        if let Some(value) = value {
+            input.insert(field.to_string(), value);
+        }
+    }
+    match app.execute("diagnostics.logs.query", Value::Object(input)) {
+        Ok(result) => println!("{}", json!({"schema_version":1,"result":result})),
+        Err(e) if e.code == "storage_error" => {
+            println!("{}", json!({"schema_version":1,"error":e}));
+            std::process::exit(1)
         }
         Err(e) => fail(e),
     }
@@ -205,6 +252,7 @@ fn help() -> Value {
             "wardrobe-cli help <operation>",
             "wardrobe-cli schema <operation>",
             "wardrobe-cli [--db <数据库路径>] [--trusted-local] <operation> ['<JSON>' | --input-stdin | --client-stdin]",
+            "wardrobe-cli [--db <数据库路径>] logs [过滤参数]",
             "wardrobe-cli [--db <数据库路径>] mcp"
         ],
         "flags": {
@@ -215,6 +263,21 @@ fn help() -> Value {
             "--": "其后所有参数按字面量处理"
         },
         "authorization": "外部 AI 客户端通过 --client-stdin 提供连接令牌，令牌不得放入命令行参数；授权在到期、撤销与 scope 范围内可重复使用；凭据与加密命令仅接受标准输入",
+        "logs": {
+            "usage": "wardrobe-cli [--db <数据库路径>] logs [过滤参数]",
+            "description": "查询全链路日志（diagnostics.logs.query）：仅本机可信入口，事件按构造脱敏；过滤参数命名与该操作输入字段对齐",
+            "filters": {
+                "--level": "精确级别过滤：info|debug|trace|error",
+                "--since": "RFC3339 起始时间（含）",
+                "--until": "RFC3339 结束时间（含）",
+                "--trace-id": "链路标识（trace_id）；错误输出携带同一编号",
+                "--run-id": "运行会话标识",
+                "--operation": "操作名前缀",
+                "--keyword": "事件文本子串（大小写不敏感，最多 200 字符）",
+                "--limit": "每页数量 1–100，默认 50",
+                "--cursor": "上一页返回的 next_cursor；续页须保留查询条件，null 表示末页"
+            }
+        },
         "data": "数据目录可用 --db 或环境变量 WARDROBE_DATA_DIR 指定；未指定时使用系统应用数据目录，数据库随应用迁移机制移动"
     })
 }
