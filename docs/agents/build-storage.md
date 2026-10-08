@@ -15,6 +15,7 @@
 5. React/Tauri 的 node_modules、dist、target、打包产物和临时文件都放在外盘工作树或外盘缓存。系统已有 Rust/Node 工具链和已安装应用无需迁移。
 6. GLM 开发使用用户当前指定的 zcode CLI / GLM-5.3-Flash；会话先验证真实 model_usage。TUI 在外盘工作区启动并设置外盘临时目录；原生构建每次 source 外盘 native-env.sh。`run-zcode-task.py` 提供带挂载、模型与路径检查的会话恢复入口；若当前 headless 无权限客户端，使用 TUI 审批已授权的开发命令，不把未执行命令算作成功。Unix socket 需要短 TMPDIR 别名，别名也必须指向外盘。
 7. 开发、测试、打包期间保持备份盘连接。卸载映像或拔盘前停止全部写入任务。重新挂载后继续使用原路径。
+8. 开发与测试运行必须隔离数据目录（2026-10-08 事故规则）：schema 迁移只向前、不可逆，任何开发构建、测试运行、GUI dev 会话一旦用默认数据目录（`~/Library/Application Support/wardrobe-agent`）打开数据库，就会把生产库迁移到未发布版本，导致正式应用拒绝打开。source `native-env.sh` 后会自动获得外盘隔离 `WARDROBE_DATA_DIR`（`external-workspace-volume/codex/dev-data/`），不得 unset 或覆盖回默认目录；确需连接生产库做验证时，必须先快照数据库到备份盘并在完成后核对 `PRAGMA user_version` 未变。事故记录见 `wardrobe-execution/results/incident-schema-migration-20261008.md`。
 
 ## 验证与恢复
 

@@ -24,3 +24,7 @@ UI 设计、实现、审查与重设计使用 `ui-ux-pro-max` 技能。以用户
 ### Build storage
 
 所有构建、缓存与构建临时文件必须在 1TB 备份盘运行；先检查挂载，不得回落系统盘。参见 `docs/agents/build-storage.md`。
+
+### Data directory isolation
+
+数据库 schema 迁移只向前、不可逆。开发构建、测试运行和 GUI dev 会话必须使用隔离的 `WARDROBE_DATA_DIR`（source `native-env.sh` 自动获得），禁止用默认数据目录打开数据库；违者会把生产库迁移到未发布版本，导致正式应用无法打开。参见 `docs/agents/build-storage.md` 第 8 条。
