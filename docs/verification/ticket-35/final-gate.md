@@ -18,7 +18,7 @@ issue 状态为 2026-10-08 经 GitHub API 核对（#14/#20/#21/#34/#35/#39 OPEN�
 | F04 | 搜索/筛选/收藏/归档/回收站 | #6 CLOSED | [#6 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/6#issuecomment-6022988498) | 【已验收】 |
 | F05 | 真实视觉建议+人工纠错 | #13 CLOSED | [#13 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/13#issuecomment-6023980829) | 【已验收】（真实云视觉部分与 #14/#20/#21 同源限制，本地视觉模型路径有真实证据） |
 | F06 | HEIC/方向/白衣样图/压缩保原图 | #7 CLOSED | [#7 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/7#issuecomment-6023675746) | 【已验收】+【本轮证据】发行包 CLI 真实 HEIC 解码（standalone-runtime.json：64×32 HEIC 导入/重启读回） |
-| F07 | 商品图真实任务/预览采用/重生成 | #14 **OPEN** | — | 【待用户云密钥】实现已合入；真实云生成成功证据缺 |
+| F07 | 商品图真实任务/预览采用/重生成 | #14 **OPEN** | [real-cloud 报告](../ticket-14/report-real-cloud.md) | 【已真实调用验收】2026-10-08 真实 Seedream 5.0 Flash 两次生成（显式采用+重生成不采用保留旧图、来源追溯成链），证据 results/continue-20261007/real-ai-acceptance/ |
 | F08 | 手工搭配/编辑收藏/离线拼贴 | #8 CLOSED | [#8 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/8#issuecomment-6022990240) | 【已验收】 |
 | F09 | 在线/离线推荐输出真实可用 ID | #15 CLOSED | [#15 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/15#issuecomment-6024834540) | 【已验收】 |
 | F10 | 固定/替换/换套/硬约束 | #15/#16 CLOSED | [#16 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/16#issuecomment-6025788843) | 【已验收】 |
@@ -26,8 +26,8 @@ issue 状态为 2026-10-08 经 GitHub API 核对（#14/#20/#21/#34/#35/#39 OPEN�
 | F12 | 穿着补记/换装/更正/撤销/时区 | #9 CLOSED | [#9 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/9#issuecomment-6023922046) | 【已验收】 |
 | F13 | 洞察与人工计算一致 | #11 CLOSED | [#11 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/11#issuecomment-6024374688) | 【已验收】 |
 | F14 | 定时/暂停/通知/休眠补执行 | #25 CLOSED | [#25 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/25#issuecomment-6042823743) | 【已验收，有限定】真实 macOS 系统通知实际显示、后台/登录自启动的安装态验证留有限定记录（ticket-25 README "原生…门仍 pending" + 9ea567e 记录）；#35 终验时按现状复核 |
-| F15 | AI flat-lay 真实成功 | #20 **OPEN** | — | 【待用户云密钥】离线拼贴兜底已有证据 |
-| F16 | 真实试穿/对比/仅本地 | #21 **OPEN** | — | 【待用户云密钥】 |
+| F15 | AI flat-lay 真实成功 | #20 **OPEN** | [real-cloud 报告](../ticket-20/report-real-cloud.md) | 【已真实调用验收】2026-10-08 真实三展示图 flat-lay 生成+保存（blob 哈希与存证一致、wear.list=0、仅本机）；离线拼贴兜底已有证据 |
+| F16 | 真实试穿/对比/仅本地 | #21 **OPEN** | [real-cloud 报告](../ticket-21/report-real-cloud.md) | 【已真实调用验收】2026-10-08 真实 AI 合成模特+三衣物试穿、compare 前后哈希闭环、仅本机且无穿着记录 |
 | F17 | 五类场景工具链 | #22/#23/#24 CLOSED | [#22](https://github.com/MingStudentSE/wardrobe-agent/issues/22#issuecomment-6042322433) [#23](https://github.com/MingStudentSE/wardrobe-agent/issues/23#issuecomment-6044395758) [#24](https://github.com/MingStudentSE/wardrobe-agent/issues/24#issuecomment-6044175669) | 【已验收】（各票范围内的云模型真实调用限制同上） |
 | F18 | 记忆/画像重置 | #18 CLOSED | [#18 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/18#issuecomment-6029230182) | 【已验收】 |
 | F19 | GUI 关闭后 CLI 独立读写 | #33 CLOSED | [#33 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/33#issuecomment-6038676238) | 【已验收】+【本轮证据】发行包 CLI 干净环境 --version/--help/授权/HEIC/MCP（standalone-runtime.json） |
@@ -55,11 +55,12 @@ issue 状态为 2026-10-08 经 GitHub API 核对（#14/#20/#21/#34/#35/#39 OPEN�
 | 性能基线 | perf-baseline.json（30 采样）、gui-coldstart.jsonl（10 采样）+ performance-baseline.md |
 | 隐私抽查 | privacy-scan.json + privacy-spot-check.md |
 | 许可清单 | THIRD-PARTY-LICENSES.md + license-appendix.md + cargo/npm 原始行数据 |
+| 真实云图像调用（#14/#20/#21，2026-10-08） | results/continue-20261007/real-ai-acceptance/（logs/ 全命令日志、evidence/ 生成图 SHA256）+ docs/verification/ticket-14|20|21/report-real-cloud.md |
 
 ## 终验前必须完成的缺口汇总
 
 1. 【待 #34 终验】F23 与全应用 UI/设置回归——#34 合入本集成线后对本候选复核。
-2. 【待用户云密钥】F07（#14）、F15（#20）、F16（#21）真实云图像调用成功证据。
+2. F07（#14）、F15（#20）、F16（#21）真实云图像调用成功证据——已于 2026-10-08 闭合：真实 Ark Seedream（doubao-seedream-5-0-flash-260915）调用验收完成，见 docs/verification/ticket-14|20|21/report-real-cloud.md 与 results/continue-20261007/real-ai-acceptance/；三票 issue 关闭动作仍归各票。
 3. 【#35 终验】F24 收口与 F01–F30 对照表最终勾选；F14 的安装态通知/自启动按实际现状复核并如实记录。
 4. 产品许可证决定（见 THIRD-PARTY-LICENSES.md 第 1 节）。
 5. （分发环节）签名公证、CI 云端复现构建（账户账单恢复后）。
