@@ -311,6 +311,7 @@ impl Application {
             "imports.update" => Some(&["member_id", "id", "draft_id", "facts"]),
             "imports.commit" => Some(&["member_id", "id", "draft_id", "operation_key", "facts"]),
             "space.default" | "member.list" => Some(&[]),
+            "diagnostics.summary" => Some(&[]),
             "member.create" => Some(&["name"]),
             "member.update" => Some(&["member_id", "name"]),
             "member.select" => Some(&["member_id"]),
@@ -345,6 +346,7 @@ impl Application {
             "client.list" => self.client_list(input),
             "client.revoke" => self.client_revoke(input),
             "client.authorize" => self.client_authorize(input),
+            name if name.starts_with("diagnostics.") => self.diagnostics_execute(name, input),
             "space.default" => self.default_space(),
             "member.list" => self.member_list(),
             "member.create" => self.member_create(input),
@@ -460,6 +462,7 @@ pub fn operations() -> Value {
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());
     descriptors.extend(image_editing::descriptors());
+    descriptors.extend(diagnostics::descriptors());
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );

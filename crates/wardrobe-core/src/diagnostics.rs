@@ -269,8 +269,7 @@ impl Logger {
         self.write_line(&event.to_string());
     }
 
-    /// 丢弃计数：#43 经 diagnostics.summary 暴露；此前仅模块内测试使用。
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// 丢弃计数：写入失败静默降级的累计次数，经 diagnostics.summary 暴露。
     pub(crate) fn dropped_events(&self) -> u64 {
         self.lock().dropped_events
     }
@@ -381,6 +380,163 @@ fn timestamp() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
+/// 事件至少要有的公共字段：查询与摘要只投影良构事件，
+/// 手写残行或被截断的事件（如 `{"event_type":"stale"}`）与损坏行同样跳过。
+fn well_formed(event: &Value) -> bool {
+    ["ts", "level", "event_type", "run_id"]
+        .iter()
+        .all(|key| event.get(key).is_some_and(Value::is_string))
+}
+
+impl Logger {
+    /// 按文件时间序（wardrobe-YYYY-MM-DD[.序号].jsonl → 行序，即写入序）读取全部良构事件。
+    /// 尾行截断、非 JSON 行与消失中的文件（并发清理）都跳过，绝不阻断查询。
+    pub(crate) fn read_events(&self) -> Vec<Value> {
+        let mut files: Vec<(chrono::NaiveDate, u32, PathBuf)> = Vec::new();
+        if let Ok(entries) = fs::read_dir(&self.logs_dir) {
+            for entry in entries.flatten() {
+                if let Some((date, seq)) =
+                    parse_log_file_name(&entry.file_name().to_string_lossy())
+                {
+                    files.push((date, seq, entry.path()));
+                }
+            }
+        }
+        files.sort();
+        let mut events = Vec::new();
+        for (_, _, path) in files {
+            let content = match fs::read_to_string(&path) {
+                Ok(content) => content,
+                // 并发清理者恰好删掉该文件，或读取瞬时失败：尽力而为，跳过
+                Err(_) => continue,
+            };
+            for line in content.lines().filter(|line| !line.trim().is_empty()) {
+                match serde_json::from_str::<Value>(line) {
+                    Ok(event) if well_formed(&event) => events.push(event),
+                    _ => continue,
+                }
+            }
+        }
+        events
+    }
+
+    /// 日志占用：总字节数与文件数（并发清理容忍 NotFound）。
+    pub(crate) fn occupancy(&self) -> (u64, u64) {
+        let mut total = 0;
+        let mut count = 0;
+        if let Ok(entries) = fs::read_dir(&self.logs_dir) {
+            for entry in entries.flatten() {
+                if parse_log_file_name(&entry.file_name().to_string_lossy()).is_none() {
+                    continue;
+                }
+                if let Ok(meta) = entry.metadata() {
+                    if meta.is_file() {
+                        total += meta.len();
+                        count += 1;
+                    }
+                }
+            }
+        }
+        (total, count)
+    }
+}
+
+/// 最近错误窗口上限（诊断摘要与 CLI/GUI 共用的同一口径）。
+pub(crate) const RECENT_ERRORS_LIMIT: usize = 20;
+
+/// 把日志事件投影为诊断摘要的最近错误条目：公共字段 + 诊断有用字段，不含耗时与输入摘要。
+fn recent_error_item(event: &Value) -> Value {
+    let mut item = json!({
+        "ts": event["ts"],
+        "level": event["level"],
+        "event_type": event["event_type"],
+        "run_id": event["run_id"],
+    });
+    for key in ["trace_id", "operation", "result", "reason", "message"] {
+        if event.get(key).is_some_and(|value| !value.is_null()) {
+            item[key] = event[key].clone();
+        }
+    }
+    item
+}
+
+use crate::{ApiError, Application};
+
+impl Application {
+    /// diagnostics.* 分发：仅本机可信入口（authorization::privileged 一律拒绝外部客户端）。
+    pub(super) fn diagnostics_execute(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
+        match operation {
+            "diagnostics.summary" => self.diagnostics_summary(input),
+            _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
+        }
+    }
+
+    /// 健康摘要：只读投影——数据库/模式版本、本机安装代际、按状态任务计数、
+    /// 供应商结果未知计数、最近错误、日志占用保留信息与丢弃计数。
+    pub(super) fn diagnostics_summary(&self, _input: Value) -> Result<Value, ApiError> {
+        // 按状态任务计数：全空间（诊断不经成员授权边界），未知状态不计入以保持 schema 严格
+        let mut jobs_by_state = std::collections::BTreeMap::from([
+            ("queued", 0u64),
+            ("running", 0),
+            ("waiting_input", 0),
+            ("succeeded", 0),
+            ("failed", 0),
+            ("cancelled", 0),
+        ]);
+        {
+            let mut statement = self.connection.prepare(
+                "SELECT coalesce(json_extract(document,'$.state'),'queued') AS state, count(*) FROM jobs GROUP BY state",
+            )?;
+            let mut rows = statement.query([])?;
+            while let Some(row) = rows.next()? {
+                let state: String = row.get(0)?;
+                let count: i64 = row.get(1)?;
+                if let Some(slot) = jobs_by_state.get_mut(state.as_str()) {
+                    *slot = count as u64;
+                }
+            }
+        }
+        // 供应商结果未知：waiting_input 且已提交（口径与恢复守卫的已提交谓词同源，jobs.rs）
+        let provider_outcome_unknown: u64 = self.connection.query_row(
+            "SELECT count(*) FROM jobs WHERE json_extract(document,'$.state')='waiting_input' AND (json_type(document,'$.submitted_at')='text' OR (kind='recognition' AND json_extract(document,'$.payload.submission') IN ('submitted','received','unknown')))",
+            [],
+            |row| row.get::<_, i64>(0).map(|count| count as u64),
+        )?;
+        let database_user_version: u32 = self
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let events = self.logger.read_events();
+        let errors: Vec<&Value> = events
+            .iter()
+            .filter(|event| event["level"] == "error")
+            .collect();
+        let window_start = errors.len().saturating_sub(RECENT_ERRORS_LIMIT);
+        let recent_errors: Vec<Value> = errors[window_start..]
+            .iter()
+            .map(|event| recent_error_item(event))
+            .collect();
+        let (total_bytes, file_count) = self.logger.occupancy();
+        Ok(json!({
+            "schema_version": 1,
+            "database_schema_version": crate::DATABASE_SCHEMA_VERSION,
+            "database_user_version": database_user_version,
+            "installation_generation": self.installation_generation,
+            "current_run_id": run_id(),
+            "jobs_by_state": jobs_by_state,
+            "provider_outcome_unknown": provider_outcome_unknown,
+            "recent_errors": recent_errors,
+            "logs": {
+                "total_bytes": total_bytes,
+                "file_count": file_count,
+                "retention_days": self.logger.limits.retention_days,
+                "max_total_bytes": self.logger.limits.max_total_bytes,
+                "dropped_events": self.logger.dropped_events(),
+            },
+        }))
+    }
+}
+
+
 fn log_file_name(date: chrono::NaiveDate, seq: u32) -> String {
     if seq == 0 {
         format!("wardrobe-{date}.jsonl")
@@ -461,4 +617,54 @@ mod tests {
         assert_eq!(limits.max_total_bytes, 256 * 1024 * 1024);
         assert_eq!(limits.retention_days, 14);
     }
+}
+
+/// 最近错误条目的 outputSchema（摘要与查询共用同一投影形状）。
+pub(crate) fn recent_error_schema() -> Value {
+    json!({
+        "type":"object",
+        "required":["ts","level","event_type","run_id"],
+        "properties":{
+            "ts":{"type":"string","description":"RFC3339 毫秒 UTC"},
+            "level":{"type":"string"},
+            "event_type":{"type":"string"},
+            "run_id":{"type":"string"},
+            "trace_id":{"type":"string"},
+            "operation":{"type":"string"},
+            "result":{"type":"string","description":"错误码"},
+            "reason":{"type":"string","description":"底层真实原因（仅本机可信入口可见）"},
+            "message":{"type":"string","description":"panic 现场消息"}
+        }
+    })
+}
+
+fn summary_schema() -> Value {
+    json!({
+        "type":"object",
+        "required":["schema_version","database_schema_version","database_user_version","installation_generation","current_run_id","jobs_by_state","provider_outcome_unknown","recent_errors","logs"],
+        "properties":{
+            "schema_version":{"type":"integer","const":1},
+            "database_schema_version":{"type":"integer","description":"当前应用要求的数据库模式版本"},
+            "database_user_version":{"type":"integer","description":"数据库实际模式版本"},
+            "installation_generation":{"type":"integer","description":"本机安装代际"},
+            "current_run_id":{"type":"string","description":"当前运行会话标识"},
+            "jobs_by_state":{"type":"object","required":["queued","running","waiting_input","succeeded","failed","cancelled"],"properties":{"queued":{"type":"integer"},"running":{"type":"integer"},"waiting_input":{"type":"integer"},"succeeded":{"type":"integer"},"failed":{"type":"integer"},"cancelled":{"type":"integer"}},"additionalProperties":false},
+            "provider_outcome_unknown":{"type":"integer","description":"已提交且结果未知的持久任务计数"},
+            "recent_errors":{"type":"array","description":"最近错误（时间升序，窗口封顶）","items":recent_error_schema()},
+            "logs":{"type":"object","required":["total_bytes","file_count","retention_days","max_total_bytes","dropped_events"],"properties":{"total_bytes":{"type":"integer","description":"logs/ 目录当前总占用字节"},"file_count":{"type":"integer"},"retention_days":{"type":"integer","description":"保留天数上限"},"max_total_bytes":{"type":"integer","description":"总占用上限字节"},"dropped_events":{"type":"integer","description":"写入失败静默丢弃的事件计数"}},"additionalProperties":false}
+        }
+    })
+}
+
+pub(super) fn descriptors() -> Vec<Value> {
+    vec![
+        json!({
+            "name":"diagnostics.summary",
+            "description":"仅可信本机入口读取健康摘要：数据库模式版本、本机安装代际、按状态任务计数、供应商结果未知计数、最近错误、日志占用保留信息与丢弃计数",
+            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            "examples":[{"request":{},"prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","只读投影：与持久任务实际状态和日志文件一致，不修改任何数据"]}],
+            "inputSchema":{"type":"object","properties":{},"additionalProperties":false},
+            "outputSchema":summary_schema()
+        }),
+    ]
 }

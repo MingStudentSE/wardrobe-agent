@@ -12,6 +12,8 @@ fn privileged(operation: &str) -> bool {
     operation.starts_with("client.")
         || operation.starts_with("provider.credential.")
         || operation.starts_with("encryption.")
+        // 诊断查询含日志原文与底层原因：仅本机可信入口，外部客户端永远无法获得
+        || operation.starts_with("diagnostics.")
 }
 /// 描述符 scope 元数据：与上方 privileged()、maintenance::is_global_operation()
 /// 及 execute_as_client 中的精确授权条件同源派生；只描述既有执行语义，不改变授权。
@@ -193,7 +195,7 @@ impl Application {
         if privileged(operation) {
             return Err(ApiError::new(
                 "scope_denied",
-                "客户端不能登记授权或管理系统凭据，请使用可信本机设置",
+                "客户端不能登记授权、管理系统凭据或读取诊断，请使用可信本机设置",
             ));
         }
         if operation != "capabilities"

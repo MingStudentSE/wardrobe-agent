@@ -451,6 +451,224 @@ fn concurrent_cleanup_keeps_observers_and_business_running() {
     assert!(operations >= 1, "总量清理不得吞掉当前事件");
 }
 
+/// 把一个任务置为「供应商结果未知」的持久形态（waiting_input + submitted_at），
+/// 与真实流程落盘的文档形状一致（先例：ai_recommendations.rs 的 due_clock_seam 直连 SQL 接缝）。
+fn mark_provider_outcome_unknown(db: &std::path::Path, id: &str) {
+    let connection = rusqlite::Connection::open(db).unwrap();
+    let raw: String = connection
+        .query_row("SELECT document FROM jobs WHERE id=?1", [id], |r| r.get(0))
+        .unwrap();
+    let mut job: Value = serde_json::from_str(&raw).unwrap();
+    job["state"] = json!("waiting_input");
+    job["submitted_at"] = json!(chrono::Utc::now().to_rfc3339());
+    job["error"] = json!({"code":"provider_outcome_unknown","retryable":false});
+    connection
+        .execute(
+            "UPDATE jobs SET document=?1 WHERE id=?2",
+            rusqlite::params![job.to_string(), id],
+        )
+        .unwrap();
+}
+
+#[test]
+fn diagnostics_summary_matches_persisted_job_states_and_reports_log_health() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("wardrobe.sqlite");
+    let app = Application::open(&db).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // 七个任务覆盖全部状态：queued / running / failed / waiting_input / succeeded / cancelled
+    // /供应商结果未知
+    app.job_enqueue(&member, "local-test", "s-q", json!({}))
+        .unwrap();
+    let running = app
+        .job_enqueue(&member, "local-test", "s-r", json!({}))
+        .unwrap();
+    app.job_claim(&member, running["id"].as_str().unwrap(), 30)
+        .unwrap();
+    let failed = app
+        .job_enqueue(&member, "local-test", "s-f", json!({}))
+        .unwrap();
+    let lease = app
+        .job_claim(&member, failed["id"].as_str().unwrap(), 30)
+        .unwrap();
+    app.job_finish(
+        &member,
+        failed["id"].as_str().unwrap(),
+        lease["lease_token"].as_str().unwrap(),
+        "failed",
+        Value::Null,
+        json!({"code":"permanent","retryable":false}),
+    )
+    .unwrap();
+    // 本地待输入（无提交）：waiting_input 但不计入供应商结果未知
+    let waiting = app
+        .job_enqueue(&member, "local-test", "s-w", json!({}))
+        .unwrap();
+    let lease = app
+        .job_claim(&member, waiting["id"].as_str().unwrap(), 30)
+        .unwrap();
+    app.job_finish(
+        &member,
+        waiting["id"].as_str().unwrap(),
+        lease["lease_token"].as_str().unwrap(),
+        "waiting_input",
+        json!({"preview":"local"}),
+        Value::Null,
+    )
+    .unwrap();
+    let done = app
+        .job_enqueue(&member, "local-test", "s-s", json!({}))
+        .unwrap();
+    let lease = app
+        .job_claim(&member, done["id"].as_str().unwrap(), 30)
+        .unwrap();
+    app.job_finish(
+        &member,
+        done["id"].as_str().unwrap(),
+        lease["lease_token"].as_str().unwrap(),
+        "succeeded",
+        json!({}),
+        Value::Null,
+    )
+    .unwrap();
+    let cancelled = app
+        .job_enqueue(&member, "local-test", "s-c", json!({}))
+        .unwrap();
+    app.execute("jobs.cancel", json!({"member_id":member,"id":cancelled["id"]}))
+        .unwrap();
+    let unknown = app
+        .job_enqueue(&member, "recognition", "s-u", json!({}))
+        .unwrap();
+    mark_provider_outcome_unknown(&db, unknown["id"].as_str().unwrap());
+    // 一次失败操作：健康摘要的最近错误须能反映它
+    let failed_call = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":" ","category":"top"}),
+        )
+        .unwrap_err();
+
+    let summary = app.execute("diagnostics.summary", json!({})).unwrap();
+    assert_eq!(summary["schema_version"], 1);
+    assert_eq!(
+        summary["database_schema_version"],
+        json!(wardrobe_core::DATABASE_SCHEMA_VERSION)
+    );
+    assert_eq!(
+        summary["database_user_version"],
+        json!(wardrobe_core::DATABASE_SCHEMA_VERSION)
+    );
+    assert_eq!(summary["installation_generation"], 0, "全新安装代际为 0");
+    assert_eq!(
+        summary["current_run_id"],
+        wardrobe_core::diagnostics::run_id()
+    );
+    assert_eq!(
+        summary["jobs_by_state"],
+        json!({"queued":1,"running":1,"waiting_input":2,"succeeded":1,"failed":1,"cancelled":1}),
+        "按状态计数须与持久任务实际状态一致：{summary}"
+    );
+    assert_eq!(
+        summary["provider_outcome_unknown"], 1,
+        "仅已提交且结果未知的 waiting_input 计入：{summary}"
+    );
+    // 一致性不变量：对持久任务文档逐个套领域谓词重算，与摘要计数一致
+    let listed = app.execute("jobs.list", json!({"member_id":member})).unwrap();
+    let derived = listed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|job| {
+            job["state"] == "waiting_input"
+                && (job["submitted_at"].is_string()
+                    || (job["kind"] == "recognition"
+                        && ["submitted", "received", "unknown"]
+                            .contains(&job["payload"]["submission"].as_str().unwrap_or(""))))
+        })
+        .count();
+    assert_eq!(summary["provider_outcome_unknown"], json!(derived));
+
+    // 最近错误：只含 error 级事件、时间升序、带 trace_id 与错误码
+    let errors = summary["recent_errors"].as_array().unwrap();
+    assert!(
+        errors.iter().all(|e| e["level"] == "error"),
+        "最近错误只收 error 级事件：{errors:?}"
+    );
+    assert!(
+        errors.iter().any(|e| e["operation"] == "clothing.create"
+            && e["result"] == "invalid_input"
+            && e["trace_id"].as_str() == failed_call.trace_id.as_deref()),
+        "失败操作须出现在最近错误中：{errors:?}"
+    );
+    let stamps: Vec<i64> = errors
+        .iter()
+        .map(|e| {
+            chrono::DateTime::parse_from_rfc3339(e["ts"].as_str().unwrap())
+                .unwrap()
+                .timestamp_millis()
+        })
+        .collect();
+    let mut sorted = stamps.clone();
+    sorted.sort();
+    assert_eq!(stamps, sorted, "最近错误按时间升序");
+    assert!(errors.len() <= 20, "最近错误有窗口上限");
+
+    // 日志占用与保留信息、丢弃计数
+    let logs = &summary["logs"];
+    assert!(logs["total_bytes"].as_u64().unwrap() > 0, "{summary}");
+    assert!(logs["file_count"].as_u64().unwrap() >= 1, "{summary}");
+    assert_eq!(logs["retention_days"], 14);
+    assert_eq!(logs["max_total_bytes"], json!(256 * 1024 * 1024));
+    assert_eq!(logs["dropped_events"], 0, "可写目录下无丢弃");
+}
+
+#[test]
+fn external_clients_can_never_gain_diagnostics_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    // 完整授权也拿不到 diagnostics：仅本机可信入口
+    let grant = app
+        .execute(
+            "client.authorize",
+            json!({"name":"全量客户端","mode":"full","operations":[],"member_ids":null,"expires_at":null}),
+        )
+        .unwrap();
+    let token = grant["token"].as_str().unwrap();
+    for operation in ["diagnostics.summary", "diagnostics.logs.query"] {
+        let denied = app.execute_as_client(token, operation, json!({})).unwrap_err();
+        assert_eq!(denied.code, "scope_denied", "{operation}: {denied:?}");
+    }
+    // 限定授权登记包含 diagnostics：登记即拒绝，令牌无从产生
+    let rejected = app
+        .execute(
+            "client.authorize",
+            json!({"name":"诊断越权","mode":"limited","operations":["diagnostics.summary","clothing.list"],"member_ids":null,"expires_at":null}),
+        )
+        .unwrap_err();
+    assert_eq!(rejected.code, "invalid_input", "{rejected:?}");
+    // capabilities 对外部客户端隐藏 diagnostics 描述符
+    let caps = app.execute_as_client(token, "capabilities", json!({})).unwrap();
+    let names: Vec<&str> = caps["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        !names.iter().any(|name| name.starts_with("diagnostics.")),
+        "外部 capabilities 不得出现 diagnostics 操作：{names:?}"
+    );
+    // 可信本机入口不受影响
+    assert_eq!(
+        app.execute("diagnostics.summary", json!({})).unwrap()["schema_version"],
+        1
+    );
+}
+
 #[test]
 fn process_panic_leaves_a_scene_in_the_log() {
     // 钩子触发时会向进程内全部日志汇写入并可能驱动它们清理，
