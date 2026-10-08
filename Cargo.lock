@@ -3258,6 +3258,7 @@ dependencies = [
  "image",
  "iso_currency",
  "keyring",
+ "libc",
  "libheif-rs",
  "libheif-sys",
  "reqwest",

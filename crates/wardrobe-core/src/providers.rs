@@ -303,6 +303,37 @@ impl Application {
         }
         Ok(json!({"schema_version":1,"items":items}))
     }
+
+    /// #48 基础检查的凭据口径（provider.credential.status 同一 keyring 查询）：
+    /// 返回（模型总数、缺密钥的模型数、本地免密模型数、安全存储不可用）。
+    /// 只计数，绝不读取或返回密钥内容。
+    pub(crate) fn credential_check_summary(
+        &self,
+    ) -> Result<(usize, usize, usize, bool), ApiError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT document FROM providers ORDER BY id")?;
+        let rows = statement.query_map([], |r| r.get::<_, String>(0))?;
+        let mut total = 0usize;
+        let mut missing = 0usize;
+        let mut local = 0usize;
+        let mut store_unavailable = false;
+        for row in rows {
+            let p: Value = serde_json::from_str(&row?)
+                .map_err(|_| ApiError::new("storage_error", "模型配置损坏"))?;
+            total += 1;
+            if p["authentication"] == "none" {
+                local += 1;
+                continue;
+            }
+            match credential_entry_for(&p)?.get_password() {
+                Ok(_) => {}
+                Err(keyring::Error::NoEntry) => missing += 1,
+                Err(_) => store_unavailable = true,
+            }
+        }
+        Ok((total, missing, local, store_unavailable))
+    }
 }
 pub(super) fn credential_entry_for(p: &Value) -> Result<keyring::Entry, ApiError> {
     let account = format!(

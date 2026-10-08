@@ -638,7 +638,7 @@ fn external_clients_can_never_gain_diagnostics_scope() {
         )
         .unwrap();
     let token = grant["token"].as_str().unwrap();
-    for operation in ["diagnostics.summary", "diagnostics.logs.query", "diagnostics.export"] {
+    for operation in ["diagnostics.summary", "diagnostics.checks", "diagnostics.logs.query", "diagnostics.export"] {
         let denied = app.execute_as_client(token, operation, json!({})).unwrap_err();
         assert_eq!(denied.code, "scope_denied", "{operation}: {denied:?}");
     }
@@ -1918,4 +1918,293 @@ fn process_panic_leaves_a_scene_in_the_log() {
     assert_eq!(scene["level"], "error");
     assert_eq!(scene["run_id"], wardrobe_core::diagnostics::run_id());
     assert!(scene["location"].as_str().unwrap().contains("diagnostics.rs"), "{scene}");
+}
+
+/// #48 基础检查：固定十项、顺序稳定，正常环境（全新数据目录）全部 pass。
+#[test]
+fn diagnostics_checks_report_all_items_passing_in_a_normal_environment() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let checks = app.execute("diagnostics.checks", json!({})).unwrap();
+    assert_eq!(checks["schema_version"], 1, "{checks}");
+    let items = checks["checks"].as_array().unwrap();
+    let ids: Vec<&str> = items.iter().map(|item| item["id"].as_str().unwrap()).collect();
+    assert_eq!(
+        ids,
+        vec![
+            "data_directory",
+            "database_schema",
+            "database_wal",
+            "logs_writable",
+            "disk_space",
+            "installation_generation",
+            "encryption_wallet",
+            "model_credentials",
+            "stuck_jobs",
+            "pending_location_marker",
+        ],
+        "检查项固定顺序：{checks}"
+    );
+    for item in items {
+        assert_eq!(item["status"], "pass", "正常环境全部通过：{item}");
+        assert!(item["message"].is_string(), "通俗消息：{item}");
+        assert!(!item["message"].as_str().unwrap().trim().is_empty(), "{item}");
+        assert!(item["detail"].is_string(), "技术明细：{item}");
+        assert!(
+            item["setting"].is_null() || item["setting"].is_string(),
+            "去向为设置页标识或 null：{item}"
+        );
+    }
+    assert_eq!(checks["counts"], json!({"pass":10,"warn":0,"fail":0}), "{checks}");
+    // WAL 生效的技术明细可读（只读 pragma 查询）
+    let wal = items.iter().find(|i| i["id"] == "database_wal").unwrap();
+    assert!(wal["detail"].as_str().unwrap().contains("wal"), "{wal}");
+    // 未配置模型/加密属于正常状态：pass 且通俗消息说明现状
+    let credentials = items.iter().find(|i| i["id"] == "model_credentials").unwrap();
+    assert!(credentials["message"].as_str().unwrap().contains("未配置"), "{credentials}");
+}
+
+/// #48 故障注入：数据目录只读 → data_directory fail；业务操作不被检查阻塞。
+#[test]
+fn read_only_data_directory_fails_the_data_directory_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let restore = |mode: u32| {
+        let mut permissions = std::fs::metadata(dir.path()).unwrap().permissions();
+        permissions.set_mode(mode);
+        std::fs::set_permissions(dir.path(), permissions).unwrap();
+    };
+    restore(0o555);
+    let checks = app.execute("diagnostics.checks", json!({})).unwrap();
+    restore(0o755);
+    let item = checks["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == "data_directory")
+        .unwrap()
+        .clone();
+    assert_eq!(item["status"], "fail", "{item}");
+    assert_eq!(item["setting"], "backup", "{item}");
+    // 其余检查不受影响（数据库等仍可读）
+    assert_eq!(checks["counts"]["fail"], 1, "{checks}");
+}
+
+/// #48 故障注入：租约过期仍 running 的卡住任务 → stuck_jobs warn 带计数与去向。
+#[test]
+fn expired_lease_running_jobs_are_reported_as_stuck() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("wardrobe.sqlite");
+    let app = Application::open(&db).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let job = app
+        .job_enqueue(&member, "local-test", "stuck-1", json!({}))
+        .unwrap();
+    let id = job["id"].as_str().unwrap().to_string();
+    app.job_claim(&member, &id, 30).unwrap();
+    // 直连接缝（先例 #43 mark_provider_outcome_unknown）：把租约拨到过去，制造「卡住」
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    let raw: String = connection
+        .query_row("SELECT document FROM jobs WHERE id=?1", [&id], |r| r.get(0))
+        .unwrap();
+    let mut document: Value = serde_json::from_str(&raw).unwrap();
+    document["lease_expires"] = json!(chrono::Utc::now().timestamp_millis() - 60_000);
+    connection
+        .execute(
+            "UPDATE jobs SET document=?1 WHERE id=?2",
+            rusqlite::params![document.to_string(), id],
+        )
+        .unwrap();
+    drop(connection);
+
+    let checks = app.execute("diagnostics.checks", json!({})).unwrap();
+    let item = checks["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == "stuck_jobs")
+        .unwrap()
+        .clone();
+    assert_eq!(item["status"], "warn", "{item}");
+    assert_eq!(item["setting"], "tasks", "{item}");
+    assert!(item["message"].as_str().unwrap().contains('1'), "{item}");
+    assert!(item["detail"].as_str().unwrap().contains("stuck_jobs=1"), "{item}");
+}
+
+/// #48 故障注入：残留的待发布位置标记（source_file 与当前库不符）→ warn；
+/// 检查只读：标记原样保留，绝不被检查消费。
+#[test]
+fn residual_pending_location_marker_is_reported_without_being_consumed() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    let marker = dir.path().join(".wardrobe-location.json");
+    std::fs::write(
+        &marker,
+        json!({"version":1,"phase":"pending","source_file":"wardrobe-old.sqlite","target_database":"/elsewhere/wardrobe.sqlite"})
+            .to_string(),
+    )
+    .unwrap();
+
+    let checks = app.execute("diagnostics.checks", json!({})).unwrap();
+    let item = checks["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == "pending_location_marker")
+        .unwrap()
+        .clone();
+    assert_eq!(item["status"], "warn", "{item}");
+    assert_eq!(item["setting"], "backup", "{item}");
+    assert!(
+        item["detail"].as_str().unwrap().contains("pending"),
+        "技术明细应说明残留：{item}"
+    );
+    let content = std::fs::read_to_string(&marker).unwrap();
+    assert!(
+        content.contains("\"phase\":\"pending\""),
+        "检查只读：标记必须原样保留：{content}"
+    );
+}
+
+/// #48 红线：检查过程不修改任何配置或数据——审计/outbox/任务/单品/模型/加密状态
+/// 行数不变，数据目录不留下探测文件（logs/ 事件是日志系统自身行为，不计入）。
+#[test]
+fn checks_never_modify_configuration_or_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("wardrobe.sqlite");
+    let app = Application::open(&db).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    app.execute(
+        "clothing.create",
+        json!({"member_id":member,"name":"体检衬衫","category":"top"}),
+    )
+    .unwrap();
+    app.job_enqueue(&member, "local-test", "check-j", json!({})).unwrap();
+
+    let table_counts = |connection: &rusqlite::Connection| -> Vec<(String, i64)> {
+        [
+            "audit",
+            "outbox",
+            "jobs",
+            "clothing",
+            "providers",
+            "encryption_state",
+            "clients",
+            "members",
+        ]
+        .iter()
+        .map(|table| {
+            let count: i64 = connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            (table.to_string(), count)
+        })
+        .collect()
+    };
+    let data_files = || -> Vec<std::path::PathBuf> {
+        let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.file_name().and_then(|n| n.to_str()) != Some("logs"))
+            .collect();
+        files.sort();
+        files
+    };
+
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    let before_tables = table_counts(&connection);
+    let before_files = data_files();
+    drop(connection);
+
+    for _ in 0..3 {
+        app.execute("diagnostics.checks", json!({})).unwrap();
+    }
+
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    assert_eq!(
+        table_counts(&connection),
+        before_tables,
+        "检查不得改动任何表"
+    );
+    drop(connection);
+    assert_eq!(data_files(), before_files, "检查不得在数据目录留下探测文件");
+}
+
+/// #48 验收「过高模式版本」注入：数据库无法打开时 doctor 降级——
+/// database_schema fail 带失败原因，文件系统级检查照常给出，依赖数据库的项 warn。
+#[test]
+fn doctor_report_degrades_to_filesystem_checks_when_database_cannot_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("wardrobe.sqlite");
+    // 直连接缝：制造「由更新版本应用创建」的数据库
+    {
+        let connection = rusqlite::Connection::open(&db).unwrap();
+        connection
+            .pragma_update(None, "user_version", wardrobe_core::DATABASE_SCHEMA_VERSION + 1)
+            .unwrap();
+    }
+    let report = wardrobe_core::diagnostics::doctor_report(&db);
+    assert_eq!(report["schema_version"], 1, "{report}");
+    assert_eq!(report["error"]["code"], "unsupported_schema", "{report}");
+    assert!(report["summary"].is_null(), "摘要不可用：{report}");
+    let items = report["checks"]["checks"].as_array().unwrap();
+    assert_eq!(items.len(), 10, "检查项清单保持完整：{report}");
+    let schema = items.iter().find(|i| i["id"] == "database_schema").unwrap();
+    assert_eq!(schema["status"], "fail", "{schema}");
+    assert!(
+        schema["detail"]
+            .as_str()
+            .unwrap()
+            .contains("unsupported_schema"),
+        "技术明细带打开失败原因：{schema}"
+    );
+    let data_directory = items.iter().find(|i| i["id"] == "data_directory").unwrap();
+    assert_eq!(data_directory["status"], "pass", "文件系统级检查照常：{data_directory}");
+    let wal = items.iter().find(|i| i["id"] == "database_wal").unwrap();
+    assert_eq!(wal["status"], "warn", "依赖数据库的项如实说明无法检查：{wal}");
+    assert_eq!(report["checks"]["counts"]["fail"], 1, "{report}");
+}
+
+/// #48 doctor 降级：位置标记 pending 且迁移锁被占用（切换进行中）→ 打开被拒，
+/// 降级体检把 pending_location_marker 判为 fail。
+#[test]
+fn doctor_report_flags_an_incomplete_switch_while_the_move_lock_is_held() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("wardrobe.sqlite");
+    std::fs::write(&db, []).unwrap();
+    let marker = dir.path().join(".wardrobe-location.json");
+    std::fs::write(
+        &marker,
+        json!({"version":1,"phase":"pending","source_file":"wardrobe.sqlite","target_database":"/elsewhere/wardrobe.sqlite"})
+            .to_string(),
+    )
+    .unwrap();
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(dir.path().join(".wardrobe-move.lock"))
+        .unwrap();
+    lock.try_lock().unwrap();
+    let report = wardrobe_core::diagnostics::doctor_report(&db);
+    assert_eq!(report["error"]["code"], "data_directory_moving", "{report}");
+    let item = report["checks"]["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == "pending_location_marker")
+        .unwrap()
+        .clone();
+    assert_eq!(item["status"], "fail", "{item}");
+    assert_eq!(item["setting"], "backup", "{item}");
 }
