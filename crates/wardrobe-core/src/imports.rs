@@ -85,13 +85,19 @@ impl Application {
         }
         let id = uuid::Uuid::now_v7().to_string();
         let mut ids = vec![];
+        let mut pending_events: Vec<crate::jobs::PendingJobEvent> = vec![];
         for (index, (name, source)) in staged.into_iter().enumerate() {
             let payload = json!({"batch_id":id,"index":index,"filename":name,"source_path":if Path::new(paths[index].as_str().unwrap()).is_absolute(){Path::new(paths[index].as_str().unwrap()).to_path_buf()}else{std::env::current_dir().map_err(|_|ApiError::new("storage_error","无法定位当前文件目录"))?.join(paths[index].as_str().unwrap())},"local_path":source.as_ref().ok(),"asset_id":uuid::Uuid::now_v7().to_string()});
-            let mut job = self.insert_job(&tx, &member, "import", &format!("{id}/{index}"), payload)?;
+            let (mut job, enqueue) = self.insert_job(&tx, &member, "import", &format!("{id}/{index}"), payload)?;
+            if let Some(enqueue) = enqueue {
+                pending_events.push(enqueue);
+            }
             if let Err(error) = source {
                 job["state"] = json!("failed");
                 job["error"] = json!({"code":error.code,"message":error.message,"retryable":false});
-                self.save_job(&tx, &job)?;
+                if let Some(pending) = self.save_job(&tx, &job)? {
+                    pending_events.push(pending);
+                }
             }
             ids.push(job["id"].clone());
         }
@@ -109,6 +115,9 @@ impl Application {
             )?;
         }
         tx.commit()?;
+        for pending in pending_events {
+            self.emit_job_event(Some(pending));
+        }
         self.imports_get(json!({"member_id":member,"id":id}))
     }
     pub(super) fn imports_get(&self, input: Value) -> Result<Value, ApiError> {
@@ -311,6 +320,7 @@ impl Application {
         }
         let mut clothing = self.clothing_document(facts)?;
         let mut asset_ids = vec![];
+        let mut pending_events: Vec<crate::jobs::PendingJobEvent> = vec![];
         for id in draft["item_ids"].as_array().unwrap() {
             let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
             if job["state"] != "waiting_input" {
@@ -328,7 +338,9 @@ impl Application {
             asset_ids.push(asset_id);
             job["state"] = json!("succeeded");
             job["result"]["clothing_id"] = clothing["id"].clone();
-            self.save_job(&tx, &job)?;
+            if let Some(pending) = self.save_job(&tx, &job)? {
+                pending_events.push(pending);
+            }
         }
         clothing["asset_ids"] = json!(asset_ids);
         clothing["display_asset_id"] = asset_ids.first().cloned().unwrap_or(Value::Null);
@@ -355,6 +367,9 @@ impl Application {
             params![draft.to_string(), draft_id],
         )?;
         tx.commit()?;
+        for pending in pending_events {
+            self.emit_job_event(Some(pending));
+        }
         Ok(clothing)
     }
     pub(super) fn imports_process(&self, input: Value) -> Result<Value, ApiError> {
@@ -385,8 +400,9 @@ impl Application {
                     if current["lease_token"] != job["lease_token"] {
                         return Err(ApiError::new("lease_lost", "任务已取消"));
                     }
-                    self.save_job(&tx, &job)?;
+                    let pending = self.save_job(&tx, &job)?;
                     tx.commit()?;
+                    self.emit_job_event(pending);
                 }
                 self.asset_import_with_id(
                     json!({"member_id":member,"path":job["payload"]["local_path"]}),

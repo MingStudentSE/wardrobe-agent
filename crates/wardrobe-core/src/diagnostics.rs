@@ -80,6 +80,23 @@ pub(crate) fn new_trace_id() -> String {
     uuid::Uuid::now_v7().to_string()
 }
 
+/// 旁路命令（不经 Application::open，如桌面端天气城市搜索）的日志入口：
+/// 进程内幂等初始化默认数据目录的日志汇（GUI 的 application 命令在此前或此后
+/// 打开的 Application 共享同一 logs 目录），之后尽力写入事件；失败静默降级。
+/// 事件由调用方按构造脱敏后组装（run_id/ts/level 由这里补齐）。
+pub fn log_bypass_event(event_type: &str, fields: Value) {
+    static BYPASS: OnceLock<Option<Logger>> = OnceLock::new();
+    let logger = BYPASS.get_or_init(|| {
+        let data_dir = crate::default_database_path()
+            .parent()
+            .map(Path::to_path_buf)?;
+        Some(Logger::new(&data_dir, LogLimits::default()))
+    });
+    if let Some(logger) = logger {
+        logger.log_event(Level::Info, event_type, fields);
+    }
+}
+
 // 当前调用链路的线程局部上下文：`Application::execute` 进入业务函数前置位，
 // 返回后恢复。持久任务的创建（jobs::insert）在业务函数内读取它，把本次调用的
 // trace_id 写进任务文档——worker 可能运行在另一进程，trace 只经任务文档传递，
@@ -488,6 +505,54 @@ fn recent_error_item(event: &Value) -> Value {
 
 use crate::{ApiError, Application};
 
+/// 供应商请求事件的调用形状（复查收拢）：trace/模型一次取好、计时随每次真实发送
+/// 重置，每次发送记录一条。`record` 只转发 `log_provider_request`——事件字段与
+/// 落盘格式逐字不变（provider 脱敏测试为安全网）。
+pub(crate) struct ProviderRequestLog {
+    trace_id: Option<String>,
+    model: String,
+    started: std::cell::Cell<std::time::Instant>,
+}
+impl ProviderRequestLog {
+    /// worker 链路：trace 取任务文档（跨进程唯一通道），模型取供应商配置或任务载荷。
+    pub(crate) fn from_job(job: &Value, model: &str) -> Self {
+        Self {
+            trace_id: job["trace_id"].as_str().map(str::to_owned),
+            model: model.to_string(),
+            started: std::cell::Cell::new(std::time::Instant::now()),
+        }
+    }
+    /// 同步验证链路：trace 取当前调用上下文（线程局部，见 with_trace）。
+    pub(crate) fn from_current_call(model: &str) -> Self {
+        Self {
+            trace_id: current_trace(),
+            model: model.to_string(),
+            started: std::cell::Cell::new(std::time::Instant::now()),
+        }
+    }
+    /// 每次真实发送前重置计时起点（限流重试的每次发送各记一条自身耗时）。
+    pub(crate) fn begin_send(&self) {
+        self.started.set(std::time::Instant::now());
+    }
+    /// 记录一次发送的结果类别（ok/http_error/outcome_unknown/error）与 HTTP 状态、耗时。
+    pub(crate) fn record(
+        &self,
+        app: &Application,
+        endpoint_kind: &str,
+        outcome: &str,
+        http_status: Option<u16>,
+    ) {
+        app.log_provider_request(
+            self.trace_id.as_deref(),
+            endpoint_kind,
+            &self.model,
+            outcome,
+            http_status,
+            self.started.get(),
+        );
+    }
+}
+
 impl Application {
     /// 供应商请求事件（#44）：端点类别、模型名、结果类别（ok/http_error/outcome_unknown/error）、
     /// HTTP 状态与耗时；trace_id 来自任务文档（异步链路）或当前调用（同步验证）。
@@ -600,19 +665,8 @@ impl Application {
                 Some(level.to_owned())
             }
         };
-        let parse_time = |key: &str| -> Result<Option<chrono::DateTime<chrono::FixedOffset>>, ApiError> {
-            match input.get(key) {
-                None | Some(Value::Null) => Ok(None),
-                Some(value) => match value.as_str() {
-                    Some(text) => chrono::DateTime::parse_from_rfc3339(text)
-                        .map(Some)
-                        .map_err(|_| ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
-                    None => Err(ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
-                },
-            }
-        };
-        let since = parse_time("since")?;
-        let until = parse_time("until")?;
+        let since = parse_rfc3339_field(&input, "since")?;
+        let until = parse_rfc3339_field(&input, "until")?;
         if let (Some(start), Some(end)) = (since, until) {
             if start > end {
                 return Err(ApiError::new("invalid_input", "时间范围起止颠倒"));
@@ -795,11 +849,9 @@ impl Application {
                 return Err(ApiError::new("invalid_input", "显式时间窗须同时提供 from 与 to"));
             }
             let parse_time = |key: &str| -> Result<chrono::DateTime<chrono::FixedOffset>, ApiError> {
-                input
-                    .get(key)
-                    .and_then(Value::as_str)
-                    .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
-                    .ok_or_else(|| ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间")))
+                parse_rfc3339_field(&input, key)?.ok_or_else(|| {
+                    ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))
+                })
             };
             let from = parse_time("from")?;
             let to = parse_time("to")?;
@@ -907,12 +959,7 @@ impl Application {
                 *slot += 1;
             }
         }
-        let errors: Vec<&Value> = selected.iter().filter(|e| e["level"] == "error").collect();
-        let window_start = errors.len().saturating_sub(RECENT_ERRORS_LIMIT);
-        let recent_errors: Vec<Value> = errors[window_start..]
-            .iter()
-            .map(|event| recent_error_item(event))
-            .collect();
+        let recent_errors: Vec<Value> = recent_errors_window(selected.iter());
         let mut meta = json!({
             "kind": kind_name,
             "schema_version": 1,
@@ -991,15 +1038,7 @@ impl Application {
             .connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))?;
         let events = self.logger.read_events();
-        let errors: Vec<&Value> = events
-            .iter()
-            .filter(|event| event["level"] == "error")
-            .collect();
-        let window_start = errors.len().saturating_sub(RECENT_ERRORS_LIMIT);
-        let recent_errors: Vec<Value> = errors[window_start..]
-            .iter()
-            .map(|event| recent_error_item(event))
-            .collect();
+        let recent_errors: Vec<Value> = recent_errors_window(events.iter());
         let (total_bytes, file_count) = self.logger.occupancy();
         Ok(json!({
             "schema_version": 1,
@@ -1533,6 +1572,37 @@ mod tests {
         assert_eq!(limits.max_file_bytes, 10 * 1024 * 1024);
         assert_eq!(limits.max_total_bytes, 256 * 1024 * 1024);
         assert_eq!(limits.retention_days, 14);
+    }
+}
+
+/// 最近错误窗口投影：时间升序事件流中 level=error 的末尾 RECENT_ERRORS_LIMIT 条
+/// （diagnostics.summary 与 diagnostics.export 同一口径）。
+fn recent_errors_window<'a>(events: impl IntoIterator<Item = &'a Value>) -> Vec<Value> {
+    let errors: Vec<&Value> = events
+        .into_iter()
+        .filter(|event| event["level"] == "error")
+        .collect();
+    let window_start = errors.len().saturating_sub(RECENT_ERRORS_LIMIT);
+    errors[window_start..]
+        .iter()
+        .map(|event| recent_error_item(event))
+        .collect()
+}
+
+/// RFC3339 时间输入字段的共用解析（logs.query 的 since/until 与 export 的 from/to）：
+/// 缺省或 null 视为未提供；非字符串或不可解析报同一 invalid_input。
+fn parse_rfc3339_field(
+    input: &Value,
+    key: &str,
+) -> Result<Option<chrono::DateTime<chrono::FixedOffset>>, ApiError> {
+    match input.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => match value.as_str() {
+            Some(text) => chrono::DateTime::parse_from_rfc3339(text)
+                .map(Some)
+                .map_err(|_| ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
+            None => Err(ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
+        },
     }
 }
 

@@ -1,6 +1,34 @@
 use crate::{string, ApiError, Application};
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
+
+/// 已保存、等待提交成功后发出的任务事件：事件内容在保存时定格（字段与既有事件逐字
+/// 一致），由调用方在事务 commit 成功后经 `emit_job_event` 发出——commit 失败即不发出，
+/// 日志不残留未发生的事件。
+#[derive(Debug)]
+pub(super) struct PendingJobEvent {
+    doc: Value,
+    action: &'static str,
+    state_from: Option<String>,
+}
+impl PendingJobEvent {
+    /// 入队事件凭据（jobs 与 maintenance 文档共用同一事件形状）。
+    pub(super) fn enqueue(doc: &Value) -> Self {
+        Self {
+            doc: doc.clone(),
+            action: "enqueue",
+            state_from: None,
+        }
+    }
+    /// 状态迁移事件凭据：state_from 为 None 时事件不含该字段（与直调历史一致）。
+    pub(super) fn state(doc: &Value, state_from: Option<&str>) -> Self {
+        Self {
+            doc: doc.clone(),
+            action: "state",
+            state_from: state_from.map(str::to_owned),
+        }
+    }
+}
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),kind TEXT NOT NULL,operation_key TEXT NOT NULL,document TEXT NOT NULL,UNIQUE(member_id,kind,operation_key)); CREATE INDEX IF NOT EXISTS jobs_member ON jobs(member_id,id);")?;
     Ok(())
@@ -92,7 +120,14 @@ pub(super) fn save(tx: &Transaction<'_>, doc: &Value) -> Result<(), ApiError> {
     Ok(())
 }
 impl Application {
-    /// 创建任务文档并按需发出 `job.enqueue` 事件；调用方在同一事务上 commit。
+    /// commit 成功后发出保存期间定格的任务事件；None 表示本次保存无事件。
+    pub(super) fn emit_job_event(&self, pending: Option<PendingJobEvent>) {
+        if let Some(pending) = pending {
+            self.log_job_transition(&pending.doc, pending.action, pending.state_from.as_deref());
+        }
+    }
+    /// 创建任务文档并按需返回 `job.enqueue` 事件；调用方在同一事务上 commit，
+    /// 并在 commit 成功后发出事件。
     pub(super) fn insert_job(
         &self,
         tx: &Transaction<'_>,
@@ -100,16 +135,22 @@ impl Application {
         kind: &str,
         key: &str,
         payload: Value,
-    ) -> Result<Value, ApiError> {
+    ) -> Result<(Value, Option<PendingJobEvent>), ApiError> {
         let (doc, created) = insert(tx, member, kind, key, payload)?;
-        if created {
-            self.log_job_transition(&doc, "enqueue", None);
-        }
-        Ok(doc)
+        let pending = created.then(|| PendingJobEvent {
+            doc: doc.clone(),
+            action: "enqueue",
+            state_from: None,
+        });
+        Ok((doc, pending))
     }
     /// 保存任务文档；状态发生变化时以任务文档里的 trace_id 发迁移事件（#44）。
-    /// 事件在 commit 前尽力写入：若 commit 失败，同 trace 的操作事件会记录真实结果。
-    pub(super) fn save_job(&self, tx: &Transaction<'_>, doc: &Value) -> Result<(), ApiError> {
+    /// 事件在调用方 commit 成功后发出：commit 失败不残留未发生的事件。
+    pub(super) fn save_job(
+        &self,
+        tx: &Transaction<'_>,
+        doc: &Value,
+    ) -> Result<Option<PendingJobEvent>, ApiError> {
         let before: Option<Value> = tx
             .query_row(
                 "SELECT document FROM jobs WHERE id=?1",
@@ -126,10 +167,11 @@ impl Application {
             .and_then(|prev| prev["attempts"].as_u64())
             .unwrap_or(0);
         let reclaimed = doc["attempts"].as_u64().unwrap_or(0) > attempts_before;
-        if state_from != doc["state"].as_str() || reclaimed {
-            self.log_job_transition(doc, "state", state_from);
-        }
-        Ok(())
+        Ok((state_from != doc["state"].as_str() || reclaimed).then(|| PendingJobEvent {
+            doc: doc.clone(),
+            action: "state",
+            state_from: state_from.map(str::to_owned),
+        }))
     }
     /// 任务链路事件（#44）：trace_id 取自任务文档——worker 可能运行在另一进程，
     /// 链路只能经任务文档传递，不依赖进程状态。字段按构造脱敏（只含任务元数据）。
@@ -174,8 +216,9 @@ impl Application {
         payload: Value,
     ) -> Result<Value, ApiError> {
         let tx = self.begin_write()?;
-        let doc = self.insert_job(&tx, member, kind, key, payload)?;
+        let (doc, pending) = self.insert_job(&tx, member, kind, key, payload)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(doc)
     }
     pub(super) fn job_get(&self, input: Value) -> Result<Value, ApiError> {
@@ -225,8 +268,9 @@ impl Application {
         doc["lease_expires"] = json!(now + lease_seconds as i64 * 1000);
         doc["attempts"] = json!(doc["attempts"].as_u64().unwrap_or(0) + 1);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        self.save_job(&tx, &doc)?;
+        let pending = self.save_job(&tx, &doc)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(doc)
     }
     pub fn job_finish(
@@ -268,8 +312,9 @@ impl Application {
             doc["next_due"] = json!(chrono::Utc::now().timestamp_millis() + delay);
         }
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        self.save_job(&tx, &doc)?;
+        let pending = self.save_job(&tx, &doc)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(doc)
     }
     pub(super) fn job_action(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
@@ -308,8 +353,9 @@ impl Application {
         doc["lease_token"] = Value::Null;
         doc["lease_expires"] = json!(0);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        self.save_job(&tx, &doc)?;
+        let pending = self.save_job(&tx, &doc)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(doc)
     }
 }

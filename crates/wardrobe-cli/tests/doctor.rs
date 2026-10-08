@@ -50,10 +50,25 @@ fn doctor_outputs_the_same_summary_and_checks_as_the_diagnostics_operations() {
     assert_eq!(report["error"], Value::Null, "正常打开无错误：{report}");
     assert!(report["summary"].is_object(), "{report}");
 
-    // 同源一致性：checks 与直接执行 diagnostics.checks 逐字节同构
+    // 同源一致性：checks 与直接执行 diagnostics.checks 逐字节同构。
+    // 例外：disk_space 的 free_bytes 随两次调用之间磁盘实际占用漂移（与 core 全量测试并行时
+    // 必然发生），只断言该项存在且结论字段同源；其余九项仍逐字节同源。
     let direct = trusted(&db, "diagnostics.checks", json!({}));
     assert!(direct.get("error").is_none(), "{direct}");
-    assert_eq!(report["checks"], direct["result"], "doctor 与 checks 操作同源");
+    let doctor_items = report["checks"]["checks"].as_array().unwrap();
+    let direct_items = direct["result"]["checks"].as_array().unwrap();
+    assert_eq!(doctor_items.len(), direct_items.len(), "检查项数量同源");
+    for (doctor_item, direct_item) in doctor_items.iter().zip(direct_items.iter()) {
+        if doctor_item["id"] == "disk_space" {
+            assert_eq!(doctor_item["id"], direct_item["id"], "disk_space 存在且同源");
+            continue;
+        }
+        assert_eq!(doctor_item, direct_item, "doctor 与 checks 操作同源");
+    }
+    assert_eq!(
+        report["checks"]["counts"], direct["result"]["counts"],
+        "doctor 与 checks 操作同源：counts"
+    );
     // summary 稳定字段与直接执行 diagnostics.summary 一致（run_id/最近错误/日志占用属各运行会话）
     let summary_direct = trusted(&db, "diagnostics.summary", json!({}))["result"].clone();
     for field in [
