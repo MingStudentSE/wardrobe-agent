@@ -1,6 +1,9 @@
 import {test,expect} from '@playwright/test';
+import {restoreDefaultMember} from './support/member-hygiene';
 // 成员档案验收（新 UI）：成员切换器在侧栏“当前衣橱”内，档案管理在
 // “管理成员档案”详情。行为断言（独立衣橱、跨重启、命名、切换锁与竞态）保持不变。
+// 本规格会切换当前成员；结束后必须恢复默认成员，否则共享 dev server 上
+// 后续规格会读到错误衣橱（竞态测试的最后一次切换可能随页面关闭而未落库）。
 const nav=(page:any,name:string)=>page.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name,exact:true});
 async function createItemViaDialog(page:any,name:string){
  await page.getByRole('button',{name:'＋ 新增衣物',exact:true}).click();
@@ -49,5 +52,9 @@ test('saving cannot race a pending member switch',async({page})=>{
  await expect(page.getByRole('button',{name:'＋ 新增衣物',exact:true})).toBeDisabled();
  await expect(page.getByRole('article')).toHaveCount(1);
  await page.getByRole('combobox',{name:/^当前成员/}).selectOption({label:'我'});
+ // 切换是异步持久操作：竞态路由会延迟 member.select，等默认成员衣橱真实
+ // 加载完成再结束，避免页面关闭时切换尚未落库、污染后续规格。
+ await expect.poll(async()=>await page.locator('.collection .grid article').count(),{timeout:15000}).toBeGreaterThanOrEqual(24);
  await expect(page.getByRole('article').first()).toBeVisible();
 });
+test.afterEach(async({request})=>{await restoreDefaultMember(request);});

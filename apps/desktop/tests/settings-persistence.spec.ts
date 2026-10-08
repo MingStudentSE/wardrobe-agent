@@ -7,6 +7,7 @@ const shots=fileURLToPath(new URL('../../../docs/verification/ticket-34/',import
 mkdirSync(shots,{recursive:true});
 const nav=(p:Page,name:string)=>p.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name,exact:true});
 async function openSettings(page:Page,card:RegExp){
+ await page.goto('/');
  await nav(page,'设置').click();
  await page.getByRole('region',{name:'设置目录'}).getByRole('button',{name:card}).click();
 }
@@ -60,6 +61,7 @@ test('穿衣偏好：明确偏好保存并跨重启读回，来源标注用户�
 });
 
 test('天气：自动天气配置保存并跨重启读回',async({page})=>{
+ await page.goto('/');
  await nav(page,'穿搭').click();
  await page.getByRole('button',{name:'帮我搭配',exact:true}).click();
  const panel=page.locator('#recommendations');
@@ -116,8 +118,10 @@ test('备份与数据目录：设置保存并跨重启读回（恢复/迁移行�
  await expect(page.getByLabel('默认备份目录',{exact:true})).toHaveValue(folder);
  await expect(page.getByLabel('当前数据目录',{exact:true})).toHaveValue(/.+/);
  await page.screenshot({path:`${shots}settings-backup-persist.png`});
+ // 清理：目录本为空时无改动可保存（按钮合理禁用），仅在改动存在时还原。
  await page.getByLabel('默认备份目录',{exact:true}).fill('');
- await page.getByRole('button',{name:'保存备份设置',exact:true}).click();
+ const saveBackup=page.getByRole('button',{name:'保存备份设置',exact:true});
+ if(await saveBackup.isEnabled())await saveBackup.click();
 });
 
 test('加密与设备、同步、CLI/MCP、任务中心逐页可达且无错误告警',async({page})=>{

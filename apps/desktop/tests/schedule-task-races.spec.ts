@@ -26,7 +26,8 @@ test('成员切换后任务中心不回写上一成员的定时任务',async({pa
  await page.waitForFunction((due)=>{const now=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());return now>due;},dueLocal);
  const ticked=await call('schedule.tick',{member_id:'default'});
  expect(ticked.queued.length,'到期任务应已登记').toBeGreaterThan(0);
- await expect(page.getByText('衣橱任务',{exact:true})).toBeVisible({timeout:15000});
+ // 任务中心里每个任务卡片与分组都叫“衣橱任务”：取首个可见标题断言任务已登记。
+ await expect(page.getByRole('heading',{name:'衣橱任务'}).first()).toBeVisible({timeout:15000});
  // 从现在起拦住default成员的jobs.list并迟到放行；乙成员请求照常直通。
  let release!:()=>void;const gated=new Promise<void>(resolve=>release=resolve);
  let holding=false;

@@ -15,5 +15,5 @@
 
 ## 测试与证据
 
-- 全量 GUI（`apps/desktop`，workers=1，真实 CLI 桥）：修复前 61 failed / 34 passed / 8 skipped；修复后全绿（详见 `docs/verification/ticket-34/acceptance-report.md`）。
+- 全量 GUI（`apps/desktop`，workers=1，真实 CLI 桥）：修复前 61 failed / 34 passed / 8 skipped；终验 110 passed / 0 failed / 8 skipped，退出码 0（详见 `docs/verification/ticket-34/acceptance-report.md` §6）。
 - 组件修复的回归锚点：`tests/wears.spec.ts`（模板今天穿后页面可继续操作）、`tests/members.spec.ts`（七档宽度下成员控件可见）、`tests/responsive-audit.spec.ts`（全工作区 + 全设置页七档溢出/遮挡审查）。

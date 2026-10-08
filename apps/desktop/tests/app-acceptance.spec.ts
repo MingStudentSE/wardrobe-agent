@@ -77,6 +77,9 @@ test('hover 不承载独占功能，触摸路径可完成核心操作',async({pa
  await expect(page.getByRole('dialog',{name:'记录穿着',exact:true})).toBeVisible();
  await page.getByRole('dialog').getByRole('button',{name:'关闭单品窗口'}).tap();
  await expect(page.getByRole('dialog')).toHaveCount(0);
+ // 清理：触摸路径保存的穿搭移入回收站，不改变后续规格的穿搭计数基线。
+ const outfitList=await (await page.request.post('/__wardrobe_dev_api',{data:{operation:'outfit.list',input:{member_id:'default',status:'active'}}})).json();
+ for(const saved of (outfitList.result?.items??[]).filter((o:any)=>o.name==='触摸等价验收'))await page.request.post('/__wardrobe_dev_api',{data:{operation:'outfit.delete',input:{member_id:'default',id:saved.id}}});
 });});
 
 test('root font-size 200% 时 375/1280 宽度不破版且核心流程可用',async({page})=>{
@@ -119,6 +122,9 @@ test('prefers-reduced-motion 下无过渡动画且应用完整可用',async({pag
  await dialog.getByRole('button',{name:'添加到衣橱',exact:true}).click();
  await expect(page.getByLabel('搜索衣物',{exact:true})).toBeVisible();
  await page.screenshot({path:`${shots}reduced-motion.png`,fullPage:true});
+ // 清理：移入回收站，不改变后续规格的库存计数基线。
+ const created=await (await page.request.post('/__wardrobe_dev_api',{data:{operation:'clothing.list',input:{member_id:'default',search:'减少动画验收'}}})).json();
+ for(const saved of created.result?.items??[])await page.request.post('/__wardrobe_dev_api',{data:{operation:'clothing.delete',input:{member_id:'default',id:saved.id}}});
 });
 
 test('空状态逐页可见且中文提示明确',async({page})=>{

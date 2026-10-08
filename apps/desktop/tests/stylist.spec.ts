@@ -66,6 +66,8 @@ test('stylist tab completes a grounded tool loop through the real bridge',async(
  ];
  await api('clothing.create',{member_id:member,name:'羊毛毛衣',category:'top'});
  await api('clothing.create',{member_id:member,name:'直筒牛仔裤',category:'bottom'});
+ // 共享 dev server 上默认成员已有历史穿着：只读断言用增量。
+ const wearsBaseline=(await api('wear.list',{member_id:member})).result.items.length;
  const provider=await api('provider.save',{name:'stylist spec fixture',endpoint:`http://127.0.0.1:${fixturePort}/v1`,model:'fixture-text',capabilities:['text'],authentication:'none'});
  expect(provider.result.id).toBeTruthy();
  expect(posts).toBe(0);
@@ -88,7 +90,7 @@ test('stylist tab completes a grounded tool loop through the real bridge',async(
  expect(requests[1]).toContain(factValue);
  // Read-only: no wear events recorded as a side effect.
  const wears=await api('wear.list',{member_id:member});
- expect(wears.result.items).toEqual([]);
+ expect(wears.result.items.length).toBe(wearsBaseline);
  // The durable job replays without new model traffic.
  const jobs=await api('jobs.list',{member_id:member});
  const stylistJob=jobs.result.items.find((j:{kind:string})=>j.kind==='stylist_query');
@@ -102,6 +104,8 @@ test('explicit instruction records an actual wear with server-owned idempotency'
  const member=space.result.member_id as string;
  const item=await api('clothing.create',{member_id:member,name:'风衣',category:'outerwear'});
  const itemId=item.result.id as string;
+ // 共享 dev server 上默认成员已有历史穿着：写入断言用增量（恰好 +1）。
+ const wearsBefore=(await api('wear.list',{member_id:member})).result.items.length;
  // The model maps the explicit instruction to the write tool; the server
  // strips the forged key and date, injecting its own member/key/today.
  script=[
@@ -122,16 +126,18 @@ test('explicit instruction records an actual wear with server-owned idempotency'
  expect(toolCall.arguments.operation_key).not.toBe('forged-key');
  expect(toolCall.arguments.local_date).not.toBe('1999-01-01');
  expect(toolCall.arguments.clothing_ids).toEqual([itemId]);
- // Durable read-back: exactly one actual wear event for this member, citing
- // the seeded item and the server-injected calendar date (today in the
- // timezone the GUI sent — not UTC); the fact value is the real event id.
+ // Durable read-back: exactly one NEW actual wear event for this member,
+ // citing the seeded item and the server-injected calendar date (today in
+ // the timezone the GUI sent — not UTC); the fact value is the real event id.
  const wears=await api('wear.list',{member_id:member});
  const events=(wears.result.items as {id:string;kind:string;local_date:string;items:{clothing_id:string}[]}[]);
- expect(events.length).toBe(1);
- expect(events[0].kind).toBe('record');
- expect(events[0].local_date).toBe(toolCall.arguments.local_date);
- expect(events[0].items.map(v=>v.clothing_id)).toContain(itemId);
+ expect(events.length).toBe(wearsBefore+1);
  const factValue=await panel.locator('.stylist-facts li span').first().textContent();
- expect(events[0].id).toBe(factValue);
+ // 顺序无关：按面板引用的事实 id 定位本次写入的事件。
+ const recorded=events.find(e=>e.id===factValue);
+ expect(recorded,'回答引用的事实必须是新写入的穿着事件').toBeTruthy();
+ expect(recorded!.kind).toBe('record');
+ expect(recorded!.local_date).toBe(toolCall.arguments.local_date);
+ expect(recorded!.items.map(v=>v.clothing_id)).toContain(itemId);
  expect(posts).toBe(2);
 });

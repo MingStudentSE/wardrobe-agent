@@ -76,7 +76,8 @@ test('模板今天穿与单品穿过均需显式确认，保存模板不产生�
  const wearDialog=page.getByRole('dialog',{name:'记录穿着',exact:true});
  await expect(wearDialog).toBeVisible();
  await wearDialog.getByRole('button',{name:'确认实际穿过',exact:true}).click();
- await expect(page.locator('#wears').getByRole('status')).toContainText('实际穿着已记录');
+ // #wears 内图片加载等也会渲染 role=status：按成功文案过滤后断言。
+ await expect(page.locator('#wears').getByRole('status').filter({hasText:'实际穿着已记录'})).toBeVisible();
  // 模板来源穿着确认后，主界面会自行关闭“调整穿搭”弹窗。
  await expect(page.getByRole('dialog',{name:'调整穿搭',exact:true})).toHaveCount(0);
  expect((await call('wear.list',{member_id:'default'})).items.length).toBe(defaultWears+1);
@@ -86,7 +87,7 @@ test('模板今天穿与单品穿过均需显式确认，保存模板不产生�
  const single=page.getByRole('dialog',{name:'记录穿着',exact:true});
  await expect(single).toBeVisible();
  await single.getByRole('button',{name:'确认实际穿过',exact:true}).click();
- await expect(page.locator('#wears').getByRole('status')).toContainText('实际穿着已记录');
+ await expect(page.locator('#wears').getByRole('status').filter({hasText:'实际穿着已记录'})).toBeVisible();
  await expect(page.locator('#wears .journal-entry').filter({hasText:'分页单品 19'})).toHaveCount(1);
  for(const width of [320,375,414,768,1024,1280,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();if(width===320||width===1280)await page.locator('#wears').screenshot({path:`../../docs/verification/ticket-09/wears-${width}.png`});}
 });

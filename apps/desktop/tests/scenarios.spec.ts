@@ -38,16 +38,20 @@ test('scenario tab plans a wedding and a deduped travel checklist without record
  const altTop=await api('clothing.create',{member_id:member,name:'备用衬衫',category:'top'});
  const altBottom=await api('clothing.create',{member_id:member,name:'备用长裤',category:'bottom'});
  expect(dress.result.id).toBeTruthy();
+ // 共享 dev server 上默认成员已有历史穿着：断言“计划与模板不新增穿着”用增量。
+ const wearsBaseline=(await api('wear.list',{member_id:member})).result.items.length;
  // 面板挂载早于入库：显式刷新后再操作库存清单。
  await panel.getByRole('button',{name:'刷新计划列表'}).click();
  await panel.locator('.scenario-items summary').click();
  await expect(panel.getByRole('checkbox',{name:`固定 ${dress.result.name}`})).toBeVisible({timeout:20000});
 
- // 婚礼：固定连衣裙并排除鞋（确定性短缺：无鞋则方案必然不完整）。
+ // 婚礼：固定连衣裙并排除当前库存中全部鞋（确定性短缺：无鞋则方案必然不完整）。
+ // 其他规格可能向共享库存添加鞋，逐双排除以保持“无鞋可用”的前提。
  await panel.getByLabel('标题（可选）').fill('表姐的婚礼');
  await panel.getByLabel('手工说明（可选）').fill('婚礼在室内，按室温准备');
  await panel.getByRole('checkbox',{name:`固定 ${dress.result.name}`}).check();
- await panel.getByRole('checkbox',{name:`排除 ${shoes.result.name}`}).check();
+ const stockNow=(await api('clothing.list',{member_id:member,status:'active',limit:100})).result.items as {name:string;category:string}[];
+ for(const shoe of stockNow.filter((s:{category:string})=>s.category==='shoes'))await panel.getByRole('checkbox',{name:`排除 ${shoe.name}`}).check();
  await panel.getByRole('button',{name:'生成计划'}).click();
  await expect(panel.getByRole('status').filter({hasText:'计划已生成并保存'})).toBeVisible({timeout:20000});
  await expect(panel.getByText('第 1 天').first()).toBeVisible();
@@ -100,7 +104,7 @@ test('scenario tab plans a wedding and a deduped travel checklist without record
  await days.nth(0).getByRole('button',{name:'保存这一天为穿搭模板'}).click();
  await expect(panel.getByRole('status').filter({hasText:'已保存为穿搭模板'})).toBeVisible();
  const wears=await api('wear.list',{member_id:member});
- expect(wears.result.items).toEqual([]);
+ expect(wears.result.items.length).toBe(wearsBaseline);
  const outfits=await api('outfit.list',{member_id:member});
  const names=(outfits.result.items as {name:string}[]).map(item=>item.name);
  expect(names.some(name=>name.includes('三日出行'))).toBe(true);
@@ -118,9 +122,9 @@ test('scenario tab plans a wedding and a deduped travel checklist without record
  // 已保存计划列表可回看。
  await panel.getByRole('button',{name:'刷新计划列表'}).click();
  await expect(panel.locator('.scenario-plan-list')).toContainText('三日出行');
- // 端到端后仍无穿着记录。
+ // 端到端后仍无新增穿着记录。
  const wearsAfter=await api('wear.list',{member_id:member});
- expect(wearsAfter.result.items).toEqual([]);
+ expect(wearsAfter.result.items.length).toBe(wearsBaseline);
 });
 
 test('scenario tab reports shortage honestly when the whole pool is excluded',async({page:browserPage})=>{
@@ -129,6 +133,8 @@ test('scenario tab reports shortage honestly when the whole pool is excluded',as
  const space=await api('space.default',{});
  const member=space.result.member_id as string;
  await api('clothing.create',{member_id:member,name:'无解旅行对照上衣',category:'top'});
+ // 共享 dev server 上默认成员已有历史穿着：断言“排除全部后不写穿着”用增量。
+ const wearsBaseline=(await api('wear.list',{member_id:member})).result.items.length;
  // 排除当前库存中的全部可用单品 → 池为空，方案必须如实说明且不虚构。
  await panel.getByRole('button',{name:'刷新计划列表'}).click();
  await panel.locator('.scenario-items summary').click();
@@ -148,7 +154,7 @@ test('scenario tab reports shortage honestly when the whole pool is excluded',as
  await expect(panel.locator('.scenario-shortage')).toContainText('没有满足成员、生命周期、洗护及排除条件的真实衣物');
  await expect(panel.locator('.scenario-day').first()).toContainText('缺少');
  const wears=await api('wear.list',{member_id:member});
- expect(wears.result.items).toEqual([]);
+ expect(wears.result.items.length).toBe(wearsBaseline);
 });
 
 test('scenario planning stays usable at 320px width with keyboard focus',async({page:browserPage})=>{
