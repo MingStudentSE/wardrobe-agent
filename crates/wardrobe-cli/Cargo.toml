@@ -8,4 +8,5 @@ wardrobe-core = { path = "../wardrobe-core" }
 serde_json = "1"
 [dev-dependencies]
 base64 = "0.23.1"
+rusqlite = { version = "0.32", features = ["bundled"] }
 tempfile = "3"

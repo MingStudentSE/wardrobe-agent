@@ -157,7 +157,8 @@ impl Application {
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .map_err(|_| ApiError::new("weather_network", "无法建立天气连接"))?;
-            let response = client
+            let weather_started = std::time::Instant::now();
+            let send = client
                 .get(config["endpoint"].as_str().unwrap())
                 .query(&[
                     ("latitude", config["latitude"].to_string()),
@@ -166,10 +167,36 @@ impl Application {
                     ("timeformat", "unixtime".to_owned()),
                     ("timezone", "GMT".to_owned()),
                 ])
-                .send()
-                .map_err(|_| {
-                    ApiError::new("weather_network", "天气连接失败，可使用缓存或手动温度")
-                })?;
+                .try_clone();
+            let response = match send {
+                Some(request) => match request.send() {
+                    Ok(response) => {
+                        self.log_provider_request(
+                            "weather.refresh",
+                            "weather_forecast",
+                            "",
+                            if response.status().is_success() { "ok" } else { "http_error" },
+                            Some(response.status().as_u16()),
+                            weather_started,
+                        );
+                        response
+                    }
+                    Err(_) => {
+                        self.log_provider_request(
+                            "weather.refresh",
+                            "weather_forecast",
+                            "",
+                            "send_failed",
+                            None,
+                            weather_started,
+                        );
+                        return Err(ApiError::new("weather_network", "天气连接失败，可使用缓存或手动温度"));
+                    }
+                },
+                None => {
+                    return Err(ApiError::new("weather_network", "天气连接失败，可使用缓存或手动温度"))
+                }
+            };
             if !response.status().is_success() {
                 return Err(ApiError::new(
                     "weather_provider",

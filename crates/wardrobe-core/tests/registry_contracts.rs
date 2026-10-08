@@ -245,6 +245,7 @@ fn scope_metadata_reflects_actual_authorization_rules_for_every_descriptor() {
             name.starts_with("client.")
                 || name.starts_with("provider.credential.")
                 || name.starts_with("encryption.")
+                || name.starts_with("diagnostics.")
                 // ticket25 合并引入：精确名特权操作（无通用前缀）
                 || name == "schedule.runtime.configure",
             "{name} 不应标为仅本机可信"
@@ -257,6 +258,7 @@ fn scope_metadata_reflects_actual_authorization_rules_for_every_descriptor() {
             n.starts_with("client.")
                 || n.starts_with("provider.credential.")
                 || n.starts_with("encryption.")
+                || n.starts_with("diagnostics.")
                 || n == "schedule.runtime.configure"
         })
         .collect();

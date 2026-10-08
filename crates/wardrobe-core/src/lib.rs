@@ -7,6 +7,8 @@ mod categories;
 mod clothing;
 mod cutout;
 mod data_directory;
+mod diagnostics;
+pub mod logging;
 mod encryption;
 mod feedback;
 mod flatlay;
@@ -48,13 +50,36 @@ pub use clothing::CATEGORIES;
 pub struct ApiError {
     pub code: String,
     pub message: String,
+    /// 链路标识：加法变更，供用户反馈时精确定位；无链路时省略。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    /// 真实底层原因：只写日志，绝不进入用户可见输出（serde skip）。
+    #[serde(skip)]
+    pub(crate) reason: Option<String>,
 }
 impl ApiError {
     fn new(code: &str, message: &str) -> Self {
         Self {
             code: code.into(),
             message: message.into(),
+            trace_id: None,
+            reason: None,
         }
+    }
+    /// 供外部集成与测试构造既有形态错误（code+message）；trace/reason 走内部路径。
+    pub fn of(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            trace_id: None,
+            reason: None,
+        }
+    }
+    pub(crate) fn with_reason(mut self, reason: String) -> Self {
+        if self.reason.is_none() {
+            self.reason = Some(reason);
+        }
+        self
     }
 }
 impl From<rusqlite::Error> for ApiError {
@@ -66,19 +91,53 @@ impl From<rusqlite::Error> for ApiError {
                 code.code, code.extended_code
             );
         }
-        let _ = error;
-        Self::new("storage_error", "本地数据库操作失败")
+        // 真实原因保留到日志（execute 统一落盘），用户可见消息不变。
+        Self::new("storage_error", "本地数据库操作失败").with_reason(error.to_string())
     }
 }
 pub struct Application {
     connection: Connection,
     asset_root: PathBuf,
     installation_generation: i64,
+    logger: std::sync::Arc<logging::Logger>,
+    data_dir: PathBuf,
 }
 impl Application {
     pub fn open(path: &Path) -> Result<Self, ApiError> {
+        Self::open_with(path, logging::DiagnosticsConfig::default())
+    }
+    /// 打开配置注入：测试用极小的日志上限驱动轮转/清理，产品入口用默认值。
+    pub fn open_with(path: &Path, diagnostics: logging::DiagnosticsConfig) -> Result<Self, ApiError> {
+        let result = Self::open_inner(path, diagnostics.clone());
+        if let Err(error) = &result {
+            // 打开失败（数据库损坏、目录不可读等）也必须留下日志现场。
+            if let Some(dir) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                logging::emit_to(
+                    dir,
+                    "error",
+                    "lifecycle",
+                    "application.open",
+                    &error.code,
+                    json!({"reason": error.reason.clone().unwrap_or_else(|| error.message.clone()), "path": path.to_string_lossy()}),
+                );
+            }
+        }
+        result
+    }
+    fn open_inner(
+        path: &Path,
+        diagnostics: logging::DiagnosticsConfig,
+    ) -> Result<Self, ApiError> {
         let resolved = data_directory::resolve(path)?;
         let path = resolved.as_path();
+        let data_dir = resolved
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let logger = logging::logger_for(&data_dir, diagnostics.clone());
+        // 启动时惰性清理过期与超限日志。
+        let _ = logger.sweep(&logger.config());
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent)
                 .map_err(|_| ApiError::new("storage_error", "无法创建数据目录"))?;
@@ -181,11 +240,28 @@ impl Application {
             [],
             |row| row.get(0),
         )?;
+        logger.emit(
+            "info",
+            "lifecycle",
+            "application.open",
+            None,
+            "ok",
+            None,
+            json!({"database_schema_version": version.max(DATABASE_SCHEMA_VERSION)}),
+        );
         Ok(Self {
             installation_generation,
             connection,
             asset_root: path.parent().unwrap_or(Path::new(".")).join("assets"),
+            logger,
+            data_dir,
         })
+    }
+    pub(crate) fn logger(&self) -> std::sync::Arc<logging::Logger> {
+        self.logger.clone()
+    }
+    pub(crate) fn data_dir(&self) -> &Path {
+        &self.data_dir
     }
     fn check_schema(&self) -> Result<(), ApiError> {
         let version: u32 = self
@@ -238,6 +314,45 @@ impl Application {
         self.execute_current(operation, input)
     }
     pub(crate) fn execute_current(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
+        let trace_id = uuid::Uuid::now_v7().to_string();
+        let started = std::time::Instant::now();
+        let result = {
+            let _scope = logging::TraceScope::new(trace_id.clone());
+            self.execute_current_inner(operation, input)
+        };
+        match result {
+            Ok(value) => {
+                self.logger.emit(
+                    "info",
+                    "operation",
+                    operation,
+                    Some(&trace_id),
+                    "ok",
+                    Some(started.elapsed().as_millis()),
+                    json!({}),
+                );
+                Ok(value)
+            }
+            Err(mut error) => {
+                error.trace_id = Some(trace_id.clone());
+                self.logger.emit(
+                    level_for_code(&error.code),
+                    "operation",
+                    operation,
+                    Some(&trace_id),
+                    &error.code,
+                    Some(started.elapsed().as_millis()),
+                    json!({"reason": error.reason}),
+                );
+                Err(error)
+            }
+        }
+    }
+    fn execute_current_inner(
+        &self,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, ApiError> {
         if self.installation_changed()? {
             return Err(ApiError::new(
                 "data_restored",
@@ -345,6 +460,7 @@ impl Application {
             op if op.starts_with("scenario.") => self.scenario_execute(op, input),
             op if op.starts_with("recommendation.") => self.recommendation_execute(op, input),
             op if op.starts_with("pairing.") => self.pairing_execute(op, input),
+            op if op.starts_with("diagnostics.") => diagnostics::dispatch(self, op, input),
             "insights.summary" => self.insights_summary(input),
             "insights.configure" => self.insights_configure(input),
             op if op.starts_with("care.") => self.care_execute(op, input),
@@ -474,6 +590,24 @@ fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
         .and_then(Value::as_str)
         .ok_or_else(|| ApiError::new("invalid_input", &format!("缺少字符串字段 {key}")))
 }
+/// 操作事件的日志级别：输入/授权/状态类拒绝为 warn，存储与系统故障为 error。
+pub(crate) fn level_for_code(code: &str) -> &'static str {
+    match code {
+        "storage_error"
+        | "directory_io"
+        | "directory_invalid"
+        | "directory_unavailable"
+        | "data_directory_moving"
+        | "export_failed"
+        | "security_error"
+        | "credential_store_unavailable"
+        | "provider_network"
+        | "connection_error"
+        | "connection_timeout"
+        | "execution_failed" => "error",
+        _ => "warn",
+    }
+}
 pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
     descriptors.extend(backup::descriptors());
@@ -506,6 +640,7 @@ pub fn operations() -> Value {
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());
     descriptors.extend(image_editing::descriptors());
+    descriptors.extend(diagnostics::descriptors());
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );
@@ -524,6 +659,8 @@ pub fn operations() -> Value {
     Value::Array(descriptors)
 }
 
+pub use diagnostics::cli_logs_query;
+pub use diagnostics::doctor_report as diagnostics_doctor;
 pub fn default_database_path() -> PathBuf {
     if let Some(path) = std::env::var_os("WARDROBE_DATA_DIR") {
         return PathBuf::from(path).join("wardrobe.sqlite");

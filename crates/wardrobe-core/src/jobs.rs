@@ -82,7 +82,11 @@ pub(super) fn insert(
         ));
     }
     let now = chrono::Utc::now().to_rfc3339();
-    let doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"kind":kind,"operation_key":key,"state":"queued","progress":0,"attempts":0,"next_due":0,"lease_token":null,"lease_expires":0,"payload":payload,"result":null,"error":null,"created_at":now,"updated_at":now});
+    let mut doc = json!({"schema_version":1,"id":uuid::Uuid::now_v7().to_string(),"member_id":member,"kind":kind,"operation_key":key,"state":"queued","progress":0,"attempts":0,"next_due":0,"lease_token":null,"lease_expires":0,"payload":payload,"result":null,"error":null,"created_at":now,"updated_at":now});
+    // 任务文档携带创建链路的 trace_id（可选字段，加法变更）；worker/供应商请求复用它。
+    doc["trace_id"] = crate::logging::current_trace()
+        .map(|trace| json!(trace))
+        .unwrap_or(Value::Null);
     save(tx, &doc)?;
     Ok(doc)
 }
@@ -91,6 +95,38 @@ pub(super) fn save(tx: &Transaction<'_>, doc: &Value) -> Result<(), ApiError> {
     Ok(())
 }
 impl Application {
+    /// 任务生命周期日志事件：trace 用任务文档自身的链路标识（跨操作延续）。
+    fn log_job_event(
+        &self,
+        event: &Value,
+        phase: &str,
+        result: &str,
+        extra: Value,
+    ) {
+        let trace = event["trace_id"].as_str().map(str::to_string);
+        let mut detail = json!({
+            "job_id": event["id"],
+            "kind": event["kind"],
+            "operation_key": event["operation_key"],
+            "member_id": event["member_id"],
+            "state": event["state"],
+            "attempts": event["attempts"],
+        });
+        if let Some(extra_object) = extra.as_object() {
+            for (key, value) in extra_object {
+                detail[key] = value.clone();
+            }
+        }
+        self.logger.emit(
+            "info",
+            "job",
+            &format!("job.{phase}"),
+            trace.as_deref(),
+            result,
+            None,
+            detail,
+        );
+    }
     /// Trusted worker seam; external clients use the authorized Application API.
     pub fn job_enqueue(
         &self,
@@ -102,6 +138,7 @@ impl Application {
         let tx = self.begin_write()?;
         let doc = insert(&tx, member, kind, key, payload)?;
         tx.commit()?;
+        self.log_job_event(&doc, "enqueue", "queued", json!({}));
         Ok(doc)
     }
     pub(super) fn job_get(&self, input: Value) -> Result<Value, ApiError> {
@@ -153,7 +190,19 @@ impl Application {
         doc["attempts"] = json!(doc["attempts"].as_u64().unwrap_or(0) + 1);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         save(&tx, &doc)?;
+        let lease_expires = doc["lease_expires"].as_i64().unwrap_or(0);
         tx.commit()?;
+        // 链路延续：claim 之后本操作内的供应商请求等事件复用任务原始 trace_id。
+        if let Some(trace) = doc["trace_id"].as_str() {
+            crate::logging::continue_trace(trace.to_string());
+        }
+        let takeover = doc["attempts"].as_u64().unwrap_or(1) > 1;
+        self.log_job_event(
+            &doc,
+            "claim",
+            if takeover { "lease_takeover" } else { "running" },
+            json!({"lease_expires": lease_expires}),
+        );
         Ok(doc)
     }
     pub fn job_finish(
@@ -179,24 +228,34 @@ impl Application {
         doc["state"] = json!(state);
         doc["progress"] = json!(if state == "failed" { 0 } else { 100 });
         doc["result"] = result;
-        doc["error"] = error;
-        doc["lease_token"] = Value::Null;
-        doc["lease_expires"] = json!(0);
         // Only real network tasks supply transient classification; local decode failures never loop automatically.
-        if state == "failed"
-            && doc["error"]["retryable"] == true
-            && doc["attempts"].as_u64().unwrap_or(3) < 3
-        {
+        let retry_scheduled = state == "failed"
+            && error["retryable"] == true
+            && doc["attempts"].as_u64().unwrap_or(3) < 3;
+        if retry_scheduled {
             doc["state"] = json!("queued");
-            let delay = doc["error"]["retry_after_ms"]
+            let delay = error["retry_after_ms"]
                 .as_i64()
                 .unwrap_or(1000 * (1_i64 << doc["attempts"].as_u64().unwrap_or(1)))
                 .clamp(1000, 300_000);
             doc["next_due"] = json!(chrono::Utc::now().timestamp_millis() + delay);
         }
+        doc["error"] = error;
+        doc["lease_token"] = Value::Null;
+        doc["lease_expires"] = json!(0);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         save(&tx, &doc)?;
         tx.commit()?;
+        self.log_job_event(
+            &doc,
+            "finish",
+            &doc["state"].as_str().unwrap_or(state),
+            json!({
+                "error_code": doc["error"].get("code").cloned().unwrap_or(Value::Null),
+                "retry_scheduled": retry_scheduled,
+                "next_due": doc["next_due"],
+            }),
+        );
         Ok(doc)
     }
     pub(super) fn job_action(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
@@ -242,11 +301,17 @@ impl Application {
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         save(&tx, &doc)?;
         tx.commit()?;
+        self.log_job_event(
+            &doc,
+            "action",
+            doc["state"].as_str().unwrap_or(""),
+            json!({"action": if operation == "jobs.cancel" { "cancel" } else { "retry" }}),
+        );
         Ok(doc)
     }
 }
 pub(super) fn output_schema() -> Value {
-    json!({"type":"object","required":["schema_version","id","member_id","kind","operation_key","state","progress","attempts","next_due","lease_expires","lease_token","payload","result","error","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"kind":{"type":"string"},"operation_key":{"type":"string"},"state":{"enum":["queued","running","waiting_input","succeeded","failed","cancelled"]},"progress":{"type":"integer","minimum":0,"maximum":100},"attempts":{"type":"integer","minimum":0},"next_due":{"type":"integer"},"lease_expires":{"type":"integer"},"lease_token":{"type":["string","null"]},"submitted_at":{"type":"string"},"payload":{},"result":{},"error":{"type":["object","null"]},"created_at":{"type":"string"},"updated_at":{"type":"string"}}})
+    json!({"type":"object","required":["schema_version","id","member_id","kind","operation_key","state","progress","attempts","next_due","lease_expires","lease_token","payload","result","error","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"kind":{"type":"string"},"operation_key":{"type":"string"},"state":{"enum":["queued","running","waiting_input","succeeded","failed","cancelled"]},"progress":{"type":"integer","minimum":0,"maximum":100},"attempts":{"type":"integer","minimum":0},"next_due":{"type":"integer"},"lease_expires":{"type":"integer"},"lease_token":{"type":["string","null"]},"submitted_at":{"type":"string"},"trace_id":{"type":["string","null"],"description":"创建该任务的操作链路标识（可回查全链路日志）"},"payload":{},"result":{},"error":{"type":["object","null"]},"created_at":{"type":"string"},"updated_at":{"type":"string"}}})
 }
 pub(super) fn descriptors() -> Vec<Value> {
     ["get","list","cancel","retry"].iter().map(|action|{let required=if *action=="list"{vec!["member_id"]}else{vec!["member_id","id"]};let output=if *action=="list"{json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":output_schema()}}})}else{output_schema()};let (effect,examples)=match *action {

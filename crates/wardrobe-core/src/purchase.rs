@@ -359,9 +359,28 @@ impl Application {
         }
         jobs::save(&tx, &job)?;
         tx.commit()?;
+        let submit_started = std::time::Instant::now();
         let response = match request.send() {
-            Ok(r) => r,
+            Ok(r) => {
+                self.log_provider_request(
+                    "purchase.recognition",
+                    "image_submission",
+                    "",
+                    if r.status().is_success() { "ok" } else { "http_error" },
+                    Some(r.status().as_u16()),
+                    submit_started,
+                );
+                r
+            }
             Err(_) => {
+                self.log_provider_request(
+                    "purchase.recognition",
+                    "image_submission",
+                    "",
+                    "send_failed",
+                    None,
+                    submit_started,
+                );
                 return self.job_finish(&member, id, &lease, "waiting_input", Value::Null, json!({"code":"submission_unknown","message":"提交后的连接失败，结果未知；不会自动再次上传","retryable":false}))
             }
         };

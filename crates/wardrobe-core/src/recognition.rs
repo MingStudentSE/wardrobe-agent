@@ -494,7 +494,10 @@ impl Application {
         }
         jobs::save(&tx, &job)?;
         tx.commit()?;
-        let response=match request.send(){Ok(r)=>r,Err(_)=>return self.job_finish(&member,id,&lease,"waiting_input",Value::Null,json!({"code":"submission_unknown","message":"提交后的连接失败，结果未知；不会自动再次上传","retryable":false}))};
+        let submit_started = std::time::Instant::now();
+        let response=match request.send(){
+            Ok(r)=>{self.log_provider_request("recognition.submit","image_submission","",if r.status().is_success(){"ok"}else{"http_error"},Some(r.status().as_u16()),submit_started);r},
+            Err(_)=>{self.log_provider_request("recognition.submit","image_submission","","send_failed",None,submit_started);return self.job_finish(&member,id,&lease,"waiting_input",Value::Null,json!({"code":"submission_unknown","message":"提交后的连接失败，结果未知；不会自动再次上传","retryable":false}))}};
         let status = response.status();
         if status.is_server_error() {
             return self.job_finish(&member,id,&lease,"waiting_input",Value::Null,json!({"code":"submission_unknown","http_status":status.as_u16(),"message":"供应商服务错误，是否接受提交待核实","retryable":false}));

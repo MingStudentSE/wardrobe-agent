@@ -8,6 +8,28 @@ pub(crate) use text_transport::read_chat_response;
 use uuid::Uuid;
 const CAPABILITIES: &[&str] = &["text", "vision", "image_generation", "virtual_tryon"];
 impl Application {
+    /// 供应商请求事件：端点类别、模型名、结果类别与耗时；绝不记录密钥与请求头。
+    pub(crate) fn log_provider_request(
+        &self,
+        op: &str,
+        category: &str,
+        model: &str,
+        outcome: &str,
+        status: Option<u16>,
+        started: std::time::Instant,
+    ) {
+        self.logger().emit(
+            "info",
+            "provider",
+            op,
+            crate::logging::current_trace().as_deref(),
+            outcome,
+            Some(started.elapsed().as_millis()),
+            json!({"endpoint_category": category, "model": model, "http_status": status}),
+        );
+    }
+}
+impl Application {
     pub(crate) fn provider_credential(
         &self,
         operation: &str,
@@ -98,13 +120,35 @@ impl Application {
             };
             request = request.bearer_auth(key);
         }
-        let response = request.send().map_err(|e| {
-            if e.is_timeout() {
-                ApiError::new("connection_timeout", "连接超时，请检查端点或网络")
-            } else {
-                ApiError::new("connection_error", "连接失败，请检查端点、证书或网络")
+        let validate_started = std::time::Instant::now();
+        let response = match request.send() {
+            Ok(response) => {
+                self.log_provider_request(
+                    "provider.validate",
+                    "chat_completions",
+                    p["model"].as_str().unwrap_or(""),
+                    if response.status().is_success() { "ok" } else { "http_error" },
+                    Some(response.status().as_u16()),
+                    validate_started,
+                );
+                response
             }
-        })?;
+            Err(error) => {
+                self.log_provider_request(
+                    "provider.validate",
+                    "chat_completions",
+                    p["model"].as_str().unwrap_or(""),
+                    if error.is_timeout() { "timeout" } else { "send_failed" },
+                    None,
+                    validate_started,
+                );
+                return Err(if error.is_timeout() {
+                    ApiError::new("connection_timeout", "连接超时，请检查端点或网络")
+                } else {
+                    ApiError::new("connection_error", "连接失败，请检查端点、证书或网络")
+                });
+            }
+        };
         let status = response.status();
         if !status.is_success() {
             return Err(match status.as_u16() {

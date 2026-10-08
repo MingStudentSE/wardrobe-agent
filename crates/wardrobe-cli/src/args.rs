@@ -32,10 +32,30 @@ pub struct ProfileCommand {
     pub force: bool,
 }
 
+pub struct LogFilterArgs {
+    pub level: Option<String>,
+    pub since: Option<String>,
+    pub until: Option<String>,
+    pub trace: Option<String>,
+    pub run: Option<String>,
+    pub op_prefix: Option<String>,
+    pub contains: Option<String>,
+    pub limit: Option<u64>,
+}
+
 pub enum Parsed {
     Help(Option<String>),
     Schema(String),
     Version,
+    Logs {
+        db: Option<PathBuf>,
+        profile: Option<String>,
+        filter: LogFilterArgs,
+    },
+    Doctor {
+        db: Option<PathBuf>,
+        profile: Option<String>,
+    },
     Mcp {
         db: Option<PathBuf>,
         profile: Option<String>,
@@ -49,10 +69,7 @@ pub enum Parsed {
 }
 
 fn invalid_arguments(message: &str) -> ApiError {
-    ApiError {
-        code: "invalid_arguments".into(),
-        message: message.into(),
-    }
+    ApiError::of("invalid_arguments", message)
 }
 
 /// `--db` 无条件消耗其后恰好一个参数作为值；`--` 之后全部按字面量处理；
@@ -158,6 +175,12 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                         i += 1;
                         continue;
                     }
+                    if matches!(positionals.first().copied(), Some("logs") | Some("doctor")) {
+                        // logs 过滤旗标（--level/--since/--until/--trace/--run/--op/--contains/--limit）由 logs 分支解析
+                        positionals.push(arg);
+                        i += 1;
+                        continue;
+                    }
                     return Err(invalid_arguments(&format!("未知参数 {other}")));
                 }
                 _ => {}
@@ -180,6 +203,68 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
             Parsed::Help(None)
         } else {
             Parsed::Version
+        });
+    }
+    if matches!(positionals.first().copied(), Some("logs") | Some("doctor")) {
+        let is_logs = positionals.first().copied() == Some("logs");
+        if input.is_some() {
+            return Err(invalid_arguments("logs/doctor 不接受标准输入方式"));
+        }
+        let mut filter = LogFilterArgs {
+            level: None,
+            since: None,
+            until: None,
+            trace: None,
+            run: None,
+            op_prefix: None,
+            contains: None,
+            limit: None,
+        };
+        let mut seen: Vec<String> = Vec::new();
+        let mut i = 1;
+        while i < positionals.len() {
+            let flag = positionals[i];
+            let value = match positionals.get(i + 1) {
+                Some(value) => value.to_string(),
+                None => return Err(invalid_arguments(&format!("{flag} 缺少参数值"))),
+            };
+            if !is_logs {
+                return Err(invalid_arguments("doctor 不接受过滤旗标"));
+            }
+            if seen.iter().any(|seen| seen == flag) {
+                return Err(invalid_arguments(&format!("{flag} 只能出现一次")));
+            }
+            match flag {
+                "--level" => {
+                    if !["trace", "debug", "info", "warn", "error"].contains(&value.as_str()) {
+                        return Err(invalid_arguments("level 须为 trace/debug/info/warn/error"));
+                    }
+                    filter.level = Some(value);
+                }
+                "--since" => filter.since = Some(value),
+                "--until" => filter.until = Some(value),
+                "--trace" => filter.trace = Some(value),
+                "--run" => filter.run = Some(value),
+                "--op" => filter.op_prefix = Some(value),
+                "--contains" => filter.contains = Some(value),
+                "--limit" => {
+                    let parsed = value.parse::<u64>().map_err(|_| {
+                        invalid_arguments("limit 须为 1–500 之间的整数")
+                    })?;
+                    if !(1..=500).contains(&parsed) {
+                        return Err(invalid_arguments("limit 须为 1–500 之间的整数"));
+                    }
+                    filter.limit = Some(parsed);
+                }
+                other => return Err(invalid_arguments(&format!("未知参数 {other}"))),
+            }
+            seen.push(flag.to_string());
+            i += 2;
+        }
+        return Ok(if is_logs {
+            Parsed::Logs { db, profile, filter }
+        } else {
+            Parsed::Doctor { db, profile }
         });
     }
     match positionals.first().copied() {
@@ -207,12 +292,10 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
         }
         Some("scheduler") => {
             if !trusted_local {
-                return Err(ApiError {
-                    code: "scope_denied".into(),
-                    message:
-                        "本机调度服务须显式--trusted-local；外部客户端使用成员限定schedule API"
-                            .into(),
-                });
+                return Err(ApiError::of(
+                    "scope_denied",
+                    "本机调度服务须显式--trusted-local；外部客户端使用成员限定schedule API",
+                ));
             }
             if profile.is_some() {
                 return Err(invalid_arguments(

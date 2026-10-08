@@ -6,6 +6,8 @@ use std::{
 };
 use wardrobe_core::{ApiError, Application};
 fn main() {
+    wardrobe_core::logging::install_panic_hook();
+    wardrobe_core::logging::begin_run();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let parsed = match args::parse(&args) {
         Err(error) => fail(error),
@@ -36,11 +38,74 @@ fn main() {
             };
             run_mcp(db)
         }
+        args::Parsed::Logs { db, profile, filter } => {
+            let db = match resolve_db(db, profile) {
+                Ok(db) => db,
+                Err(error) => fail(error),
+            };
+            run_logs(db, filter)
+        }
+        args::Parsed::Doctor { db, profile } => {
+            let db = match resolve_db(db, profile) {
+                Ok(db) => db,
+                Err(error) => fail(error),
+            };
+            run_doctor(db)
+        }
         args::Parsed::Scheduler { db, once } => run_scheduler(db, once),
         args::Parsed::Profile(command) => run_profile(command),
         args::Parsed::Execute(execution) => execute(execution),
     }
 }
+/// `wardrobe-cli logs`：直接读数据目录 logs/ 下的 JSONL（不依赖数据库可用）。
+fn run_logs(db: PathBuf, filter: args::LogFilterArgs) {
+    let data_dir = db
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_default();
+    let mut input = serde_json::json!({});
+    if let Some(level) = filter.level {
+        input["level"] = serde_json::json!(level);
+    }
+    if let Some(since) = filter.since {
+        input["since"] = serde_json::json!(since);
+    }
+    if let Some(until) = filter.until {
+        input["until"] = serde_json::json!(until);
+    }
+    if let Some(trace) = filter.trace {
+        input["trace_id"] = serde_json::json!(trace);
+    }
+    if let Some(run) = filter.run {
+        input["run_id"] = serde_json::json!(run);
+    }
+    if let Some(op) = filter.op_prefix {
+        input["op_prefix"] = serde_json::json!(op);
+    }
+    if let Some(contains) = filter.contains {
+        input["contains"] = serde_json::json!(contains);
+    }
+    if let Some(limit) = filter.limit {
+        input["limit"] = serde_json::json!(limit);
+    }
+    match wardrobe_core::cli_logs_query(&data_dir, input) {
+        Ok(result) => println!("{}", json!({"schema_version":1,"result":result})),
+        Err(e) => fail(e),
+    }
+}
+
+/// `wardrobe-cli doctor`：与 GUI diagnostics.checks 同源的体检报告。
+fn run_doctor(db: PathBuf) {
+    let data_dir = db
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_default();
+    println!(
+        "{}",
+        json!({"schema_version":1,"result":wardrobe_core::diagnostics_doctor(&data_dir, &db)})
+    );
+}
+
 fn run_scheduler(db: Option<PathBuf>, once: bool) {
     let db = db.unwrap_or_else(wardrobe_core::default_database_path);
     use std::io::Write;
@@ -154,11 +219,10 @@ fn execute(execution: args::Execution) {
             Some(args::Input::InputStdin | args::Input::ClientStdin)
         )
     {
-        fail(ApiError {
-            code: "secret_requires_stdin".into(),
-            message: "凭据命令使用--input-stdin，从标准输入读取密钥，避免放入命令历史和进程参数"
-                .into(),
-        });
+        fail(ApiError::of(
+            "secret_requires_stdin",
+            "凭据命令使用--input-stdin，从标准输入读取密钥，避免放入命令历史和进程参数",
+        ));
     }
     let db = match resolve_db(execution.db, execution.profile) {
         Ok(db) => db,
@@ -188,10 +252,7 @@ fn execute(execution: args::Execution) {
                 .is_err()
                 || body.len() > 1_048_576
             {
-                fail(ApiError {
-                    code: "invalid_input".into(),
-                    message: "无法读取标准输入或输入过大".into(),
-                });
+                fail(ApiError::of("invalid_input", "无法读取标准输入或输入过大"));
             }
             Some(body)
         }
@@ -200,10 +261,7 @@ fn execute(execution: args::Execution) {
     let input = match stdin_body.as_deref() {
         Some(text) => match serde_json::from_str(text) {
             Ok(value) => value,
-            Err(_) => fail(ApiError {
-                code: "invalid_json".into(),
-                message: "输入不是有效 JSON".into(),
-            }),
+            Err(_) => fail(ApiError::of("invalid_json", "输入不是有效 JSON")),
         },
         None => json!({}),
     };
@@ -249,10 +307,10 @@ fn operation_metadata(operation: &str) -> Result<Value, ApiError> {
                 .find(|descriptor| descriptor["name"].as_str() == Some(operation))
                 .cloned()
         })
-        .ok_or(ApiError {
-            code: "unsupported_operation".into(),
-            message: format!("未知操作 {operation}"),
-        })
+        .ok_or(ApiError::of(
+            "unsupported_operation",
+            format!("未知操作 {operation}"),
+        ))
 }
 fn help() -> Value {
     json!({
@@ -263,7 +321,9 @@ fn help() -> Value {
             "wardrobe-cli help <operation>",
             "wardrobe-cli schema <operation>",
             "wardrobe-cli [--db <数据库路径>] [--trusted-local] <operation> ['<JSON>' | --input-stdin | --client-stdin]",
-            "wardrobe-cli [--db <数据库路径>] mcp"
+            "wardrobe-cli [--db <数据库路径>] mcp",
+            "wardrobe-cli logs [--level 级别] [--since RFC3339] [--until RFC3339] [--trace 链路ID] [--run 运行ID] [--op 操作前缀] [--contains 关键词] [--limit 1-500]",
+            "wardrobe-cli doctor"
         ],
         "flags": {
             "--db": "指定数据库文件路径；缺省使用 WARDROBE_DATA_DIR/wardrobe.sqlite，其次系统应用数据目录",

@@ -39,16 +39,13 @@ impl PairBackupTestApplication for Application {
                 Ok(job["result"].clone())
             }
         } else {
-            Err(wardrobe_core::ApiError {
-                code: job["error"]["code"]
+            Err(wardrobe_core::ApiError::of(job["error"]["code"]
                     .as_str()
                     .unwrap_or("job_cancelled")
-                    .into(),
-                message: job["error"]["message"]
+                    .to_owned(), job["error"]["message"]
                     .as_str()
                     .unwrap_or("任务未完成")
-                    .into(),
-            })
+                    .to_owned()))
         }
     }
 }

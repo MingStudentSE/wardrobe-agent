@@ -14,6 +14,7 @@ fn privileged(operation: &str) -> bool {
         || operation.starts_with("client.")
         || operation.starts_with("provider.credential.")
         || operation.starts_with("encryption.")
+        || operation.starts_with("diagnostics.")
 }
 /// 描述符 scope 元数据：与上方 privileged()、maintenance::is_global_operation()
 /// 及 execute_as_client 中的精确授权条件同源派生；只描述既有执行语义，不改变授权。

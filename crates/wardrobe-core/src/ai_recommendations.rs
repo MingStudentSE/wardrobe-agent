@@ -433,13 +433,38 @@ impl Application {
         let request = self.provider_text_request(&p, &body)?;
         let response = loop {
             self.text_submitted(member, job, lease, attempt)?;
-            let response = request
+            let attempt_started = std::time::Instant::now();
+            let response = match request
                 .try_clone()
                 .ok_or_else(|| ApiError::new("provider_error", "无法建立模型请求"))?
                 .send()
-                .map_err(|_| {
-                    ApiError::new("provider_network", "模型连接失败；结果未知，不盲重发")
-                })?;
+            {
+                Ok(response) => {
+                    self.log_provider_request(
+                        "provider.chat",
+                        "chat_completions",
+                        p["model"].as_str().unwrap_or(""),
+                        if response.status().is_success() { "ok" } else { "http_error" },
+                        Some(response.status().as_u16()),
+                        attempt_started,
+                    );
+                    response
+                }
+                Err(_) => {
+                    self.log_provider_request(
+                        "provider.chat",
+                        "chat_completions",
+                        p["model"].as_str().unwrap_or(""),
+                        "send_failed",
+                        None,
+                        attempt_started,
+                    );
+                    return Err(ApiError::new(
+                        "provider_network",
+                        "模型连接失败；结果未知，不盲重发",
+                    ));
+                }
+            };
             if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                 let delay = retry_after_ms(
                     response
