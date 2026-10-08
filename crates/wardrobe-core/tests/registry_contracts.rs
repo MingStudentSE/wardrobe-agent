@@ -2069,4 +2069,42 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
 
     let family = [("diagnostics.summary", "query", true)];
     assert_family_effects_and_examples(&descriptors, &family);
+
+    // 日志查询：过滤条件与游标严格声明，运行时输出钉住 outputSchema
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"space.","limit":1}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("diagnostics.logs.query"), &queried, "diagnostics.logs.query");
+    assert!(!queried["items"].as_array().unwrap().is_empty(), "{queried}");
+    let item = &queried["items"][0];
+    for key in ["ts", "level", "event_type", "run_id"] {
+        assert!(item[key].is_string(), "事件公共字段 {key} 须为字符串：{item}");
+    }
+    let empty = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"space.","until":"2020-01-01T00:00:00Z"}),
+        )
+        .unwrap();
+    assert!(empty["items"].as_array().unwrap().is_empty());
+    assert!(empty["next_cursor"].is_null(), "末页游标为 null：{empty}");
+    let query_descriptor = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("diagnostics.logs.query"))
+        .unwrap();
+    assert_eq!(query_descriptor["scope"]["access"], json!("trusted-local-only"));
+    assert_eq!(query_descriptor["scope"]["primary_grant_required"], json!(false));
+    let error = app
+        .execute("diagnostics.logs.query", json!({"level":"verbose"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input");
+
+    let family = [
+        ("diagnostics.summary", "query", true),
+        ("diagnostics.logs.query", "query", true),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
 }

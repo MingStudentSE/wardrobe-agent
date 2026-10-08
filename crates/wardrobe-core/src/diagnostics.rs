@@ -464,11 +464,197 @@ use crate::{ApiError, Application};
 
 impl Application {
     /// diagnostics.* 分发：仅本机可信入口（authorization::privileged 一律拒绝外部客户端）。
-    pub(super) fn diagnostics_execute(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
+    pub(super) fn diagnostics_execute(
+        &self,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, ApiError> {
         match operation {
             "diagnostics.summary" => self.diagnostics_summary(input),
+            "diagnostics.logs.query" => self.diagnostics_logs_query(input),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
         }
+    }
+
+    /// 日志查询：按级别、时间范围、trace_id、run_id、操作前缀、关键词过滤，游标分页。
+    /// 游标语义同「分页游标」（GLOSSARY）：调用方须保留查询条件，next_cursor 为 null 表示末页；
+    /// 游标编码 `<事件ts毫秒>-<该毫秒内已返回的匹配事件数>`，对写入追加（更大 ts）稳定。
+    pub(super) fn diagnostics_logs_query(&self, input: Value) -> Result<Value, ApiError> {
+        let level: Option<String> = match input.get("level") {
+            None => None,
+            Some(value) => {
+                let level = value.as_str().ok_or_else(|| {
+                    ApiError::new("invalid_input", "级别筛选必须为字符串")
+                })?;
+                if !["info", "debug", "trace", "error"].contains(&level) {
+                    return Err(ApiError::new("invalid_input", "级别筛选无效"));
+                }
+                Some(level.to_owned())
+            }
+        };
+        let parse_time = |key: &str| -> Result<Option<chrono::DateTime<chrono::FixedOffset>>, ApiError> {
+            match input.get(key) {
+                None | Some(Value::Null) => Ok(None),
+                Some(value) => match value.as_str() {
+                    Some(text) => chrono::DateTime::parse_from_rfc3339(text)
+                        .map(Some)
+                        .map_err(|_| ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
+                    None => Err(ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
+                },
+            }
+        };
+        let since = parse_time("since")?;
+        let until = parse_time("until")?;
+        if let (Some(start), Some(end)) = (since, until) {
+            if start > end {
+                return Err(ApiError::new("invalid_input", "时间范围起止颠倒"));
+            }
+        }
+        let exact = |key: &str| -> Result<Option<String>, ApiError> {
+            match input.get(key) {
+                None | Some(Value::Null) => Ok(None),
+                Some(value) => value
+                    .as_str()
+                    .map(|text| Some(text.to_owned()))
+                    .ok_or_else(|| ApiError::new("invalid_input", &format!("{key} 必须为字符串"))),
+            }
+        };
+        let trace_id = exact("trace_id")?;
+        let run_id_filter = exact("run_id")?;
+        let operation_prefix = exact("operation")?;
+        let keyword = match exact("keyword")? {
+            None => None,
+            Some(text) => {
+                if text.chars().count() > 200 {
+                    return Err(ApiError::new("invalid_input", "关键词最多 200 字符"));
+                }
+                Some(text.to_lowercase())
+            }
+        };
+        let limit = match input.get("limit") {
+            None => 50,
+            Some(value) => value
+                .as_u64()
+                .ok_or_else(|| ApiError::new("invalid_input", "每页数量必须为整数"))?,
+        };
+        if !(1..=100).contains(&limit) {
+            return Err(ApiError::new("invalid_input", "每页数量必须为 1–100"));
+        }
+        let (cursor_millis, cursor_skip) = match input.get("cursor") {
+            None | Some(Value::Null) => (None, 0u64),
+            Some(value) => {
+                let text = value
+                    .as_str()
+                    .ok_or_else(|| ApiError::new("invalid_input", "分页游标必须为字符串"))?;
+                let (millis, skip) = text
+                    .rsplit_once('-')
+                    .and_then(|(millis, skip)| {
+                        Some((millis.parse::<i64>().ok()?, skip.parse::<u64>().ok()?))
+                    })
+                    .ok_or_else(|| ApiError::new("invalid_input", "分页游标无效"))?;
+                (Some(millis), skip)
+            }
+        };
+        let event_millis =
+            |event: &Value| -> Option<i64> {
+                chrono::DateTime::parse_from_rfc3339(event["ts"].as_str()?)
+                    .ok()
+                    .map(|time| time.timestamp_millis())
+            };
+        let events = self.logger.read_events();
+        // 基础筛选：按写入序（文件时间序）；查询只服务 ts 可解析的良构事件，游标推进依赖它
+        let mut matched: Vec<&Value> = events
+            .iter()
+            .filter(|event| {
+                // 游标推进依赖 ts 毫秒：ts 不可解析的事件不进入查询结果
+                if event_millis(event).is_none() {
+                    return false;
+                }
+                if let Some(start) = since {
+                    let stamp = chrono::DateTime::parse_from_rfc3339(event["ts"].as_str().unwrap());
+                    if !stamp.is_ok_and(|stamp| stamp >= start) {
+                        return false;
+                    }
+                }
+                if let Some(end) = until {
+                    let stamp = chrono::DateTime::parse_from_rfc3339(event["ts"].as_str().unwrap());
+                    if !stamp.is_ok_and(|stamp| stamp <= end) {
+                        return false;
+                    }
+                }
+                if let Some(level) = &level {
+                    if event["level"].as_str() != Some(level.as_str()) {
+                        return false;
+                    }
+                }
+                if let Some(trace) = &trace_id {
+                    if event["trace_id"].as_str() != Some(trace.as_str()) {
+                        return false;
+                    }
+                }
+                if let Some(run) = &run_id_filter {
+                    if event["run_id"].as_str() != Some(run.as_str()) {
+                        return false;
+                    }
+                }
+                if let Some(prefix) = &operation_prefix {
+                    if !event["operation"]
+                        .as_str()
+                        .is_some_and(|operation| operation.starts_with(prefix.as_str()))
+                    {
+                        return false;
+                    }
+                }
+                if let Some(keyword) = &keyword {
+                    if !event.to_string().to_lowercase().contains(keyword.as_str()) {
+                        return false;
+                    }
+                }
+                true
+            })
+            .collect();
+        // 游标推进：跳过游标毫秒及此前的事件，再跳过同毫秒内已返回的 skip 条
+        if let Some(cursor) = cursor_millis {
+            let mut seen: u64 = 0;
+            matched.retain(|event| {
+                let millis = event_millis(event).unwrap_or(i64::MIN);
+                if millis < cursor {
+                    return false;
+                }
+                if millis == cursor {
+                    seen += 1;
+                    return seen > cursor_skip;
+                }
+                true
+            });
+        }
+        let more = matched.len() > limit as usize;
+        matched.truncate(limit as usize);
+        let next_cursor = if more {
+            let last_millis = matched
+                .last()
+                .and_then(|event| event_millis(event))
+                .ok_or_else(|| ApiError::new("storage_error", "日志事件时间不可解析"))?;
+            // skip 跨页累计：同毫秒内已返回总数 = 上一游标的 skip（末事件同毫秒时）+ 本页返回数
+            let previous = if cursor_millis == Some(last_millis) {
+                cursor_skip
+            } else {
+                0
+            };
+            let returned = matched
+                .iter()
+                .filter(|event| event_millis(event) == Some(last_millis))
+                .count() as u64;
+            Some(format!("{last_millis}-{}", previous + returned))
+        } else {
+            None
+        };
+        let items: Vec<Value> = matched.into_iter().cloned().collect();
+        Ok(json!({
+            "schema_version": 1,
+            "items": items,
+            "next_cursor": next_cursor,
+        }))
     }
 
     /// 健康摘要：只读投影——数据库/模式版本、本机安装代际、按状态任务计数、
@@ -665,6 +851,39 @@ pub(super) fn descriptors() -> Vec<Value> {
             "examples":[{"request":{},"prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","只读投影：与持久任务实际状态和日志文件一致，不修改任何数据"]}],
             "inputSchema":{"type":"object","properties":{},"additionalProperties":false},
             "outputSchema":summary_schema()
+        }),
+        json!({
+            "name":"diagnostics.logs.query",
+            "description":"仅可信本机入口查询日志事件：按级别、时间范围、trace_id、run_id、操作前缀与关键词过滤，游标分页续页",
+            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            "examples":[{
+                "request":{"level":"error","trace_id":"<错误输出携带的链路标识>","limit":50},
+                "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","调用方须保留查询条件并以 next_cursor 续页；next_cursor 为 null 表示末页","事件按构造脱敏：不含密钥、令牌、恢复材料与空间密钥"]
+            }],
+            "inputSchema":{
+                "type":"object",
+                "additionalProperties":false,
+                "properties":{
+                    "level":{"enum":["info","debug","trace","error"],"description":"精确级别匹配"},
+                    "since":{"type":"string","description":"RFC3339 起始时间（含）"},
+                    "until":{"type":"string","description":"RFC3339 结束时间（含）"},
+                    "trace_id":{"type":"string"},
+                    "run_id":{"type":"string"},
+                    "operation":{"type":"string","description":"操作名前缀"},
+                    "keyword":{"type":"string","maxLength":200,"description":"事件文本子串（大小写不敏感）"},
+                    "limit":{"type":"integer","minimum":1,"maximum":100},
+                    "cursor":{"type":"string","description":"上一页 next_cursor；调用方须保留查询条件"}
+                }
+            },
+            "outputSchema":{
+                "type":"object",
+                "required":["schema_version","items","next_cursor"],
+                "properties":{
+                    "schema_version":{"type":"integer","const":1},
+                    "items":{"type":"array","description":"按写入时间序的日志事件","items":{"type":"object","required":["ts","level","event_type","run_id"],"properties":{"ts":{"type":"string"},"level":{"type":"string"},"event_type":{"type":"string"},"run_id":{"type":"string"},"trace_id":{"type":"string"},"operation":{"type":"string"},"duration_ms":{"type":"integer"},"result":{"type":"string"},"reason":{"type":"string"},"input_keys":{"type":"array","items":{"type":"string"}},"message":{"type":"string"},"location":{"type":"string"},"thread":{"type":"string"}}}},
+                    "next_cursor":{"type":["string","null"],"description":"续页游标；null 表示末页"}
+                }
+            }
         }),
     ]
 }
