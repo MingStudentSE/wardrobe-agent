@@ -151,8 +151,9 @@ impl Application {
                 current["lease_token"] = Value::Null;
                 current["lease_expires"] = json!(0);
                 current["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-                self.save_job(&tx, &current)?;
+                let pending = self.save_job(&tx, &current)?;
                 tx.commit()?;
+                self.emit_job_event(pending);
                 Ok(current)
             }
         }

@@ -107,8 +107,9 @@ impl Application {
             ));
         }
         let payload = json!({"request":input,"provider":provider,"asset_ids":ids,"upload_role":role,"assets":assets,"baseline":clothing,"submission":"not_submitted"});
-        let job = self.insert_job(&tx, &member, "recognition", key, payload)?;
+        let (job, pending) = self.insert_job(&tx, &member, "recognition", key, payload)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(job)
     }
 }
@@ -491,29 +492,29 @@ impl Application {
                 "任务已取消或租约到期，不再发送图片",
             ));
         }
-        self.save_job(&tx, &job)?;
+        let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         // 供应商请求事件（#44）：trace 取自任务文档——worker 可能运行在另一进程
-        let provider_trace = job["trace_id"].as_str().map(str::to_owned);
-        let provider_model = job["payload"]["provider"]["model"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-        let request_started = std::time::Instant::now();
+        let provider_request = crate::diagnostics::ProviderRequestLog::from_job(
+            &job,
+            job["payload"]["provider"]["model"].as_str().unwrap_or(""),
+        );
+        provider_request.begin_send();
         let response=match request.send(){
             Ok(r)=>r,
             Err(_)=>{
-                self.log_provider_request(provider_trace.as_deref(),"chat_completions",&provider_model,"outcome_unknown",None,request_started);
+                provider_request.record(self,"chat_completions","outcome_unknown",None);
                 return self.job_finish(&member,id,&lease,"waiting_input",Value::Null,json!({"code":"submission_unknown","message":"提交后的连接失败，结果未知；不会自动再次上传","retryable":false}))
             }
         };
         let status = response.status();
         if status.is_server_error() {
-            self.log_provider_request(provider_trace.as_deref(),"chat_completions",&provider_model,"outcome_unknown",Some(status.as_u16()),request_started);
+            provider_request.record(self,"chat_completions","outcome_unknown",Some(status.as_u16()));
             return self.job_finish(&member,id,&lease,"waiting_input",Value::Null,json!({"code":"submission_unknown","http_status":status.as_u16(),"message":"供应商服务错误，是否接受提交待核实","retryable":false}));
         }
         if !status.is_success() {
-            self.log_provider_request(provider_trace.as_deref(),"chat_completions",&provider_model,"http_error",Some(status.as_u16()),request_started);
+            provider_request.record(self,"chat_completions","http_error",Some(status.as_u16()));
             let retry = status.as_u16() == 429;
             let delay = response
                 .headers()
@@ -532,8 +533,9 @@ impl Application {
             {
                 return Err(ApiError::new("lease_lost", "任务已取消或过期，不恢复队列"));
             }
-            self.save_job(&tx, &job)?;
+            let pending = self.save_job(&tx, &job)?;
             tx.commit()?;
+            self.emit_job_event(pending);
             return self.job_finish(&member,id,&lease,"failed",Value::Null,json!({"code":if retry{"provider_rate_limit"}else{"provider_rejected"},"message":"供应商拒绝请求，仍可手工保存","http_status":status.as_u16(),"retryable":retry,"retry_after_ms":delay}));
         }
         let mut bytes = vec![];
@@ -543,14 +545,14 @@ impl Application {
             .is_err()
             || bytes.len() > 1024 * 1024
         {
-            self.log_provider_request(provider_trace.as_deref(),"chat_completions",&provider_model,"outcome_unknown",Some(status.as_u16()),request_started);
+            provider_request.record(self,"chat_completions","outcome_unknown",Some(status.as_u16()));
             return self.job_finish(&member,id,&lease,"waiting_input",Value::Null,json!({"code":"submission_unknown","message":"响应中断或过大，提交结果须核实","retryable":false}));
         }
         let response:Value=match serde_json::from_slice(&bytes){Ok(v)=>v,Err(_)=>{
-            self.log_provider_request(provider_trace.as_deref(),"chat_completions",&provider_model,"outcome_unknown",Some(status.as_u16()),request_started);
+            provider_request.record(self,"chat_completions","outcome_unknown",Some(status.as_u16()));
             return self.job_finish(&member,id,&lease,"waiting_input",Value::Null,json!({"code":"submission_unknown","message":"响应无效，提交结果须核实","retryable":false}))}};
         // 响应完整可解析：HTTP 层成功（后续内容校验失败属任务失败，非请求层事件）
-        self.log_provider_request(provider_trace.as_deref(),"chat_completions",&provider_model,"ok",None,request_started);
+        provider_request.record(self,"chat_completions","ok",None);
         let text=match response["choices"][0]["message"]["content"].as_str().filter(|s|!s.trim().is_empty()&&s.chars().count()<=10000){Some(t)=>t,None=>return self.job_finish(&member,id,&lease,"failed",Value::Null,json!({"code":"invalid_model_output","message":"模型未返回可审核建议，仍可手工保存","retryable":false}))};
         let request = &job["payload"]["request"];
         let target = if request.get("clothing_id").is_some() {
@@ -579,8 +581,9 @@ impl Application {
         job["payload"]["submission"] = json!("received");
         job["result"] = json!({"suggestion_id":proposal["id"]});
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        self.save_job(&tx, &job)?;
+        let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(job)
     }
 }

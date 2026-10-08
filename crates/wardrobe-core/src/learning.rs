@@ -406,7 +406,7 @@ impl Application {
         }
         let tx = self.begin_write()?;
         let existing:Option<String>=tx.query_row("SELECT document FROM jobs WHERE member_id=?1 AND kind='learning_recompute' AND operation_key=?2",params![member,key],|r|r.get(0)).optional()?;
-        let job = if let Some(stored) = existing {
+        let (job, pending) = if let Some(stored) = existing {
             let job = parse(stored)?;
             if job["payload"]["request"] != input {
                 return Err(ApiError::new(
@@ -414,7 +414,7 @@ impl Application {
                     "重算标识不能改变输入",
                 ));
             }
-            job
+            (job, None)
         } else {
             self.insert_job(
                 &tx,
@@ -425,6 +425,7 @@ impl Application {
             )?
         };
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(
             json!({"schema_version":1,"member_id":member,"job_id":job["id"],"state":job["state"],"result":job["result"]}),
         )
@@ -739,8 +740,9 @@ impl Application {
         job["lease_token"] = Value::Null;
         job["lease_expires"] = json!(0);
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        self.save_job(&tx, &job)?;
+        let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(doc)
     }
     pub(super) fn learning_execute(&self, op: &str, mut input: Value) -> Result<Value, ApiError> {
