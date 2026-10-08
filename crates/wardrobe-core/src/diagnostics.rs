@@ -80,6 +80,25 @@ pub(crate) fn new_trace_id() -> String {
     uuid::Uuid::now_v7().to_string()
 }
 
+// 当前调用链路的线程局部上下文：`Application::execute` 进入业务函数前置位，
+// 返回后恢复。持久任务的创建（jobs::insert）在业务函数内读取它，把本次调用的
+// trace_id 写进任务文档——worker 可能运行在另一进程，trace 只经任务文档传递，
+// 不依赖进程状态或调用栈以外的共享内存。
+thread_local! {
+    static CURRENT_TRACE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+/// 在 `trace_id` 上下文内运行业务调用，返回后恢复先前置位（支持同步重入嵌套）。
+pub(crate) fn with_trace<R>(trace_id: &str, run: impl FnOnce() -> R) -> R {
+    let previous = CURRENT_TRACE.with(|cell| cell.replace(Some(trace_id.to_string())));
+    let result = run();
+    CURRENT_TRACE.with(|cell| cell.replace(previous));
+    result
+}
+/// 当前线程正在执行的 Application 调用的 trace_id；不在调用内则为 None。
+pub(crate) fn current_trace() -> Option<String> {
+    CURRENT_TRACE.with(|cell| cell.borrow().clone())
+}
+
 fn sinks() -> &'static Mutex<Vec<Logger>> {
     SINKS.get_or_init(|| Mutex::new(Vec::new()))
 }
@@ -463,6 +482,35 @@ fn recent_error_item(event: &Value) -> Value {
 use crate::{ApiError, Application};
 
 impl Application {
+    /// 供应商请求事件（#44）：端点类别、模型名、结果类别（ok/http_error/outcome_unknown/error）、
+    /// HTTP 状态与耗时；trace_id 来自任务文档（异步链路）或当前调用（同步验证）。
+    /// 脱敏按构造：绝不记录密钥、请求头、完整请求或响应体。
+    pub(crate) fn log_provider_request(
+        &self,
+        trace_id: Option<&str>,
+        endpoint_kind: &str,
+        model: &str,
+        outcome: &str,
+        http_status: Option<u16>,
+        started: std::time::Instant,
+    ) {
+        let mut fields = json!({
+            "operation": "provider.request",
+            "endpoint_kind": endpoint_kind,
+            "model": model,
+            "outcome": outcome,
+            "duration_ms": started.elapsed().as_millis() as u64,
+        });
+        if let Some(trace) = trace_id {
+            fields["trace_id"] = json!(trace);
+        }
+        if let Some(status) = http_status {
+            fields["http_status"] = json!(status);
+        }
+        self.logger
+            .log_event(Level::Info, "provider_request", fields);
+    }
+
     /// diagnostics.* 分发：仅本机可信入口（authorization::privileged 一律拒绝外部客户端）。
     pub(super) fn diagnostics_execute(
         &self,

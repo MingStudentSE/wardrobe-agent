@@ -75,7 +75,7 @@ impl Application {
         }
         let (hash, path) = self.store_blob("tryon-person-local-only", &bytes, "png")?;
         let tx = self.begin_write()?;
-        let mut job = crate::jobs::insert(
+        let mut job = self.insert_job(
             &tx,
             &member,
             "tryon_person",
@@ -88,7 +88,7 @@ impl Application {
         job["state"] = json!("succeeded");
         job["progress"] = json!(100);
         job["result"] = json!({"id":job["id"],"local_path":path,"blob_hash":hash,"mime":"image/png","width":image.width(),"height":image.height(),"sync_scope":"local_only","person_kind":kind});
-        crate::jobs::save(&tx, &job)?;
+        self.save_job(&tx, &job)?;
         tx.commit()?;
         Ok(job)
     }
@@ -224,7 +224,7 @@ impl Application {
         doc["lease_expires"] = json!(0);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         doc["result"] = json!({"id":uuid::Uuid::now_v7().to_string(),"blob_hash":hash,"local_path":path,"role":"tryon","sync_scope":"local_only","width":image.width(),"height":image.height(),"bytes":bytes.len(),"mime":"image/webp","quality":82,"request_id":request_id,"source_outfit_id":job["payload"]["outfit_id"],"source_version":job["payload"]["outfit_version"],"person":job["payload"]["person"],"inputs":job["payload"]["inputs"],"provider_id":job["payload"]["provider"]["id"],"model":job["payload"]["provider"]["model"],"adopted":false});
-        crate::jobs::save(&tx, &doc)?;
+        self.save_job(&tx, &doc)?;
         tx.commit()?;
         Ok(doc)
     }
@@ -244,7 +244,7 @@ impl Application {
         doc["state"] = json!("succeeded");
         doc["result"]["adopted"] = json!(true);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        crate::jobs::save(&tx, &doc)?;
+        self.save_job(&tx, &doc)?;
         tx.commit()?;
         Ok(doc)
     }

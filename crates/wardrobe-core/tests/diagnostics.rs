@@ -898,6 +898,587 @@ fn corrupt_log_lines_do_not_block_diagnostics_queries_or_summary() {
     assert_eq!(summary["schema_version"], 1, "摘要同样不受损坏行影响");
 }
 
+/// #44：创建持久任务的调用把本次调用 trace_id 写入任务文档（可选字段，加法变更）。
+/// trace 只能经任务文档跨进程传递：worker 直接入队（trusted seam，不经 Application
+/// API 调用）时没有调用链路，文档缺省该字段。
+#[test]
+fn created_jobs_carry_the_submitting_call_trace_id() {
+    let _guard = fs_lock();
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let image = dir.path().join("trace-batch.png");
+    image::RgbImage::from_pixel(8, 8, image::Rgb([255, 255, 255]))
+        .save(&image)
+        .unwrap();
+    let batch = app
+        .execute(
+            "imports.create",
+            json!({"member_id":member,"operation_key":"trace-batch","paths":[image.to_string_lossy()]}),
+        )
+        .unwrap();
+    // 创建调用的 trace_id 从日志查询得出（与文档对照的独立事实来源）
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"imports.create","level":"info"}),
+        )
+        .unwrap();
+    let created_trace = queried["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["result"] == "ok")
+        .unwrap()["trace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(!batch["job_ids"].as_array().unwrap().is_empty());
+    for jid in batch["job_ids"].as_array().unwrap() {
+        let job = app
+            .execute("jobs.get", json!({"member_id":member,"id":jid}))
+            .unwrap();
+        assert_eq!(
+            job["trace_id"], created_trace,
+            "任务文档必须携带创建调用的 trace_id：{job}"
+        );
+    }
+    let list = app
+        .execute("jobs.list", json!({"member_id":member}))
+        .unwrap();
+    assert!(
+        list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|j| j["trace_id"] == created_trace),
+        "jobs.list 返回的文档同样携带 trace_id：{list}"
+    );
+    // trusted worker seam 直接入队：无调用链路，trace_id 缺省（可选字段兼容旧任务）
+    let orphan = app
+        .job_enqueue(&member, "local-test", "orphan", json!({}))
+        .unwrap();
+    assert!(
+        orphan.get("trace_id").is_none(),
+        "worker 直接入队没有调用 trace，文档须缺省该字段：{orphan}"
+    );
+    // 幂等重入返回既有文档：trace 保持创建时的值，不被后续调用覆盖
+    let again = app
+        .job_enqueue(&member, "local-test", "orphan", json!({}))
+        .unwrap();
+    assert_eq!(again, orphan, "幂等重入不得改动既有任务文档");
+    // 任务 schema 契约：outputSchema 声明可选 trace_id（加法变更，不进 required）
+    let capabilities = app.execute("capabilities", json!({})).unwrap();
+    let jobs_get = capabilities["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["name"] == "jobs.get")
+        .expect("registry 须含 jobs.get");
+    assert!(
+        jobs_get["outputSchema"]["properties"]["trace_id"].is_object(),
+        "任务 schema 须声明 trace_id 字段：{}",
+        jobs_get["outputSchema"]
+    );
+    assert!(
+        !jobs_get["outputSchema"]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r == "trace_id"),
+        "trace_id 属加法变更，不得进入 required"
+    );
+}
+
+/// #44：worker 执行与任务状态迁移（排队、运行、租约接管、失败、重试、终态）
+/// 以任务文档里的 trace_id 写日志事件。worker 可能在另一进程运行：
+/// 这里的 worker 步骤全部走 trusted seam 直连（不经 Application API 调用），
+/// 事件 trace 只能来自任务文档，不依赖进程状态。
+#[test]
+fn job_lifecycle_events_are_queryable_by_the_job_trace_id() {
+    let _guard = fs_lock();
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("wardrobe.sqlite");
+    let app = Application::open(&db).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let image = dir.path().join("lifecycle.png");
+    image::RgbImage::from_pixel(8, 8, image::Rgb([255, 255, 255]))
+        .save(&image)
+        .unwrap();
+    let batch = app
+        .execute(
+            "imports.create",
+            json!({"member_id":member,"operation_key":"lifecycle","paths":[image.to_string_lossy()]}),
+        )
+        .unwrap();
+    let id = batch["job_ids"][0].as_str().unwrap().to_string();
+    let created_trace = app
+        .execute("jobs.get", json!({"member_id":member,"id":&id}))
+        .unwrap()["trace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // worker 直连接缝：排队任务被领取（queued→running）
+    let claimed = app.job_claim(&member, &id, 300).unwrap();
+    assert_eq!(claimed["state"], "running");
+    // 租约接管：把租约过期时刻改到过去（直连 SQL 接缝，先例 mark_provider_outcome_unknown）
+    {
+        let connection = rusqlite::Connection::open(&db).unwrap();
+        connection
+            .execute(
+                "UPDATE jobs SET document=json_set(document,'$.lease_expires',1) WHERE id=?1",
+                [&id],
+            )
+            .unwrap();
+    }
+    let takeover = app.job_claim(&member, &id, 300).unwrap();
+    assert_eq!(takeover["state"], "running");
+    // 失败且可重试：回 queued 并安排延迟（attempts<3）
+    let retried = app
+        .job_finish(
+            &member,
+            &id,
+            takeover["lease_token"].as_str().unwrap(),
+            "failed",
+            Value::Null,
+            json!({"code":"provider_rate_limit","retryable":true}),
+        )
+        .unwrap();
+    assert_eq!(retried["state"], "queued");
+    assert!(retried["next_due"].as_i64().unwrap() > 0, "重试须安排延迟");
+    // 取消排队中的任务：终态 cancelled（succeeded 不能取消，其余状态可）
+    app.execute("jobs.cancel", json!({"member_id":member,"id":&id}))
+        .unwrap();
+
+    // 单一 trace_id 还原整条迁移链
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"trace_id":created_trace,"operation":"job.","limit":100}),
+        )
+        .unwrap();
+    let events = queried["items"].as_array().unwrap();
+    let transitions: Vec<(String, String)> = events
+        .iter()
+        .filter(|e| e["event_type"] == "job")
+        .map(|e| {
+            (
+                e["operation"].as_str().unwrap().to_string(),
+                e["state_to"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        transitions,
+        vec![
+            ("job.enqueue".to_string(), "queued".to_string()),
+            ("job.state".to_string(), "running".to_string()),
+            ("job.state".to_string(), "running".to_string()),
+            ("job.state".to_string(), "queued".to_string()),
+            ("job.state".to_string(), "cancelled".to_string()),
+        ],
+        "同 trace 下必须能还原排队→运行→租约接管→失败重试→取消：{events:?}"
+    );
+    let by_state_from = |from: &str, to: &str| {
+        events
+            .iter()
+            .find(|e| {
+                e["state_from"].as_str().unwrap_or("") == from
+                    && e["state_to"].as_str().unwrap_or("") == to
+            })
+            .unwrap_or_else(|| panic!("缺 state_from={from} state_to={to} 的事件：{events:?}"))
+    };
+    let enqueue = by_state_from("", "queued");
+    assert_eq!(enqueue["operation"], "job.enqueue");
+    assert_eq!(enqueue["job_kind"], "import");
+    let first_claim = events
+        .iter()
+        .filter(|e| e["operation"] == "job.state" && e["state_to"] == "running")
+        .find(|e| e["state_from"] == "queued")
+        .expect("首次领取应来自 queued");
+    assert_eq!(first_claim["attempts"], 1);
+    let takeover_event = events
+        .iter()
+        .find(|e| e["state_from"] == "running" && e["state_to"] == "running")
+        .expect("租约接管必须可辨（state_from=running）：{events:?}");
+    assert_eq!(takeover_event["attempts"], 2);
+    // 可重试失败在 job_finish 内一次持久化完成（failed+回队），事件合并为
+    // running→queued 并携带错误码与重试时刻——失败原因与重试安排同一条事件可读
+    let retry_event = by_state_from("running", "queued");
+    assert_eq!(retry_event["operation"], "job.state");
+    assert_eq!(
+        retry_event["error_code"], "provider_rate_limit",
+        "失败重试事件须带错误码"
+    );
+    assert!(retry_event["next_due"].as_i64().unwrap() > 0);
+    assert_eq!(by_state_from("queued", "cancelled")["job_id"], id);
+
+    // worker 直接入队的任务（无 trace）：迁移事件仍写入，只是缺省 trace_id
+    let orphan = app
+        .job_enqueue(&member, "local-test", "orphan-lifecycle", json!({}))
+        .unwrap();
+    let orphan_id = orphan["id"].as_str().unwrap().to_string();
+    app.job_claim(&member, &orphan_id, 300).unwrap();
+    let orphan_events = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"job.","keyword":&orphan_id,"limit":100}),
+        )
+        .unwrap();
+    let orphan_running = orphan_events["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["job_id"] == orphan_id && e["state_to"] == "running")
+        .expect("无 trace 任务的迁移事件仍须写入");
+    assert!(
+        orphan_running.get("trace_id").is_none(),
+        "无链路任务不得伪造 trace_id：{orphan_running}"
+    );
+    assert_eq!(orphan_running["event_type"], "job");
+    assert!(orphan_running["run_id"].is_string());
+}
+
+/// #44：维护任务（独立任务系统）同样贯穿——创建调用写入 trace_id，
+/// enqueue/领取/终态迁移事件以文档 trace 可查。
+#[test]
+fn maintenance_job_lifecycle_events_share_the_submitted_trace_id() {
+    let _guard = fs_lock();
+    let installation = tempfile::tempdir().unwrap();
+    let archive = tempfile::tempdir().unwrap();
+    let app = Application::open(&installation.path().join("wardrobe.sqlite")).unwrap();
+    let directory = archive.path().join("backup");
+    let submitted = app
+        .execute("backup.create", json!({"directory":directory}))
+        .unwrap();
+    let id = submitted["job_id"].as_str().unwrap().to_string();
+    // public 投影保留 trace_id（下划线内部字段被剥离，业务字段不动）
+    let doc = app.execute("maintenance.get", json!({"id":&id})).unwrap();
+    let trace = doc["trace_id"].as_str().unwrap().to_string();
+    app.execute("maintenance.worker.run", json!({"id":&id}))
+        .unwrap();
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"trace_id":trace,"operation":"job.","limit":100}),
+        )
+        .unwrap();
+    let events = queried["items"].as_array().unwrap();
+    let transitions: Vec<(String, String, String)> = events
+        .iter()
+        .filter(|e| e["event_type"] == "job")
+        .map(|e| {
+            (
+                e["operation"].as_str().unwrap().to_string(),
+                e["state_from"].as_str().unwrap_or("").to_string(),
+                e["state_to"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        transitions,
+        vec![
+            ("job.enqueue".to_string(), "".to_string(), "queued".to_string()),
+            ("job.state".to_string(), "queued".to_string(), "running".to_string()),
+            ("job.state".to_string(), "running".to_string(), "succeeded".to_string()),
+        ],
+        "维护任务须以创建调用 trace 还原排队→运行→成功：{events:?}"
+    );
+    assert!(
+        events.iter().all(|e| e["job_kind"] == "backup.create"),
+        "维护事件以操作名作类别：{events:?}"
+    );
+}
+
+/// 读取一个完整 HTTP 请求（头 + 体），返回原始文本（用于捕获 mock 收到的请求头）。
+fn read_request_text(stream: &mut std::net::TcpStream) -> String {
+    use std::io::Read;
+    let mut bytes = vec![];
+    loop {
+        let mut chunk = [0; 4096];
+        let n = stream.read(&mut chunk).unwrap();
+        assert!(n > 0);
+        bytes.extend_from_slice(&chunk[..n]);
+        if let Some(split) = bytes.windows(4).position(|b| b == b"\r\n\r\n") {
+            let len: usize = String::from_utf8_lossy(&bytes[..split])
+                .lines()
+                .find_map(|l| {
+                    l.to_lowercase()
+                        .strip_prefix("content-length: ")
+                        .map(|v| v.parse().unwrap())
+                })
+                .unwrap_or(0);
+            if bytes.len() >= split + 4 + len {
+                return String::from_utf8_lossy(&bytes).to_string();
+            }
+        }
+    }
+}
+
+/// #44：供应商请求事件——端点类别、模型名、结果类别、耗时，trace 与任务文档一致；
+/// 密钥、请求头、完整响应体绝不入日志（脱敏按构造：事件只含白名单字段）。
+/// worker 的供应商调用发生在 recognition.process（本例经 execute，另一进程同构）。
+#[test]
+fn provider_requests_are_logged_sanitized_and_share_the_job_trace() {
+    use std::io::Write;
+    for (status, expected_outcome, expected_state) in [
+        ("200 OK", "ok", "succeeded"),
+        ("429 Too Many Requests", "http_error", "queued"),
+    ] {
+        let _guard = fs_lock();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+        let (headers_tx, headers_rx) = std::sync::mpsc::channel::<String>();
+        let server = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let request = read_request_text(&mut s);
+            headers_tx.send(request).unwrap();
+            let body = r#"{"choices":[{"message":{"content":"a white shirt"}}]}"#;
+            write!(
+                s,
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let app = Application::open(&dir.path().join("db")).unwrap();
+        let p = app
+            .execute(
+                "provider.save",
+                json!({"name":"脱敏边界","endpoint":endpoint,"model":"trace-model","capabilities":["vision"],"authentication":"bearer"}),
+            )
+            .unwrap();
+        let api_key = format!("sk-trace-secret-{}", uuid::Uuid::now_v7().simple());
+        app.execute(
+            "provider.credential.set",
+            json!({"id":p["id"],"api_key":api_key}),
+        )
+        .unwrap();
+        let path = dir.path().join("fixture.png");
+        image::RgbImage::new(16, 16).save(&path).unwrap();
+        let c = app
+            .execute(
+                "clothing.create",
+                json!({"member_id":"default","name":"手工","category":"top"}),
+            )
+            .unwrap();
+        let a = app
+            .execute("assets.import", json!({"member_id":"default","path":path}))
+            .unwrap();
+        app.execute(
+            "assets.adopt",
+            json!({"member_id":"default","clothing_id":c["id"],"asset_id":a["id"]}),
+        )
+        .unwrap();
+        let job = app
+            .execute(
+                "recognition.create",
+                json!({"member_id":"default","operation_key":"sanitize","clothing_id":c["id"],"provider_id":p["id"],"asset_ids":[a["id"]],"upload_role":"product_display","confirm_upload":true}),
+            )
+            .unwrap();
+        let job_trace = job["trace_id"].as_str().unwrap().to_string();
+        let out = app
+            .execute(
+                "recognition.process",
+                json!({"member_id":"default","id":job["id"]}),
+            )
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(out["state"], expected_state, "{status}");
+        let sent = headers_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(
+            sent.to_lowercase().contains("authorization: bearer "),
+            "测试有效性：mock 必须真的收到 bearer 请求头"
+        );
+
+        let queried = app
+            .execute(
+                "diagnostics.logs.query",
+                json!({"trace_id":job_trace,"operation":"provider.","limit":100}),
+            )
+            .unwrap();
+        let items = queried["items"].as_array().unwrap();
+        let request_event = items
+            .iter()
+            .find(|e| e["event_type"] == "provider_request")
+            .expect("供应商请求事件必须落在任务文档的 trace 上");
+        assert_eq!(request_event["operation"], "provider.request");
+        assert_eq!(request_event["endpoint_kind"], "chat_completions");
+        assert_eq!(request_event["model"], "trace-model");
+        assert_eq!(request_event["outcome"], expected_outcome, "{status}");
+        assert!(request_event["duration_ms"].is_number());
+        // 脱敏按构造：事件只含白名单字段，密钥/请求头/请求与响应体没有容身之处
+        let allowed = [
+            "ts",
+            "level",
+            "event_type",
+            "run_id",
+            "trace_id",
+            "operation",
+            "endpoint_kind",
+            "model",
+            "outcome",
+            "duration_ms",
+            "http_status",
+        ];
+        for key in request_event.as_object().unwrap().keys() {
+            assert!(
+                allowed.contains(&key.as_str()),
+                "供应商请求事件出现白名单外字段 {key}：{request_event}"
+            );
+        }
+        if expected_outcome == "ok" {
+            assert!(request_event.get("http_status").is_none(), "{request_event}");
+        } else {
+            assert_eq!(request_event["http_status"], 429, "{request_event}");
+        }
+        // 全日志文件扫描：密钥与响应内容绝不出现
+        let mut all_text = String::new();
+        for entry in std::fs::read_dir(dir.path().join("logs")).unwrap() {
+            all_text.push_str(&std::fs::read_to_string(entry.unwrap().path()).unwrap());
+        }
+        assert!(!all_text.contains(api_key.as_str()), "供应商密钥不得写入日志");
+        assert!(
+            !all_text.contains("a white shirt"),
+            "完整响应体不得写入日志"
+        );
+        app.execute("provider.credential.remove", json!({"id":p["id"]}))
+            .unwrap();
+    }
+}
+
+/// #44 验收：从提交到 worker/供应商结果的全部事件可用单一 trace_id 经
+/// diagnostics.logs.query 查出，覆盖 waiting_input 场景——
+/// 「这个任务为什么停在 waiting_input」「供应商请求到底发出去没有」一条查询还原。
+#[test]
+fn full_async_chain_is_queryable_by_a_single_trace_id() {
+    use std::io::Write;
+    let _guard = fs_lock();
+    // 供应商返回 5xx：提交已到达但结果未知 → 任务 waiting_input
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        read_request_text(&mut s);
+        let body = r#"{"error":"internal"}"#;
+        s.write_all(
+            format!(
+                "HTTP/1.1 500 Internal Server Error\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let p = app
+        .execute(
+            "provider.save",
+            json!({"name":"批次链路","endpoint":endpoint,"model":"trace-model","capabilities":["vision"],"authentication":"none"}),
+        )
+        .unwrap();
+    let path = dir.path().join("fixture.png");
+    image::RgbImage::new(16, 16).save(&path).unwrap();
+    let c = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"手工","category":"top"}),
+        )
+        .unwrap();
+    let a = app
+        .execute("assets.import", json!({"member_id":"default","path":path}))
+        .unwrap();
+    app.execute(
+        "assets.adopt",
+        json!({"member_id":"default","clothing_id":c["id"],"asset_id":a["id"]}),
+    )
+    .unwrap();
+    let job = app
+        .execute(
+            "recognition.create",
+            json!({"member_id":"default","operation_key":"chain","clothing_id":c["id"],"provider_id":p["id"],"asset_ids":[a["id"]],"upload_role":"product_display","confirm_upload":true}),
+        )
+        .unwrap();
+    let trace = job["trace_id"].as_str().unwrap().to_string();
+    // worker 侧以一次全新的 Application 调用推进任务（另一进程同构）：
+    // 这次调用有自己的新 trace，任务链事件仍归入文档里的创建 trace
+    let out = app
+        .execute(
+            "recognition.process",
+            json!({"member_id":"default","id":job["id"]}),
+        )
+        .unwrap();
+    server.join().unwrap();
+    assert_eq!(out["state"], "waiting_input");
+    assert_eq!(out["error"]["code"], "submission_unknown");
+
+    // 单一 trace_id 一次查询还原整条链
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"trace_id":trace,"limit":100}),
+        )
+        .unwrap();
+    let items = queried["items"].as_array().unwrap();
+    let chain: Vec<(String, String)> = items
+        .iter()
+        .map(|e| {
+            (
+                e["event_type"].as_str().unwrap_or("").to_string(),
+                e["operation"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        chain,
+        vec![
+            // enqueue 在任务落盘时写入；operation 事件按 #42 约定在调用完成后写
+            ("job".to_string(), "job.enqueue".to_string()),
+            ("operation".to_string(), "recognition.create".to_string()),
+            ("job".to_string(), "job.state".to_string()),
+            (
+                "provider_request".to_string(),
+                "provider.request".to_string()
+            ),
+            ("job".to_string(), "job.state".to_string()),
+        ],
+        "提交→排队→运行→供应商请求→waiting_input 必须在同一 trace 下：{items:?}"
+    );
+    // 「供应商请求到底发出去没有」：事件证明请求真实发出且到达，5xx 结果未知
+    let request = items
+        .iter()
+        .find(|e| e["event_type"] == "provider_request")
+        .unwrap();
+    assert_eq!(request["outcome"], "outcome_unknown");
+    assert_eq!(request["http_status"], 500);
+    assert_eq!(request["model"], "trace-model");
+    // 「为什么停在 waiting_input」：迁移事件带最终状态与原因
+    let stuck = items.last().unwrap();
+    assert_eq!(stuck["state_from"], "running");
+    assert_eq!(stuck["state_to"], "waiting_input");
+    assert_eq!(stuck["error_code"], "submission_unknown");
+    // worker 调用自身的 trace 是新分配的：不入任务链（trace 经文档统一，不经调用栈）
+    assert!(
+        !items
+            .iter()
+            .any(|e| e["event_type"] == "operation" && e["operation"] == "recognition.process"),
+        "worker 调用的 operation 事件属于调用自身的 trace，不属于任务链：{items:?}"
+    );
+}
+
 /// #45 diagnostics.export：把 fabricated 事件追加进数据目录 logs/ 的当日文件，
 /// 供范围选择测试控制事件内容（与 corrupt 测试同一手法）。
 fn append_events(dir: &std::path::Path, events: &[Value]) {
