@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+import {restoreDefaultMember} from './support/member-hygiene';
 // GUI竞态验收（切页/成员切换/卸载）：定时计划面板在成员切换后不得残留上一成员的
 // 计划或编辑状态；迟到的上一成员响应不得写入已卸载的视图；切页期间进行中的到期
 // 检查完成后状态仍回到本面板。后端为真实CLI桥，非mock。
@@ -110,3 +111,4 @@ test('到期检查进行中切换设置页不丢失完成状态也不留错误',
  await expect(page.getByRole('status').filter({hasText:'已登记本成员到期任务'})).toBeVisible();
  await expect(page.locator('#schedules [role="alert"]')).toHaveCount(0);
 });
+test.afterEach(async({request})=>{await restoreDefaultMember(request);});

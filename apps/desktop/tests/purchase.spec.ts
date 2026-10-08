@@ -58,6 +58,10 @@ test('candidate draft stays out of inventory and analysis cites real stock',asyn
 });
 test('manual correction is explicit and recognition suggestions stay unverified',async({page})=>{
  const call=async(operation:string,input:object)=>{const r=await (await page.request.post('/__wardrobe_dev_api',{data:{operation,input}})).json();if(r.error)throw Error(r.error.message);return r.result;};
+ // 模型配置是全局的且无删除操作：先前规格可能已添加视觉模型。本用例验收
+ // “无视觉模型”的提示与人工纠错独立性，先把视觉配置降级为纯文本再切成员。
+ const existing=(await call('provider.list',{})).items as {id:string;name:string;endpoint:string;model:string;capabilities:string[];authentication:string;adapter?:string}[];
+ for(const provider of existing)if(provider.capabilities.includes('vision'))await call('provider.save',{id:provider.id,name:provider.name,endpoint:provider.endpoint,model:provider.model,capabilities:['text'],authentication:provider.authentication,...(provider.adapter?{adapter:provider.adapter}:{})});
  const member=(await call('member.create',{name:'候选纠错成员'})).member_id as string;
  await page.goto('/');
  await expect(page.locator('.collection .grid article').first()).toBeVisible();
