@@ -12,7 +12,7 @@ async function fits(page:Page,label:string){
  }));expect(issues,label).toEqual([]);
 }
 test('all workspaces and settings fit intermediate and small windows',async({page})=>{
- execFileSync(fileURLToPath(new URL('../../../target/debug/wardrobe-cli',import.meta.url)),['--trusted-local','clothing.create',JSON.stringify({member_id:'default',name:'长名称验收衣物春秋宽松休闲纯棉连帽外套适合日常出门通勤穿着',category:'top'})],{env:{...process.env,WARDROBE_DATA_DIR:process.env.WARDROBE_TEST_DATA_DIR}});
+ execFileSync(process.env.WARDROBE_CLI_BIN??fileURLToPath(new URL('../../../target/debug/wardrobe-cli',import.meta.url)),['--trusted-local','clothing.create',JSON.stringify({member_id:'default',name:'长名称验收衣物春秋宽松休闲纯棉连帽外套适合日常出门通勤穿着',category:'top'})],{env:{...process.env,WARDROBE_DATA_DIR:process.env.WARDROBE_TEST_DATA_DIR}});
  await page.emulateMedia({reducedMotion:'reduce'});await page.goto('/');
  for(const [width,height] of [[375,900],[667,900],[768,900],[900,900],[1024,900],[1440,900],[900,500]]){
  await page.setViewportSize({width,height});
