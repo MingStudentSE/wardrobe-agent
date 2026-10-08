@@ -60,11 +60,12 @@ ssh vm 'cd ~/src && RUN_TAURI_BUILD=1 bash scripts/vm/linux-build-and-package.sh
 真实安装与烟测（CI 只做 `dpkg --extract`；本环境升级为 `dpkg -i` 真安装，并因此发现 §5.3 缺陷）：
 
 ```sh
-bash scripts/vm/repack-deb-package-name.sh 电子衣橱_0.1.0_arm64.deb /tmp/wardrobe-desktop_0.1.0_arm64.deb wardrobe-desktop
-sudo dpkg -i /tmp/wardrobe-desktop_0.1.0_arm64.deb
+# 管线在 tauri build 后自动执行（ wardrobe-agent 身份 + dpkg 断言）：
+ls ~/distribution/wardrobe-agent_0.1.0_arm64.deb   # 管线产物（§5.3）
+sudo dpkg -i ~/distribution/wardrobe-agent_0.1.0_arm64.deb
 env -i PATH=/usr/bin:/bin /usr/bin/wardrobe-cli --version
 python3 scripts/verify-packaged-cli.py /usr/bin/wardrobe-cli crates/wardrobe-core/tests/fixtures/generated-colors.heic --report installed-deb-runtime.json
-ldd /usr/bin/wardrobe-desktop   # libheif.so.1/libde265.so.0 均解析到 /usr/bin/../lib/wardrobe-agent/，无 not found
+ldd /usr/bin/wardrobe-desktop  # libheif.so.1/libde265.so.0 均解析到 /usr/bin/../lib/wardrobe-agent/，无 not found
 ```
 
 ## 5. Linux arm64 端到端结果（2026-10-08 实测）
@@ -76,7 +77,7 @@ ldd /usr/bin/wardrobe-desktop   # libheif.so.1/libde265.so.0 均解析到 /usr/b
   - `apps/desktop/src-tauri/target/release/bundle/deb/电子衣橱_0.1.0_arm64.deb`（34,381,616 B）
   - `…/appimage/电子衣橱_0.1.0_aarch64.AppImage`
 - 产物 SHA256（VM 内 sha256sum）：
-  - deb（repack 后 wardrobe-desktop_0.1.0_arm64.deb）`3400b2b2…819419`
+  - deb（正式管线 wardrobe-agent_0.1.0_arm64.deb）`46888f24…47adb`（旧 workaround 包 `3400b2b2…819419` 留档）
   - AppImage `d6547b5f…4ac3a7`
   - target/release/wardrobe-cli `454d7c91…a9f2`
 
@@ -88,11 +89,14 @@ ldd /usr/bin/wardrobe-desktop   # libheif.so.1/libde265.so.0 均解析到 /usr/b
 5. 持久库手工流程：建空间（space.default 得 member_id ULID）→ 授权 → **assets.import 真实 HEIC** → 产出 64×32 webp 预览资产 → assets.get。
 6. AppImage 解包 CLI 同样通过 --version 与建空间烟测。
 
-### 5.3 发现的缺陷：deb 包名违反 Debian policy（本轮重要产出）
-- tauri-bundler 直接以 `productName`（电子衣橱）作为 `Package:` 字段。`dpkg -i` 报 `invalid package name in 'Package' field: must start with an alphanumeric character`（Debian policy 5.6.1 要求 `^[a-z0-9][a-z0-9+.-]+$`）。
-- **既有 CI 的 `dpkg --extract` 烟测不校验 control 文件，因此该缺陷在 `docs/verification/packaged-ubuntu-*/` 证据包中一直未暴露**；macOS DMG 不受影响。
-- 本轮以 `scripts/vm/repack-deb-package-name.sh`（`dpkg-deb -R` 改 control 后重打包）完成验证路径闭环，包名暂定 `wardrobe-desktop`。
-- **正式修复需 release workstream 决策**（影响全平台安装物命名）：将 `tauri.conf.json` 的 `productName` 改为 ASCII（影响窗口标题之外的所有 bundle 文件名，窗口标题由 `app.windows[].title` 独立控制、不受影响），或升级 tauri-bundler 后确认是否支持 deb 包名覆盖。该决策不在本基础设施轮次内代做。
+### 5.3 缺陷修复（2026-10-08 已进正式管线）：deb 包名违反 Debian policy
+- 缺陷：tauri-bundler 直接以 `productName`（电子衣橱）作为 `Package:` 字段，`dpkg -i` 拒装（Debian policy 5.6.1 要求 `^[a-z0-9][a-z0-9+.-]+$`）。既有 CI 的 `dpkg --extract` 烟测不校验 control 文件，因此一直未暴露；macOS DMG 不受影响。
+- 修复决策：采用**方案 (b) 管线强制修复**（productName 保持中文用于窗口标题/桌面项显示，不受影响）：
+  - `scripts/repack-deb-package-name.sh`（提升为正式脚本，CI/本地共用）：检测 `Package:` 不合规时重打包为 ASCII 身份 **`wardrobe-agent`**（`dpkg-deb --ctrl-tarfile | tar -xO` 读字段——注意 `dpkg-deb -f` 本身解析不了坏 control；`-R`/`--ctrl-tarfile` 不解析），写前后双重断言。
+  - 集成点 1：`scripts/vm/linux-build-and-package.sh` 在 tauri build 后强制执行 + `dpkg-deb -f` 硬断言。
+  - 集成点 2：`.github/workflows/media-bundles.yml` 新增 "Debian package-name policy fix (ticket #35)" 步骤，断言后经 `DEB_PATH` 供后续检查使用。
+  - 若上游 tauri-bundler 未来提供 deb 包名覆盖，可移除 repack（脚本是幂等的：输入已合规则直接复制通过）。
+- ARM64 VM 重跑实证：`PIPELINE-OK` → `wardrobe-agent_0.1.0_arm64.deb`（23.8MB，zstd 重压缩；SHA256 `46888f24…47adb`）→ `dpkg -i` 真实安装 `Setting up wardrobe-agent (0.1.0)` → `dpkg -s` install ok installed → ldd 私有解码库解析正常 → `verify-packaged-cli.py` 全 pass（证据 `06-deb-fix-installed-runtime.txt`）。
 
 ## 6. x86_64 本地构建可行性测量（2026-10-08 实测，同法同负载）
 
@@ -141,7 +145,6 @@ cd apps\desktop; npm ci; npm run tauri build -- --config C:\distribution\tauri-m
 - 本工作系统盘写入：仅 ~KB 级（shell 历史、known_hosts 指向 /dev/null）。核查过 `~/Library/Caches`（9.1GB，既有用户应用缓存）、`~/.cargo`(1.1G)/`~/.rustup`(581M)（宿主既有工具链，供并行 cargo 测试任务使用）、无 `com.utmapp.UTM`、ms-playwright 缓存 4KB（已被 native-env.sh 重定向）。中间差额来自并行 GUI/cargo 测试任务与 macOS 可清除空间波动。
 
 ## 9. 遗留与建议
-1. Windows：浏览器手动下载 ISO → 建.Win11 ARM VM → 按草案实证（ISO 是唯一阻塞）。
-2. deb 包名缺陷：由 release workstream 决策 ASCII bundle 名或上游覆盖方案；决策后 CI 应把烟测从 `dpkg --extract` 升级为 `dpkg -i`（本环境已示范）。
+2. deb 包名缺陷：已于本轮修复并进正式管线（§5.3）；后续可把 CI 烟测从 `dpkg --extract` 升级为 `dpkg -i`（本环境已示范）。
 3. x86_64 交付线：维持 CI runner 构建 + 本地 VM 安装/烟测；若未来需要本地 x86_64 构建，建议外购/借用 x86_64 硬件或云 runner，而非 TCG。
 4. 重量级验证（VM 内全量 `cargo test --workspace`、cutout 真模型验证）按约束等 #34 完成后运行，命令已在脚本中就位。

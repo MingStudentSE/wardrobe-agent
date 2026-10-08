@@ -73,6 +73,17 @@ jobs:
         shell: bash
         working-directory: apps/desktop
         run: npm run tauri build -- --config "$RUNNER_TEMP/distribution/tauri-media.json"
+      - name: Debian package-name policy fix (ticket #35)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          deb=$(find apps/desktop/src-tauri/target/release/bundle/deb -name '*.deb' -type f -print -quit)
+          test -n "$deb"
+          fixed=$(bash scripts/repack-deb-package-name.sh "$deb" "$RUNNER_TEMP/distribution" wardrobe-agent)
+          # Hard gate: dpkg -i refuses packages whose Package field violates
+          # Debian policy 5.6.1 (CJK productName shipped unnoticed before this).
+          dpkg-deb -f "$fixed" Package | grep -qE '^[a-z0-9][a-z0-9+.-]*$'
+          echo "DEB_PATH=$fixed" >> "$GITHUB_ENV"
       - name: Relocated standalone CLI smoke
         shell: bash
         run: |
@@ -84,7 +95,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          deb=$(find apps/desktop/src-tauri/target/release/bundle/deb -name '*.deb' -type f -print -quit)
+          deb="${DEB_PATH:-$(find apps/desktop/src-tauri/target/release/bundle/deb -name '*.deb' -type f -print -quit)}"
           test -n "$deb"
           dpkg-deb --contents "$deb" > "$RUNNER_TEMP/distribution/deb-contents.txt"
           dpkg-deb --extract "$deb" "$RUNNER_TEMP/deb-extracted"
