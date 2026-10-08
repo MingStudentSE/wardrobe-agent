@@ -23,7 +23,8 @@ test('diagnostics card opens health summary, export scopes and log directory fal
  await expect(metrics).toContainText('结果未知');
  await expect(metrics).toContainText('日志占用');
  await expect(metrics.locator('.diagnostics-metric')).toHaveCount(5);
- // 打开日志目录：dev 回退显示数据目录下的 logs 路径
+ // 打开日志目录：dev 回退显示数据目录下的 logs 路径（目录状态异步加载，先等就绪）
+ await expect(panel.locator('.diagnostics-logs-row code')).toContainText('/logs');
  await panel.getByRole('button',{name:'打开日志目录'}).click();
  await expect(panel.locator('.diagnostics-logs-path')).toContainText('/logs');
  // 导出范围四选一：session / recent / all / 显式时间窗
