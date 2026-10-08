@@ -26,16 +26,7 @@ fn main() {
         args::Parsed::Help(Some(operation)) => print_operation(operation),
         args::Parsed::Schema(operation) => print_operation(operation),
         args::Parsed::Mcp { db, profile } => {
-            let db = match resolve_db(db, profile) {
-                Ok(db) => db,
-                Err(error) => {
-                    if error.code == "storage_error" {
-                        println!("{}", json!({"schema_version":1,"error":error}));
-                        std::process::exit(1);
-                    }
-                    fail(error);
-                }
-            };
+            let db = resolve_db_or_exit(db, profile);
             run_mcp(db)
         }
         args::Parsed::Profile(command) => run_profile(command),
@@ -55,6 +46,18 @@ fn resolve_db(
         return Ok(resolved);
     }
     Ok(wardrobe_core::default_database_path())
+}
+/// resolve 数据库路径的统一出口：存储配置失败（storage_error）打印错误并 exit 1，
+/// 其余业务/校验拒绝走 fail() exit 2（mcp、logs、doctor、execute 同一形状）。
+fn resolve_db_or_exit(db: Option<PathBuf>, profile: Option<String>) -> PathBuf {
+    match resolve_db(db, profile) {
+        Ok(db) => db,
+        Err(error) if error.code == "storage_error" => {
+            println!("{}", json!({"schema_version":1,"error":error}));
+            std::process::exit(1)
+        }
+        Err(error) => fail(error),
+    }
 }
 
 fn run_profile(command: args::ProfileCommand) {
@@ -77,16 +80,7 @@ fn run_profile(command: args::ProfileCommand) {
 }
 
 fn run_logs(command: args::LogsCommand) {
-    let db = match resolve_db(command.db, command.profile) {
-        Ok(db) => db,
-        Err(error) => {
-            if error.code == "storage_error" {
-                println!("{}", json!({"schema_version":1,"error":error}));
-                std::process::exit(1);
-            }
-            fail(error);
-        }
-    };
+    let db = resolve_db_or_exit(command.db, command.profile);
     let app = match Application::open(&db) {
         Ok(app) => app,
         Err(e) => {
@@ -123,16 +117,7 @@ fn run_logs(command: args::LogsCommand) {
 }
 
 fn run_doctor(command: args::DoctorCommand) {
-    let db = match resolve_db(command.db, command.profile) {
-        Ok(db) => db,
-        Err(error) => {
-            if error.code == "storage_error" {
-                println!("{}", json!({"schema_version":1,"error":error}));
-                std::process::exit(1);
-            }
-            fail(error);
-        }
-    };
+    let db = resolve_db_or_exit(command.db, command.profile);
     // doctor 与 GUI 诊断页完全同源：core 侧直接执行 diagnostics.summary + diagnostics.checks；
     // 数据库无法打开时降级为文件系统级体检与失败原因（见 wardrobe_core::diagnostics::doctor_report）。
     // 产出报告即成功（exit 0）：检查项的 warn/fail 经 checks/counts 字段表达，供脚本解析。
@@ -176,16 +161,7 @@ fn execute(execution: args::Execution) {
             "凭据命令使用--input-stdin，从标准输入读取密钥，避免放入命令历史和进程参数",
         ));
     }
-    let db = match resolve_db(execution.db, execution.profile) {
-        Ok(db) => db,
-        Err(error) => {
-            if error.code == "storage_error" {
-                println!("{}", json!({"schema_version":1,"error":error}));
-                std::process::exit(1);
-            }
-            fail(error);
-        }
-    };
+    let db = resolve_db_or_exit(execution.db, execution.profile);
     let app = match Application::open(&db) {
         Ok(app) => app,
         Err(e) => {
