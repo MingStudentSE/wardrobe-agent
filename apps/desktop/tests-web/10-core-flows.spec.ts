@@ -66,7 +66,8 @@ test('web core flows work end to end with real photos and persistence',async({pa
  const wearForm=page.getByRole('dialog');
  await wearForm.getByRole('button',{name:`选择 ${itemName}`}).click();
  await wearForm.getByRole('button',{name:'确认实际穿过',exact:true}).click();
- await expect(wears.getByRole('status')).toContainText('实际穿着已记录');
+ // 限定成功反馈元素：面板内可能同时存在图片加载等其它 role=status 元素
+ await expect(wears.locator('p.feedback.success')).toContainText('实际穿着已记录');
  await expect(wears.getByText(itemName).first()).toBeVisible();
  await expect(wears.getByText('1 次 · 1 天')).toBeVisible();
 

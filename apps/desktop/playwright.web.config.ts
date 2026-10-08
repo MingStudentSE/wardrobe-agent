@@ -16,7 +16,8 @@ const authFile=fileURLToPath(new URL('./tests-web/.auth/wardrobe.json',import.me
 
 export default defineConfig({
  testDir:'./tests-web',workers:1,fullyParallel:false,
- use:{baseURL:`http://127.0.0.1:${port}`,channel:'chrome',locale:'zh-CN'},
+ // WARDROBE_WEB_CHANNEL 可切换浏览器引擎做冒烟（chrome=交付实测基线；chromium=同源引擎对照）。
+ use:{baseURL:`http://127.0.0.1:${port}`,channel:process.env.WARDROBE_WEB_CHANNEL??'chrome',locale:'zh-CN'},
  projects:[
   {name:'bootstrap',testMatch:/00-bootstrap\.spec\.ts/,use:{storageState:{cookies:[],origins:[]}}},
   {name:'app',dependencies:['bootstrap'],testIgnore:/00-bootstrap\.spec\.ts/,use:{storageState:authFile}},
