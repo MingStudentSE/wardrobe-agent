@@ -6,6 +6,8 @@ use std::{
 };
 use wardrobe_core::{ApiError, Application};
 fn main() {
+    // 日志核心：进程级 panic 钩子（幂等），崩溃现场写入数据目录 logs/
+    wardrobe_core::diagnostics::install_panic_hook();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let parsed = match args::parse(&args) {
         Err(error) => fail(error),
@@ -104,11 +106,10 @@ fn execute(execution: args::Execution) {
             Some(args::Input::InputStdin | args::Input::ClientStdin)
         )
     {
-        fail(ApiError {
-            code: "secret_requires_stdin".into(),
-            message: "凭据命令使用--input-stdin，从标准输入读取密钥，避免放入命令历史和进程参数"
-                .into(),
-        });
+        fail(ApiError::custom(
+            "secret_requires_stdin",
+            "凭据命令使用--input-stdin，从标准输入读取密钥，避免放入命令历史和进程参数",
+        ));
     }
     let db = match resolve_db(execution.db, execution.profile) {
         Ok(db) => db,
@@ -138,10 +139,7 @@ fn execute(execution: args::Execution) {
                 .is_err()
                 || body.len() > 1_048_576
             {
-                fail(ApiError {
-                    code: "invalid_input".into(),
-                    message: "无法读取标准输入或输入过大".into(),
-                });
+                fail(ApiError::custom("invalid_input", "无法读取标准输入或输入过大"));
             }
             Some(body)
         }
@@ -150,10 +148,7 @@ fn execute(execution: args::Execution) {
     let input = match stdin_body.as_deref() {
         Some(text) => match serde_json::from_str(text) {
             Ok(value) => value,
-            Err(_) => fail(ApiError {
-                code: "invalid_json".into(),
-                message: "输入不是有效 JSON".into(),
-            }),
+            Err(_) => fail(ApiError::custom("invalid_json", "输入不是有效 JSON")),
         },
         None => json!({}),
     };
@@ -199,10 +194,7 @@ fn operation_metadata(operation: &str) -> Result<Value, ApiError> {
                 .find(|descriptor| descriptor["name"].as_str() == Some(operation))
                 .cloned()
         })
-        .ok_or(ApiError {
-            code: "unsupported_operation".into(),
-            message: format!("未知操作 {operation}"),
-        })
+        .ok_or_else(|| ApiError::custom("unsupported_operation", &format!("未知操作 {operation}")))
 }
 fn help() -> Value {
     json!({

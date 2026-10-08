@@ -42,10 +42,7 @@ pub enum Parsed {
 }
 
 fn invalid_arguments(message: &str) -> ApiError {
-    ApiError {
-        code: "invalid_arguments".into(),
-        message: message.into(),
-    }
+    ApiError::custom("invalid_arguments", message)
 }
 
 /// `--db` 无条件消耗其后恰好一个参数作为值；`--` 之后全部按字面量处理；

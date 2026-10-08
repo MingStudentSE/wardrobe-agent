@@ -129,13 +129,33 @@ impl Application {
         operation: &str,
         input: Value,
     ) -> Result<Value, ApiError> {
+        self.execute_as_client_traced(token, operation, input, crate::diagnostics::new_trace_id())
+    }
+    fn execute_as_client_traced(
+        &self,
+        token: &str,
+        operation: &str,
+        input: Value,
+        trace_id: String,
+    ) -> Result<Value, ApiError> {
         if self.installation_changed()? {
             return Application::open(std::path::Path::new(self.connection.path().unwrap()))?
-                .execute_as_client(token, operation, input);
+                .execute_as_client_traced(token, operation, input, trace_id);
         }
         if let Some(path) = self.redirected()? {
-            return Application::open(&path)?.execute_as_client(token, operation, input);
+            return Application::open(&path)?
+                .execute_as_client_traced(token, operation, input, trace_id);
         }
+        self.logged(trace_id, operation, input, |app, operation, input| {
+            app.authorized_execute(token, operation, input)
+        })
+    }
+    fn authorized_execute(
+        &self,
+        token: &str,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, ApiError> {
         self.check_schema()?;
         if !input.is_object() {
             return Err(ApiError::new("invalid_input", "输入必须是JSON对象"));
