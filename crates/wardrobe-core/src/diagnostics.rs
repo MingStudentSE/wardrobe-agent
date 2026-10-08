@@ -80,6 +80,25 @@ pub(crate) fn new_trace_id() -> String {
     uuid::Uuid::now_v7().to_string()
 }
 
+/// 当前调用链路的线程局部上下文：`Application::execute` 进入业务函数前置位，
+/// 返回后恢复。持久任务的创建（jobs::insert）在业务函数内读取它，把本次调用的
+/// trace_id 写进任务文档——worker 可能运行在另一进程，trace 只经任务文档传递，
+/// 不依赖进程状态或调用栈以外的共享内存。
+thread_local! {
+    static CURRENT_TRACE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+/// 在 `trace_id` 上下文内运行业务调用，返回后恢复先前置位（支持同步重入嵌套）。
+pub(crate) fn with_trace<R>(trace_id: &str, run: impl FnOnce() -> R) -> R {
+    let previous = CURRENT_TRACE.with(|cell| cell.replace(Some(trace_id.to_string())));
+    let result = run();
+    CURRENT_TRACE.with(|cell| cell.replace(previous));
+    result
+}
+/// 当前线程正在执行的 Application 调用的 trace_id；不在调用内则为 None。
+pub(crate) fn current_trace() -> Option<String> {
+    CURRENT_TRACE.with(|cell| cell.borrow().clone())
+}
+
 fn sinks() -> &'static Mutex<Vec<Logger>> {
     SINKS.get_or_init(|| Mutex::new(Vec::new()))
 }

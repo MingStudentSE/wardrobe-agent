@@ -898,6 +898,101 @@ fn corrupt_log_lines_do_not_block_diagnostics_queries_or_summary() {
     assert_eq!(summary["schema_version"], 1, "摘要同样不受损坏行影响");
 }
 
+/// #44：创建持久任务的调用把本次调用 trace_id 写入任务文档（可选字段，加法变更）。
+/// trace 只能经任务文档跨进程传递：worker 直接入队（trusted seam，不经 Application
+/// API 调用）时没有调用链路，文档缺省该字段。
+#[test]
+fn created_jobs_carry_the_submitting_call_trace_id() {
+    let _guard = fs_lock();
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let image = dir.path().join("trace-batch.png");
+    image::RgbImage::from_pixel(8, 8, image::Rgb([255, 255, 255]))
+        .save(&image)
+        .unwrap();
+    let batch = app
+        .execute(
+            "imports.create",
+            json!({"member_id":member,"operation_key":"trace-batch","paths":[image.to_string_lossy()]}),
+        )
+        .unwrap();
+    // 创建调用的 trace_id 从日志查询得出（与文档对照的独立事实来源）
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"imports.create","level":"info"}),
+        )
+        .unwrap();
+    let created_trace = queried["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["result"] == "ok")
+        .unwrap()["trace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(!batch["job_ids"].as_array().unwrap().is_empty());
+    for jid in batch["job_ids"].as_array().unwrap() {
+        let job = app
+            .execute("jobs.get", json!({"member_id":member,"id":jid}))
+            .unwrap();
+        assert_eq!(
+            job["trace_id"], created_trace,
+            "任务文档必须携带创建调用的 trace_id：{job}"
+        );
+    }
+    let list = app
+        .execute("jobs.list", json!({"member_id":member}))
+        .unwrap();
+    assert!(
+        list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|j| j["trace_id"] == created_trace),
+        "jobs.list 返回的文档同样携带 trace_id：{list}"
+    );
+    // trusted worker seam 直接入队：无调用链路，trace_id 缺省（可选字段兼容旧任务）
+    let orphan = app
+        .job_enqueue(&member, "local-test", "orphan", json!({}))
+        .unwrap();
+    assert!(
+        orphan.get("trace_id").is_none(),
+        "worker 直接入队没有调用 trace，文档须缺省该字段：{orphan}"
+    );
+    // 幂等重入返回既有文档：trace 保持创建时的值，不被后续调用覆盖
+    let again = app
+        .job_enqueue(&member, "local-test", "orphan", json!({}))
+        .unwrap();
+    assert_eq!(again, orphan, "幂等重入不得改动既有任务文档");
+    // 任务 schema 契约：outputSchema 声明可选 trace_id（加法变更，不进 required）
+    let capabilities = app.execute("capabilities", json!({})).unwrap();
+    let jobs_get = capabilities["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["name"] == "jobs.get")
+        .expect("registry 须含 jobs.get");
+    assert!(
+        jobs_get["outputSchema"]["properties"]["trace_id"].is_object(),
+        "任务 schema 须声明 trace_id 字段：{}",
+        jobs_get["outputSchema"]
+    );
+    assert!(
+        !jobs_get["outputSchema"]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r == "trace_id"),
+        "trace_id 属加法变更，不得进入 required"
+    );
+}
+
 #[test]
 fn process_panic_leaves_a_scene_in_the_log() {
     // 钩子触发时会向进程内全部日志汇写入并可能驱动它们清理，
