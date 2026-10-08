@@ -8,7 +8,7 @@
 |---|---|---|
 | Linux arm64 | **端到端打通**。VM 内原生构建 deb+AppImage，真实安装并烟测通过 | §5，验证器 JSON 全 pass |
 | Linux x86_64 | 本地 TCG 全模拟**只可用于启动级验证，不可用于构建**（实测 15–27× 差距）；x86_64 产物继续走 GitHub Actions x86_64 runner（既有 CI 证据包 `docs/verification/packaged-ubuntu-24.04/`） | §6 基准数据 |
-| Windows | **VM 未建**：官方 Win11 ARM64 ISO 被微软下载流程挡住（脚本客户端 403、链接由页面 JS 会话生成）；组件清单与命令草案已备好，ISO 就位后一轮可实证 | §7 |
+| Windows | **VM 管线已建成**（自动引导 ISO 工程 + 无人值守安装 + 自动 firstlogon + provision/构建脚本全部就绪并提交）；当前阻塞仅剩 ISO 文件回填（工程过程误删，需浏览器重下，见 §7.0 所需人工动作） | §7 |
 
 ## 2. 环境拓扑
 
@@ -109,7 +109,48 @@ ldd /usr/bin/wardrobe-desktop  # libheif.so.1/libde265.so.0 均解析到 /usr/bi
 
 **结论**：本地 x86_64 TCG 只可用于「安装/烟测/启动级」验证，**不可用作构建线**。x86_64 产物继续由 GitHub Actions `ubuntu-24.04`（x86_64）runner 产出（既有证据：`docs/verification/packaged-ubuntu-24.04/report.md`，GitHub run 37508783217）；本地 amd64 VM（`scripts/vm/wardrobe-build-vm.sh create-amd64`，已建成可启动）保留用于未来 x86_64 产物的真实安装烟测。
 
-## 7. Windows 路径：阻塞与所需组件
+## 7. Windows 路径：VM 管线已建成，等待 ISO 回填（2026-10-08 第二轮）
+
+### 7.0 本轮进展（VM 管线全部落地）
+- **ISO 工程化（关键突破）**：官方原版 ISO 在 QEMU edk2 上有两条死路——(1) `hdiutil makehybrid` 无法生成 El Torito EFI 引导目录（固件不会自动引导 USB-CD，落到 UEFI Shell）；(2) cdboot 的 "Press any key" 窗口 <2s，QMP input-send-event / 自写 VNC 客户端 / 长 按 三种键注路径全部错过。**解法**：xorriso 以 Microsoft 自带的 `efi/microsoft/boot/efisys_noprompt.bin` 作为 El Torito EFI 引导映像重建 ISO（`-no-emul-boot -e ...`），固件自动引导、无按键、无交互——已实证固件加载 `Boot0001 UEFI QEMU USB HARDRIVE` 并进入 cdboot_noprompt。
+- **遗留给下一轮的精确状态**：xorriso 布局（iso-level 3 无 UDF）上 boot.wim 经 edk2 USB-CD 读取极慢/失败（30 分钟未完成、启动循环），且重建过程中原版与 noprompt ISO 均被误删（`rm` 顺序失误）。**所需人工动作**：浏览器会话重新下载 Win11 ARM64 ISO（26300 en-us，~8.5GB）至 `codex/vm/iso/Win11_ARM64_en-us_26300.iso`；随后执行：
+  1. `cd codex/vm/isobuild && 7z x <原版ISO> -otree` → `cp bootmgfw.efi` 流程同 `scripts/vm/wardrobe-windows-vm.sh` 头注释（含 efisys_noprompt 换轴 + Autounattend.xml 注入 + xorriso 重建）；
+  2. `scripts/vm/wardrobe-windows-vm.sh start`（自动引导 → 无人值守安装 → firstlogon 自动装 NetKVM + OpenSSH）；
+  3. SSH 2224 (build@) → `scripts/vm/windows-provision.ps1`（VS BuildTools ARM64 + Rust + Node + Python + vcpkg libheif:arm64-windows）；
+  4. `scripts/bootstrap-media-windows.ps1 -Triplet arm64-windows` → `cargo build --release -p wardrobe-cli` → `prepare-media-distribution.py --target aarch64-pc-windows-msvc` → `npm run tauri build`（NSIS）→ `verify-packaged-cli.py` 烟测。
+- **TPM**：swtpm 0.10.2 已装（Homebrew 7.0.8 对 swtpm 依赖链存在递归锁死锁，用 `--ignore-dependencies` 绕过）；QEMU 11.1.2 aarch64 的 `tpm-tis-device` 在 HVF 下无法注册 MMIO（HV_BAD_ARGUMENT）、`tpm-crb-device` 不存在 → TPM 以 `TPM=1` 开关预留，当前用 Autounattend 的 LabConfig 绕过（构建 VM 不需要基于 TPM 的证明功能）。
+- **输入通道经验**：QMP input-send-event 对 UEFI Shell 可靠（逐键一会话最稳）；对 cdboot 按键窗口（<2s）不可用；自写最小 VNC 客户端（`scripts/vm/vnc-send-keys.py`，RFB 3.8）可连接但 qemu 在无 FB 请求 ~3s 后断开——均记录为经验教训。
+
+### 7.1 原版 ISO 获取（历史记录）
+| 尝试 | 结果 |
+|---|---|
+| `curl -I https://www.microsoft.com/software-download/windows11arm64`（脚本 UA） | HTTP/2 403 |
+| 浏览器 UA 抓取 | 200，页面存在，但直链由 JS 会话生成 |
+| 用户授权后浏览器下载（2026-10-08 上午） | 成功：`Win11_ARM64_en-us_26300.iso` 8.5GB（已用于本轮 ISO 工程，后因重建顺序失误被删，需重下） |
+
+### 7.2 所需 VS 组件（源自 CI windows leg 与 `scripts/bootstrap-media-windows.ps1`，非推测）
+产品目标 **x86_64-pc-windows-msvc**（CI）；本机 ARM64 宿主构建目标 **aarch64-pc-windows-msvc**（`-Triplet arm64-windows`，libheif vcpkg arm64-windows）：
+- VS 2022 Build Tools + `Microsoft.VisualStudio.Workload.VCTools`：
+  - `Microsoft.VisualStudio.Component.VC.Tools.ARM64`（ARM64 宿主原生工具集）
+  - `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`（后续 x64 交叉）
+  - `Microsoft.VisualStudio.Component.Windows11SDK.26100`
+  - `Microsoft.VisualStudio.Component.VC.Redist.14.Latest`（app-local CRT）
+  - `Microsoft.VisualStudio.Component.VC.CMake.Project`
+- Git/MinGit、Python 3 ARM64、Node 22 ARM64、rustup（aarch64-pc-windows-msvc）、vcpkg pin `2026.07.29`
+
+### 7.3 构建命令草案（VM 内 PowerShell，与 CI 对应；ARM64 本机构建版）
+```powershell
+.\scripts\bootstrap-media-windows.ps1 -MediaRoot C:\wardrobe\media -Triplet arm64-windows
+cargo build --release -p wardrobe-cli
+$vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products * -latest -property installationPath
+$crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\arm64\Microsoft.VC*.CRT" -Directory | Sort-Object FullName | Select-Object -Last 1
+python scripts\prepare-media-distribution.py "$env:VCPKG_ROOT\installed\arm64-windows" target\release\wardrobe-cli.exe C:\distribution --target aarch64-pc-windows-msvc --windows-crt-dir $crt.FullName
+cd apps\desktop; npm ci; npm run tauri build -- --config C:\distribution\tauri-media.json
+# 产物 bundle\nsis\*.exe；.\*.exe /S /D=C:\wardrobe-installed；verify-packaged-cli.py 烟测
+```
+
+## 7a. Windows 章节旧版（保留备查）
+
 
 ### 7.1 ISO 获取障碍（如实记录，2026-10-08 实测）
 | 尝试 | 结果 |

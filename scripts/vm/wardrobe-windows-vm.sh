@@ -51,7 +51,7 @@ case "$cmd" in
         --log file="$LOGS/win11-swtpm.log",level=20 --daemon
     fi
     qemu-system-aarch64 "${base_args[@]}" ${tpm_args[@]+${tpm_args[@]}} \
-      -drive if=none,id=cd0,format=raw,media=cdrom,readonly=on,file="$ISO/Win11_ARM64_noprompt.iso" \
+      -drive if=none,id=cd0,format=raw,media=cdrom,readonly=on,file="$ISO/Win11_ARM64_en-us_26300.iso" \
       -device usb-storage,bus=xhci.0,drive=cd0,bootindex=0 \
       -drive if=none,id=cd1,format=raw,media=cdrom,readonly=on,file="$ISO/virtio-win.iso" \
       -device usb-storage,bus=xhci.0,drive=cd1 \
