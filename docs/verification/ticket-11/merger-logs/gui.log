@@ -1,0 +1,59 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5217 --strictPort
+[WebServer] (node:79133) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 44 tests using 1 worker
+
+(node:79135) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+  ✓   1 tests/authorization.spec.ts:2:1 › 可信设置登记限定客户端，一次性令牌关闭后不再展示且可撤销 (1.1s)
+  ✓   2 tests/authorization.spec.ts:3:1 › 过期时间错误可修改，完整业务与全部成员授权需明确选择 (587ms)
+  ✓   3 tests/care.spec.ts:2:1 › 真实Application洗护阈值、手动待洗、干洗、更正撤销与重启 (1.2s)
+  ✓   4 tests/care.spec.ts:7:1 › 已提交响应丢失重试不重复洗护且成员锁保持 (757ms)
+  ✓   5 tests/care.spec.ts:8:1 › 迟到的真实洗护修订读取不会显示到新成员 (734ms)
+  ✓   6 tests/clothing-management.spec.ts:2:1 › details edit, archive, recycle and restore clothing without losing facts (853ms)
+  ✓   7 tests/clothing-management.spec.ts:14:1 › management controls remain reachable at supported narrow and desktop widths (2.3s)
+  ✓   8 tests/clothing-management.spec.ts:17:1 › large minor-unit prices display and edit without floating-point rounding (661ms)
+  ✓   9 tests/encryption.spec.ts:3:1 › 加密空间设置展示恢复与配对流程，窄屏没有溢出 (546ms)
+  -  10 tests/encryption.spec.ts:4:1 › 真实系统安全存储建立空间，换密码后解除配对，再用恢复码恢复
+  ✓  11 tests/flatlay.spec.ts:6:1 › 全部两件商品图真实接口生成、预览本机保存、七宽度与重读，不产生穿着 (1.7s)
+  ✓  12 tests/image-editing.spec.ts:4:1 › 真实单品图片旋转预览替换恢复及重启保留 (1.5s)
+  ✓  13 tests/image-editing.spec.ts:10:1 › 归并真实来源图片保留来源单品和当前主图 (888ms)
+  -  14 tests/image-editing.spec.ts:15:1 › 公开白衣真实本地模型下载抠图采用并在重启后显示离线缓存
+  ✓  15 tests/imports.spec.ts:6:1 › durable batch drafts merge save reload and show corrupt file independently (2.6s)
+  ✓  16 tests/imports.spec.ts:11:1 › cancelled perfile queue survives reload and explicit retry resumes only that file (1.2s)
+  ✓  17 tests/insights.spec.ts:3:1 › 洞察手算分布、次数天数、90天边界、成员偏好重载及更正撤销重算 (1.5s)
+  ✓  18 tests/insights.spec.ts:18:1 › 洞察空态、真实查询加载、参数错误与修改恢复都有明确状态 (4.0s)
+  ✓  19 tests/insights.spec.ts:24:1 › 重载时提前打开洞察会等待衣物加载后读取已保存阈值 (588ms)
+  -  20 tests/local-provider.spec.ts:3:1 › 本地真实 SmolVLM 文本与视觉连接通过 GUI 和共享 CLI
+  ✓  21 tests/media.spec.ts:5:1 › real images preview adopt reorder detach and retain references after editing (1.3s)
+  ✓  22 tests/media.spec.ts:13:1 › image controls remain accessible at all specified widths (2.4s)
+  ✓  23 tests/media.spec.ts:17:1 › pending native picker blocks member switching and simultaneous save (1.8s)
+  ✓  24 tests/media.spec.ts:22:1 › a failed image stays separate from valid previews and can be retried (556ms)
+  ✓  25 tests/members.spec.ts:2:1 › create edit switch and reload an independent member wardrobe (819ms)
+  ✓  26 tests/members.spec.ts:19:1 › member controls stay usable at every required viewport (342ms)
+  ✓  27 tests/members.spec.ts:29:1 › saving cannot race a pending member switch (1.9s)
+  ✓  28 tests/outfits.spec.ts:2:1 › 离线Lookbook保存角色层次、克隆、收藏及回收站恢复 (1.6s)
+  ✓  29 tests/outfits.spec.ts:6:1 › 读取Lookbook时显示真实加载状态，列表完成后可编辑 (1.1s)
+  ✓  30 tests/pagination.spec.ts:2:1 › repeated load-more clicks show every real item once (604ms)
+  ✓  31 tests/pagination.spec.ts:13:1 › fresh save invalidates an older pending page response (1.6s)
+  ✓  32 tests/pagination.spec.ts:26:1 › manual price input preserves a three-decimal currency exactly (488ms)
+  ✓  33 tests/pagination.spec.ts:37:1 › load-more stays unavailable during post-save replacement query (1.8s)
+  ✓  34 tests/product-display.spec.ts:6:1 › 真实图片接口商品图预览、采用、重启及七宽度 (1.4s)
+  ✓  35 tests/product-display.spec.ts:15:1 › 专用图片模型通过真实设置保存并重读，不伪装文本验证 (569ms)
+  ✓  36 tests/providers.spec.ts:2:1 › 模型配置可重读，无密钥不会阻断已有衣橱 (763ms)
+  ✓  37 tests/providers.spec.ts:4:1 › 视觉专用配置仅在明确点击后发送内置测试图 (723ms)
+  ✓  38 tests/recognition.spec.ts:5:1 › 真实 Application HTTP 建议审核及重分析保留人工事实 (14.3s)
+  -  39 tests/recognition.spec.ts:12:1 › 真实本地模型通过 GUI 对公开鞋图返回建议且未审核不写事实
+  ✓  40 tests/recognition.spec.ts:15:1 › 批量单项识别失败后仍可手工入库并保留其他草稿 (11.1s)
+  ✓  41 tests/tryon.spec.ts:7:1 › 人物和全部衣物真实HTTP、多方案前后对比、本机保存及七宽度 (2.0s)
+  ✓  42 tests/wears.spec.ts:2:1 › 穿着补记、同日换装、改穿及撤销保留事件历史 (1.1s)
+  ✓  43 tests/wears.spec.ts:12:1 › 模板今天穿与单品穿过均需显式确认，保存模板不产生穿着 (1.1s)
+  ✓  44 tests/wears.spec.ts:19:1 › 提交中阻止换成员，失败重试复用已提交幂等键 (1.6s)
+
+  4 skipped
+  40 passed (1.3m)

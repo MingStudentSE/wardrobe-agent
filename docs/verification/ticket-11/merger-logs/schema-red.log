@@ -1,0 +1,119 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-merge-11/crates/wardrobe-core)
+   Compiling wardrobe-cli v0.1.0 (/private/tmp/wardrobe-merge-11/crates/wardrobe-cli)
+    Finished `test` profile [unoptimized] target(s) in 19.71s
+     Running unittests src/main.rs (target/debug/deps/wardrobe_cli-c63706bd91c01edb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/entrypoints.rs (target/debug/deps/entrypoints-95eae7cede4a3832)
+
+running 21 tests
+test cli_imported_image_is_available_through_mcp_without_gui ... ok
+test cli_and_mcp_use_same_persisted_application_without_gui ... ok
+test authorized_cli_and_mcp_validate_only_explicit_vision_capability ... ok
+test authorized_cli_and_mcp_return_the_same_derived_insights_and_persistent_threshold ... ok
+test cli_and_mcp_share_product_job_consent_idempotency_and_cancellation ... ok
+test credential_command_requires_stdin_to_keep_secret_out_of_process_arguments ... ok
+test authorized_cli_mcp_share_actual_wear_retries_corrections_and_immutable_history ... ok
+test cli_mcp_share_durable_batch_job_ids_cancellation_and_idempotent_commit ... ok
+test cli_saved_outfit_and_immutable_version_are_the_same_through_mcp_after_restart ... ok
+test cli_mcp_share_durable_care_threshold_chronology_and_reminder_availability ... ok
+test cli_member_profiles_and_mcp_inventory_share_member_scope ... ok
+test external_cli_and_mcp_enforce_same_operation_and_member_grant ... ok
+test unauthenticated_external_cli_cannot_read_inventory ... ok
+test stdin_configuration_and_mcp_discovery_share_provider_contract_without_gui ... ok
+test mcp_edits_and_restores_same_clothing_as_cli_filters_without_gui ... ok
+test cli_mcp_real_multimage_flatlay_preview_and_local_save_keep_template_and_wear ... ok
+test cli_mcp_real_multimage_tryon_preview_and_local_save_keep_template_and_wear ... ok
+test cli_mcp_share_immutable_image_edits_and_cancelled_cutout_jobs ... ok
+test mcp_initialized_full_authorization_is_reused_for_multiple_writes_without_reauthorization ... ok
+test authorized_cli_mcp_share_recognition_proposal_review_and_restart ... ok
+test space_crypto_uses_stdin_and_mcp_full_scope_does_not_expose_private_key_management ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.51s
+
+     Running unittests src/lib.rs (target/debug/deps/wardrobe_core-1455b102a1d64765)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/application.rs (target/debug/deps/application-ffdc02d1fe195a3e)
+
+running 10 tests
+test newer_database_version_is_refused_instead_of_downgraded ... ok
+test open_client_refuses_operations_after_newer_client_upgrades_database ... ok
+test invalid_currency_and_fractional_minor_units_are_rejected ... ok
+test wrong_type_cursor_is_rejected_instead_of_restarting_page ... ok
+test supported_early_database_migrates_price_and_category_without_losing_identity ... ok
+test currency_exponent_keeps_yen_and_dinar_prices_unambiguous ... ok
+test no_key_first_entry_survives_restart_with_unknown_values ... ok
+test invalid_page_and_member_are_typed_errors_without_writes ... ok
+test pagination_preserves_every_created_item_without_duplicates ... ok
+test discovered_operations_describe_output_required_fields_for_consumers ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/assets.rs (target/debug/deps/assets-773e493192c33ac7)
+
+running 9 tests
+test malformed_input_and_overlarge_file_do_not_become_display_assets ... ok
+test header_over_sixty_megapixels_is_rejected_before_pixel_decode ... ok
+test imported_png_survives_restart_with_a_local_original_and_display ... ok
+test adopted_display_manifest_excludes_original_and_preview_assets ... ok
+test heic_decodes_real_container_without_external_model_and_preserves_bytes ... ok
+test jpeg_exif_rotation_is_applied_once_before_display_encoding ... ok
+test detaching_an_image_preserves_bytes_and_other_clothing_references ... ok
+test image_capabilities_describe_required_references_and_real_preview_output ... ok
+test large_jpeg_shrinks_and_thumbnail_can_be_rebuilt_without_original ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.30s
+
+     Running tests/authorization.rs (target/debug/deps/authorization-fe956f04a592cf83)
+
+running 7 tests
+test trusted_gui_can_authorize_a_limited_client_with_a_one_time_token ... ok
+test authorization_requires_an_explicit_member_scope_instead_of_silently_granting_all ... ok
+test damaged_grant_does_not_silently_expand_member_scope ... ok
+test client_cannot_remove_credentials_indirectly_by_changing_a_provider_binding ... ok
+test limited_client_can_read_one_member_but_cannot_write_or_read_another ... ok
+test full_client_does_not_need_repeat_confirmation_and_revocation_survives_restart_without_token_leak ... ok
+test expired_token_is_refused_and_discovery_and_member_list_hide_ungranted_data ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.19s
+
+     Running tests/care.rs (target/debug/deps/care-3f096b7d4977dc9a)
+
+running 12 tests
+test caller_cannot_bypass_manual_dirty_intent_or_omit_config_revision ... ok
+test configuration_keeps_identity_creation_timestamp_and_uses_revision_cas ... ok
+test correcting_time_or_action_preserves_notes_when_not_explicitly_replaced ... ok
+test correction_rejects_conflicting_manual_dirty_and_cleaning_intents_instead_of_ignoring_fields ... ok
+test max_schema_reopens_and_repairs_actual_missing_care_tables ... ok
+test positive_optional_threshold_and_manual_dirty_are_separate_from_lifecycle ... ok
+test manual_dirty_clear_cleaning_and_maintenance_follow_actual_chronology_and_wear_revocations ... ok
+test shared_garment_across_templates_reaches_threshold_without_blocking_truthful_wear ... ok
+test timezone_exact_retries_cas_member_isolation_and_deleted_snapshot_history_survive_restart ... ok
+test chronological_backdating_correction_revocation_and_maintenance_rebuild_real_counts ... ok
+test revoked_care_snapshot_keeps_adopted_asset_after_detach_delete_and_restart ... FAILED
+test availability_reads_atomic_config_cohorts_on_one_snapshot_during_external_writes ... ok
+
+failures:
+
+---- revoked_care_snapshot_keeps_adopted_asset_after_detach_delete_and_restart stdout ----
+
+thread 'revoked_care_snapshot_keeps_adopted_asset_after_detach_delete_and_restart' (3330892) panicked at crates/wardrobe-core/tests/care.rs:352:5:
+assertion `left == right` failed
+  left: 14
+ right: 13
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    revoked_care_snapshot_keeps_adopted_asset_after_detach_delete_and_restart
+
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+error: test failed, to rerun pass `-p wardrobe-core --test care`

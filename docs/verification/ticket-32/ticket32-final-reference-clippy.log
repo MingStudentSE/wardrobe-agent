@@ -1,0 +1,20 @@
+    Checking tract-linalg v0.23.8
+    Checking ring v0.17.14
+    Checking rustls-webpki v0.103.15
+    Checking rustls v0.23.45
+    Checking tract-core v0.23.8
+    Checking tokio-rustls v0.26.6
+    Checking hyper-rustls v0.27.10
+    Checking libsqlite3-sys v0.30.1
+    Checking libwebp-sys v0.9.6
+    Checking rusqlite v0.32.1
+    Checking reqwest v0.12.28
+    Checking webp v0.3.1
+    Checking tract-nnef v0.23.8
+    Checking tract-hir v0.23.8
+    Checking tract-extra v0.23.8
+    Checking tract-onnx-opl v0.23.8
+    Checking tract-onnx v0.23.8
+    Checking wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Checking wardrobe-cli v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-cli)
+    Finished `dev` profile [unoptimized] target(s) in 9.77s

@@ -1,0 +1,35 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 0.90s
+     Running tests/backup.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/backup-cbbda9a3225d5625)
+
+running 12 tests
+test local_backup_preferences_persist_with_revision_but_are_not_portable_installation_settings ... ok
+test data_directory_switch_verifies_copy_and_existing_application_and_reopened_tools_follow_it ... ok
+test interrupted_pending_directory_publication_falls_back_to_old_source_before_any_new_writes ... ok
+test directory_move_retains_local_grants_configuration_and_media_without_reading_old_assets ... ok
+test overwrite_removes_previous_installation_operational_jobs_and_authorization_without_losing_incoming_facts ... ok
+test portable_backup_preview_restore_preserves_actual_history_after_restart ... ok
+test credentials_are_absent_from_every_backup_file_and_never_authorize_restored_installation ... ok
+test restored_display_is_self_contained_and_corrupt_archive_never_overwrites_current_facts ... ok
+test preview_explains_overwrite_and_real_prebackup_can_restore_previous_installation ... ok
+test explicit_original_option_controls_real_bytes_and_restored_original_availability ... ok
+test concurrent_old_connection_writes_are_present_after_directory_switch ... ok
+test immutable_versions_revised_wear_care_and_detached_historical_display_survive_relocated_backup ... FAILED
+
+failures:
+
+---- immutable_versions_revised_wear_care_and_detached_historical_display_survive_relocated_backup stdout ----
+
+thread 'immutable_versions_revised_wear_care_and_detached_historical_display_survive_relocated_backup' (3494525) panicked at crates/wardrobe-core/tests/backup.rs:564:2:
+assertion `left == right` failed
+  left: Object {"data_url": String("data:image/webp;base64,UklGRoIDAABXRUJQVlA4IHYDAAAwYgCdASogA+ABPmEwlkgkIyIhIzCYAIAMCWlu4XdhG0AIMCAFt1uZ6AjLrpu63M9ARl103dbmefwBfdfXiHNgxCeF1651N/uvXOpv91651N/uvXOpv91651N/uvXOpv91651N/uvXOpALJAC1+RALbrcz0BGXXTd1uZ6AjLrpu63MqbSHYCAW3W5noCMuum7rcz0BGXXTd1uS7M4k+gIy66butzPQEZddN3W5noCMuukVuzTaKQBbdbmegIy66butzPQEZddN3V4k1NqZ6AjLrpu63M9ARl103dbmegIy6jHHNm8z0BGXXTd1uZ6AjLrpu63M9ARltHnaHWikAW3W5noCMuum7rcz0BGXXTdyqaz5EAtutzPQEZddN3W5noCMuum7rcyptIdgIBbdbmegIy66butzPQEZddN3W5LsziT6AjLrpu63M9ARl103dbmegIy66RW7NNopAFt1uZ6AjLrpu63M9ARl103dXiTU2pnoCMuum7rcz0BGXXTd1uZ6AjLqMcc2bzPQEZddN3W5noCMuum7rcz0BGW0edodaKQBbdbmegIy66butzPQEZddN3KprPkQC263M9ARl103dbmegIy66butzKm0h2AgFt1uZ6AjLrpu63M9ARl103dbkuzOJPoCMuum7rcz0BGXXTd1uZ6AjLrpFbs02ikAW3W5noCMuum7rcz0BGXXTd1eJNTamegIy66butzPQEZddN3W5noCMuoxxzZvM9ARl103dbmegIy66butzPQEZbR52h1opAFt1uZ6AjLrpu63M9ARl103cqms+RALbrcz0BGXXTd1uZ6AjLrpu63MqbSHYCAW3W5noCMuum7rcz0BGXXTd1uS7M4k+gIy66butzPQEZddN3W5noCMuukVuzTaKQBbdbmegIy66butzPQEZddN3V4k1NqZ6AjLrpu63M9ARl103dbmegIy6jHGwCyBy2vEObBiE8Lr1zqb/deudTf7r1zqb/deudTf7r1zqb/deudTf7r1zqb/deudSAmXuG//QEZddN3W5noCMuum7rcz0BGXXTdyQAD+/+gh/pvTDyAAPPqWqMy+JmIociCVYbgCohyiyBYJsmXLUWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHifOhIkYeuZqIAgAXC/0Rnv8IvoAAAAA"), "height": Number(480), "missing_images": Number(1), "outfit_id": String("01a112f2-ddef-70fb-9a1d-c69e660e8973"), "role": String("outfit"), "schema_version": Number(1), "sync_scope": String("local_only"), "version": Number(2), "width": Number(800)}
+ right: Object {"data_url": String("data:image/webp;base64,UklGRtYDAABXRUJQVlA4IMoDAAAwYACdASogA+ABPmEwlkgkIyIhIf/IAIAMCWlu4XdhGwAGgAxvAEeFyf6rItsxgFwx0n+qyLbMYBcMdJ/qsi2zGAXDHOtgou3zovQ+8nTDPFF2+dF6H3k6YZ4opO8MdJ/qsi2zGAXDHSfwyd6TUGn+qyLJYLKsi2zGAXDHSf6rItsOwWcOtSW2YwChxAqMAuGOk/1WRbZjALg3iDsvxp/qsi2Z9v0VkW2YwC4Y6T/VZFsz7fpgNJbZjAKHECowC4Y6T/VZFtmMAuDeIOyDT/VZFth2CyrItsxgFwx0n+qyLbDsFlWRbZjALg3iBUYBcMdJ/qsi2zGAXBvElVRgNnhjpPEUh0n+qyLbMYBcMdJ/qq4pt0/1WRbZi9Pt+isi2zGAXDHSf6rItmfb9FZhPDHSfwyd4Y6T/VZFtmMAuGOk/hk7wx0n+qyLZn2/RWRbZjALhjpP9VkWzPvL9FZFtmMAocQKjALhjpP9VkW2YwC4N4gVGAXDHSf50Uh0n+qyLbMYBcMdJ/qq4pDpP9VkW2YnosRUYBcMdJ/qsi2zGAWzRYiowC4Y6T+GTvDHSf6rItsxgFwx0n8MneGOk/1WRbM+36KyLbMYBcMdJ/qsi2Z9v0VkW2YwC2aLEVGAXDHSf6rItsxgFs0WIqMAuGOk/hk7wx0n+qyLbMYBcMdJ/DJ3hjpP9VkWzPt+isi2zGAXDHSf6rItmfb9FZFtmMAtmixFRgFwx0n+qyLbMYBbNFiKjALhjpP4ZO8MdJ/qsi2zGAXDHSfwyd4Y6T/VZFsz7forItsxgFwx0n+qyLZn2/RWRbZjALZosRUYBcMdJ/qsi2zGAWzRYiowC4Y6T+GTvDHSf6rItsxgFwx0n8MneGOk/1WRbM+36KyLbMYBcMdJ/qsi2Z9v0VkW2YwC2aLEVGAXDHSf6rItsxgFs0WIqMAuGOk/hk7wx0n+qyLbMYBcMdJ/BJWv2m4+8nTDPFF2+dF6H3k6YZ4ou3zovQ+rngLhjpP9VkW2YwC4Y6T/VZFtmMAuGOk/1WRbZicAAP7/6CH+PF0PwAAa3/hfD//5il/JJH//EOc402Venfdzo8fE65i9tdcv02VdlXZVFCAqHK3NSiFysCgAAsLIiR2gGXOCbFBD9f+SGCY6oIKDoaGFh/xQDomNmaligSYxNMFwRkigpX4OUBDGmSHD3OBAPuEZEUBa3AACAT4oAwBQD+2QCprgBbgQLwUAYAoB/bIBU1wAtwIF4KAMAUA/tkAqa4AW4EAEj6/xyv5h+S7kyCTIJMgkyCTIBQAAAAAA"), "height": Number(480), "missing_images": Number(0), "outfit_id": String("01a112f2-ddef-70fb-9a1d-c69e660e8973"), "role": String("outfit"), "schema_version": Number(1), "sync_scope": String("local_only"), "version": Number(2), "width": Number(800)}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    immutable_versions_revised_wear_care_and_detached_historical_display_survive_relocated_backup
+
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+
+error: test failed, to rerun pass `-p wardrobe-core --test backup`

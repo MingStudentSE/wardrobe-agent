@@ -1,0 +1,23 @@
+{
+  "result": "passed",
+  "cli": "/home/runner/work/_temp/appimage-extracted/squashfs-root/usr/bin/wardrobe-cli",
+  "developer_loader_environment": "removed",
+  "model": {
+    "model_id": "u2netp-rembg-v0",
+    "bytes": 4574861,
+    "sha256": "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
+    "license": "Apache-2.0",
+    "source_url": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx"
+  },
+  "official_model_acquisition": "downloaded and SHA256 verified",
+  "cached_restart": "passed with outbound HTTP proxy unavailable",
+  "direct_cli_inference": "passed",
+  "fresh_mcp_inference": "passed; identical display hash",
+  "source_asset": "unchanged",
+  "dimensions": [
+    1200,
+    1600
+  ],
+  "cutout_display_hash": "8a2679413458f500deae7a7b5fed9edee5c0222ffb98cbffb193a80952040a4d",
+  "gui_clean_install": "pending"
+}

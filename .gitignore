@@ -21,12 +21,24 @@ coverage/
 
 # Local editor files
 .idea/
+/target/
+/apps/desktop/node_modules/
+/apps/desktop/dist/
+/apps/desktop/src-tauri/target/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.DS_Store
 
-# UI verification output
-apps/desktop/test-results/
-apps/desktop/playwright-report/
-
-/apps/desktop/node_modules
-
-# Tauri generated capability schemas
+# Generated Tauri command schemas and browser verification outputs
 /apps/desktop/src-tauri/gen/
+/apps/desktop/test-results/
+/apps/desktop/playwright-report/
+
+# Python verification helper bytecode
+__pycache__/
+*.pyc
+
+# Local design reference images and rendered verification screenshots
+/design/preview/assets/
+/design/verification/**/*.png

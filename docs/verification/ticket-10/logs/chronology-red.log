@@ -1,0 +1,24 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-10/crates/wardrobe-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+     Running tests/care.rs (target/debug/deps/care-932fb77820f3f46a)
+
+running 3 tests
+test caller_cannot_bypass_manual_dirty_intent_or_omit_config_revision ... FAILED
+test positive_optional_threshold_and_manual_dirty_are_separate_from_lifecycle ... ok
+test chronological_backdating_correction_revocation_and_maintenance_rebuild_real_counts ... ok
+
+failures:
+
+---- caller_cannot_bypass_manual_dirty_intent_or_omit_config_revision stdout ----
+
+thread 'caller_cannot_bypass_manual_dirty_intent_or_omit_config_revision' (3233452) panicked at crates/wardrobe-core/tests/care.rs:46:275:
+called `Result::unwrap_err()` on an `Ok` value: Object {"action": String("wash"), "clothing_id": String("01a112b4-b5ca-727b-9a0f-49a2a9d950aa"), "created_at": String("2026-10-06T19:33:15.339233+00:00"), "id": String("01a112b4-b5cb-77e4-8515-5c8962609851"), "kind": String("record"), "local_date": String("2020-01-01"), "local_time": Null, "member_id": String("01a112b4-b5c4-76f2-a4bf-6db728f0d164"), "notes": String(""), "occurred_at": String("2020-01-01T12:00:00+00:00"), "revision": Number(1), "root_event_id": String("01a112b4-b5cb-77e4-8515-5c8962609851"), "schema_version": Number(1), "snapshot": Object {"brand": Null, "category": String("top"), "color": Array [], "color_description": Null, "created_at": String("2026-10-06T19:33:15.338294+00:00"), "currency": Null, "description": Null, "favorite": Bool(false), "fit": Null, "id": String("01a112b4-b5ca-727b-9a0f-49a2a9d950aa"), "material": Array [], "member_id": String("01a112b4-b5c4-76f2-a4bf-6db728f0d164"), "name": String("衬衫"), "notes": Null, "occasion": Array [], "pattern": Array [], "price_exponent": Null, "purchase_date": Null, "purchase_price_minor": Null, "purchase_store": Null, "purchase_url": Null, "schema_version": Number(1), "seasons": Array [], "size_label": Null, "status": String("active"), "style": Array [], "sub_category": Null, "tags": Array [], "taxonomy_version": Number(1), "updated_at": String("2026-10-06T19:33:15.338294+00:00")}, "supersedes_event_id": Null, "time_precision": String("date"), "timezone": String("UTC"), "updated_at": String("2026-10-06T19:33:15.339233+00:00")}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    caller_cannot_bypass_manual_dirty_intent_or_omit_config_revision
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p wardrobe-core --test care`

@@ -440,7 +440,10 @@ fn accepted_db19_archive_restores_empty_learning_without_relaxing_current_schema
     let package = d.path().join("legacy");
     maintenance(&a, "backup.create", json!({"directory":package}));
     let db = rusqlite::Connection::open(package.join("facts.sqlite")).unwrap();
-    db.execute_batch("DROP TABLE learning_memories;DROP TABLE learning_profiles;DROP TABLE learning_state;DROP TABLE learning_history;DROP TABLE learning_receipts;PRAGMA user_version=19;").unwrap();
+    // A genuine db19 archive predates the learning tables AND the category
+    // dictionary: every post-19 table must be absent, not only the learning
+    // ones, for the version-19 table contract to apply.
+    db.execute_batch("DROP TABLE learning_memories;DROP TABLE learning_profiles;DROP TABLE learning_state;DROP TABLE learning_history;DROP TABLE learning_receipts;DROP TABLE wardrobe_categories;PRAGMA user_version=19;").unwrap();
     drop(db);
     let bytes = std::fs::read(package.join("facts.sqlite")).unwrap();
     let mut manifest: serde_json::Value =

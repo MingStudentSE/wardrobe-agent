@@ -1,0 +1,69 @@
+npm notice run wardrobe-desktop@0.1.0 npx
+npm notice run 'playwright' test tests/learning.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5174 --strictPort
+[WebServer] (node:21743) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 4 tests using 1 worker
+
+(node:21745) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/learning.spec.ts:2:1 › 显式偏好可查看编辑删除，重置与完整重建明确且不写穿着 (2.0s)
+  ✓  2 tests/learning.spec.ts:15:1 › 真实事件画像可读来源、修正排序、删除不复活，显式完整重建保留事实 (3.1s)
+  ✘  3 tests/learning.spec.ts:29:1 › 确认记忆修改后的再次推荐使用新意图，未知响应重试保持原键 (30.0s)
+(node:22246) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  4 tests/learning.spec.ts:41:1 › 学习重算立即显示持久任务，重开可查询并明确取消而不发布画像 (1.2s)
+
+
+  1) tests/learning.spec.ts:29:1 › 确认记忆修改后的再次推荐使用新意图，未知响应重试保持原键 ────────────────────────────────────
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.fill: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByLabel('新成员名称')
+        - locator resolved to <input disabled value="" required="" maxlength="80"/>
+        - fill("偏好推荐-1791331781079")
+      - attempting fill action
+        2 × waiting for element to be visible, enabled and editable
+          - element is not enabled
+        - retrying fill action
+        - waiting 20ms
+        - waiting for element to be visible, enabled and editable
+        - element is not enabled
+      - retrying fill action
+        - waiting 100ms
+      - element was detached from the DOM, retrying
+        - locator resolved to <input disabled value="" required="" maxlength="80"/>
+        - fill("偏好推荐-1791331781079")
+      - attempting fill action
+        2 × waiting for element to be visible, enabled and editable
+          - element is not visible
+        - retrying fill action
+        - waiting 20ms
+        2 × waiting for element to be visible, enabled and editable
+          - element is not visible
+        - retrying fill action
+          - waiting 100ms
+        59 × waiting for element to be visible, enabled and editable
+           - element is not visible
+         - retrying fill action
+           - waiting 500ms
+
+
+      28 | });
+      29 | test('确认记忆修改后的再次推荐使用新意图，未知响应重试保持原键',async({page})=>{
+    > 30 |  await page.goto('/');await page.getByText('管理成员档案',{exact:true}).click();const name=`偏好推荐-${Date.now()}`;await page.getByLabel('新成员名称').fill(name);await page.getByRole('button',{name:'创建成员',exact:true}).click();const choice=page.getByRole('combobox',{name:'当前成员',exact:true});await expect(choice.getByRole('option',{name,exact:true})).toBeAttached();const member=await choice.getByRole('option',{name,exact:true}).getAttribute('value');await expect(choice).toHaveValue(member!);
+         |                                                                                                                                          ^
+      31 |  const call=async(operation:string,input:object={})=>{const body=await(await page.request.post('/__wardrobe_dev_api',{data:{operation,input:{member_id:member,...input}}})).json();if(body.error)throw new Error(body.error.message);return body.result;};
+      32 |  try{
+      33 |  for(const [name,category,color] of [['先创建红上衣','top','red'],['后创建蓝上衣','top','blue'],['偏好裤','bottom','black'],['偏好鞋','shoes','black']])await call('clothing.create',{name,category,color:[color]});
+        at /private/tmp/wardrobe-ticket-18/apps/desktop/tests/learning.spec.ts:30:138
+
+    Error Context: test-results/learning-确认记忆修改后的再次推荐使用新意图，未知响应重试保持原键/error-context.md
+
+  1 failed
+    tests/learning.spec.ts:29:1 › 确认记忆修改后的再次推荐使用新意图，未知响应重试保持原键 ─────────────────────────────────────
+  3 passed (38.3s)

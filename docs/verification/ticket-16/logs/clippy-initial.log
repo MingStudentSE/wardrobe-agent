@@ -1,0 +1,32 @@
+    Checking wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-16/crates/wardrobe-core)
+    Checking wardrobe-cli v0.1.0 (/private/tmp/wardrobe-ticket-16/crates/wardrobe-cli)
+error: read amount is not handled
+  --> crates/wardrobe-core/tests/ai_recommendations.rs:83:13
+   |
+83 |             s.read(&mut b).unwrap();
+   |             ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `Read::read_exact` instead, or handle partial reads
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#unused_io_amount
+   = note: `#[deny(clippy::unused_io_amount)]` on by default
+
+error: read amount is not handled
+   --> crates/wardrobe-core/tests/ai_recommendations.rs:115:9
+    |
+115 |         s.read(&mut b).unwrap();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: use `Read::read_exact` instead, or handle partial reads
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#unused_io_amount
+
+error: read amount is not handled
+   --> crates/wardrobe-core/tests/ai_recommendations.rs:174:13
+    |
+174 |             s.read(&mut b).unwrap();
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: use `Read::read_exact` instead, or handle partial reads
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#unused_io_amount
+
+error: could not compile `wardrobe-core` (test "ai_recommendations") due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...

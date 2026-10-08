@@ -1,0 +1,36 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/feedback.spec.ts
+dyld[50934]: Library not loaded: @rpath/libheif.1.dylib
+  Referenced from: <D0400577-4547-3B60-81F7-C00343700EF9> /Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/wardrobe-cli
+  Reason: no LC_RPATH's found
+Error: Command failed: /private/tmp/wardrobe-ticket-17/target/debug/wardrobe-cli --trusted-local space.default {}
+dyld[50934]: Library not loaded: @rpath/libheif.1.dylib
+  Referenced from: <D0400577-4547-3B60-81F7-C00343700EF9> /Users/links/.codex/worktrees/9729/电子衣橱 Agent/target/debug/wardrobe-cli
+  Reason: no LC_RPATH's found
+
+    at genericNodeError (node:internal/errors:998:15)
+    at wrappedFn (node:internal/errors:543:14)
+    at checkExecSyncError (node:child_process:925:11)
+    at execFileSync (node:child_process:961:15)
+    at run (file:///private/tmp/wardrobe-ticket-17/apps/desktop/playwright.config.ts:12:45)
+    at file:///private/tmp/wardrobe-ticket-17/apps/desktop/playwright.config.ts:13:10
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:642:26)
+    at requireOrImport (/private/tmp/wardrobe-ticket-20/apps/desktop/node_modules/playwright/lib/common/index.js:1081:12)
+    at loadUserConfig (/private/tmp/wardrobe-ticket-20/apps/desktop/node_modules/playwright/lib/common/index.js:1268:46)
+    at loadConfig (/private/tmp/wardrobe-ticket-20/apps/desktop/node_modules/playwright/lib/common/index.js:1275:22)
+    at Object.loadConfigFromFile (/private/tmp/wardrobe-ticket-20/apps/desktop/node_modules/playwright/lib/common/index.js:1490:10)
+    at runTests (/private/tmp/wardrobe-ticket-20/apps/desktop/node_modules/playwright/lib/cli/testActions.js:46:18)
+    at _Command.<anonymous> (/private/tmp/wardrobe-ticket-20/apps/desktop/node_modules/playwright/lib/program.js:55:7) {
+  status: null,
+  signal: 'SIGABRT',
+  output: [
+    null,
+    <Buffer >,
+    <Buffer 64 79 6c 64 5b 35 30 39 33 34 5d 3a 20 4c 69 62 72 61 72 79 20 6e 6f 74 20 6c 6f 61 64 65 64 3a 20 40 72 70 61 74 68 2f 6c 69 62 68 65 69 66 2e 31 2e ... 174 more bytes>
+  ],
+  pid: 50934,
+  stdout: <Buffer >,
+  stderr: <Buffer 64 79 6c 64 5b 35 30 39 33 34 5d 3a 20 4c 69 62 72 61 72 79 20 6e 6f 74 20 6c 6f 61 64 65 64 3a 20 40 72 70 61 74 68 2f 6c 69 62 68 65 69 66 2e 31 2e ... 174 more bytes>
+}

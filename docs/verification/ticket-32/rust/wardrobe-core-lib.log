@@ -1,0 +1,22 @@
+    Blocking waiting for file lock on build directory
+   Compiling tract-nnef v0.23.8
+   Compiling tract-extra v0.23.8
+   Compiling tract-onnx-opl v0.23.8
+   Compiling tract-onnx v0.23.8
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 6.92s
+     Running unittests src/lib.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wardrobe_core-1455b102a1d64765)
+
+running 9 tests
+test data_directory::tests::pending_reader_preserves_concurrently_published_active_location ... ok
+test maintenance::lease_tests::cancellation_committed_at_lease_refresh_boundary_cannot_be_resurrected ... ok
+test maintenance::lease_tests::a_live_worker_lock_prevents_a_second_worker_from_claiming_an_expired_receipt ... ok
+test maintenance::lease_tests::maintenance_worker_rejects_an_external_symbolic_lock_target ... ok
+test maintenance::lease_tests::replacing_a_live_lock_inode_cannot_start_a_second_worker_or_publish_first_worker ... ok
+test ai_recommendations::publication_boundary::published_intent_survives_cancel_between_commit_and_job_finish_and_retry_is_cached ... ok
+test maintenance::lease_tests::published_backup_recovers_its_durable_receipt_without_creating_another_package ... ok
+test maintenance::lease_tests::published_directory_switch_recovers_its_job_receipt_after_worker_disappears ... ok
+test authorization::restore_boundary_tests::restore_after_grant_validation_never_reopens_as_trusted ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+

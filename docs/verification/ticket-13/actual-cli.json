@@ -1,0 +1,756 @@
+{
+  "database": "/var/folders/zg/mwcsv72133b9lfjg5sftc7440000gn/T/wardrobe13-actual-q787jrrs/db",
+  "results": [
+    {
+      "fixture": "OKM_Shirt_Front.jpg",
+      "job": {
+        "attempts": 1,
+        "created_at": "2026-10-06T19:15:01.636159+00:00",
+        "error": null,
+        "id": "01a112a4-0584-7072-acea-defb4ae55cdf",
+        "kind": "recognition",
+        "lease_expires": 0,
+        "lease_token": null,
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+        "next_due": 0,
+        "operation_key": "OKM_Shirt_Front.jpg",
+        "payload": {
+          "asset_ids": [
+            "01a112a3-d513-73fc-9abd-f0290990a95a"
+          ],
+          "assets": [
+            {
+              "asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
+              "blob_hash": "b69e38c5c4e5c67bd3e3bc463e149ef7dd3db11b66cdc0555cc73b8faf8fe30d",
+              "bytes": 82930,
+              "height": 1600,
+              "mime": "image/webp",
+              "role": "product_display",
+              "width": 1200
+            }
+          ],
+          "baseline": {
+            "asset_ids": [
+              "01a112a3-d513-73fc-9abd-f0290990a95a"
+            ],
+            "brand": null,
+            "category": "other",
+            "color": [],
+            "color_description": null,
+            "created_at": "2026-10-06T19:14:49.226561+00:00",
+            "currency": null,
+            "description": null,
+            "display_asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
+            "favorite": false,
+            "fit": null,
+            "id": "01a112a3-d50a-720e-8af6-75fb19e7fd2b",
+            "material": [],
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+            "name": "public shirt",
+            "notes": null,
+            "occasion": [],
+            "pattern": [],
+            "price_exponent": null,
+            "purchase_date": null,
+            "purchase_price_minor": null,
+            "purchase_store": null,
+            "purchase_url": null,
+            "schema_version": 1,
+            "seasons": [],
+            "size_label": null,
+            "status": "active",
+            "style": [],
+            "sub_category": null,
+            "tags": [],
+            "taxonomy_version": 1,
+            "updated_at": "2026-10-06T19:15:01.627745+00:00"
+          },
+          "provider": {
+            "adapter": "openai_compatible",
+            "authentication": "none",
+            "capabilities": [
+              "vision"
+            ],
+            "created_at": "2026-10-06T19:14:49.217522+00:00",
+            "endpoint": "http://127.0.0.1:18083/v1",
+            "id": "01a112a3-d501-72ff-a776-908539302880",
+            "model": "wardrobe-smolvlm",
+            "name": "Actual SmolVLM",
+            "schema_version": 1,
+            "updated_at": "2026-10-06T19:14:49.217522+00:00"
+          },
+          "request": {
+            "asset_ids": [
+              "01a112a3-d513-73fc-9abd-f0290990a95a"
+            ],
+            "clothing_id": "01a112a3-d50a-720e-8af6-75fb19e7fd2b",
+            "confirm_upload": true,
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+            "operation_key": "OKM_Shirt_Front.jpg",
+            "provider_id": "01a112a3-d501-72ff-a776-908539302880",
+            "upload_role": "product_display"
+          },
+          "submission": "received",
+          "transferred_images": [
+            {
+              "asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
+              "bytes": 237631,
+              "height": 512,
+              "mime": "image/png",
+              "sha256": "67f17ac3a17923f78c5f7b324b209fe1edd887770882f2e1d0f63020159bb072",
+              "source_blob_hash": "b69e38c5c4e5c67bd3e3bc463e149ef7dd3db11b66cdc0555cc73b8faf8fe30d",
+              "source_role": "product_display",
+              "transform": "orientation-aware-fit-512-png",
+              "width": 384
+            }
+          ],
+          "upload_role": "product_display"
+        },
+        "progress": 100,
+        "result": {
+          "suggestion_id": "01a112a4-0cb4-742d-ad36-501f6e36dd78"
+        },
+        "schema_version": 1,
+        "state": "succeeded",
+        "updated_at": "2026-10-06T19:15:03.477317+00:00"
+      },
+      "elapsed_seconds": 1.8417999170196708,
+      "unchanged_clothing": {
+        "asset_ids": [
+          "01a112a3-d513-73fc-9abd-f0290990a95a"
+        ],
+        "brand": null,
+        "category": "other",
+        "color": [],
+        "color_description": null,
+        "created_at": "2026-10-06T19:14:49.226561+00:00",
+        "currency": null,
+        "description": null,
+        "display_asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
+        "favorite": false,
+        "fit": null,
+        "id": "01a112a3-d50a-720e-8af6-75fb19e7fd2b",
+        "material": [],
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+        "name": "public shirt",
+        "notes": null,
+        "occasion": [],
+        "pattern": [],
+        "price_exponent": null,
+        "purchase_date": null,
+        "purchase_price_minor": null,
+        "purchase_store": null,
+        "purchase_url": null,
+        "schema_version": 1,
+        "seasons": [],
+        "size_label": null,
+        "status": "active",
+        "style": [],
+        "sub_category": null,
+        "tags": [],
+        "taxonomy_version": 1,
+        "updated_at": "2026-10-06T19:15:01.627745+00:00"
+      },
+      "proposal": {
+        "baseline": {
+          "asset_ids": [
+            "01a112a3-d513-73fc-9abd-f0290990a95a"
+          ],
+          "brand": null,
+          "category": "other",
+          "color": [],
+          "color_description": null,
+          "created_at": "2026-10-06T19:14:49.226561+00:00",
+          "currency": null,
+          "description": null,
+          "display_asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
+          "favorite": false,
+          "fit": null,
+          "id": "01a112a3-d50a-720e-8af6-75fb19e7fd2b",
+          "material": [],
+          "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+          "name": "public shirt",
+          "notes": null,
+          "occasion": [],
+          "pattern": [],
+          "price_exponent": null,
+          "purchase_date": null,
+          "purchase_price_minor": null,
+          "purchase_store": null,
+          "purchase_url": null,
+          "schema_version": 1,
+          "seasons": [],
+          "size_label": null,
+          "status": "active",
+          "style": [],
+          "sub_category": null,
+          "tags": [],
+          "taxonomy_version": 1,
+          "updated_at": "2026-10-06T19:15:01.627745+00:00"
+        },
+        "id": "01a112a4-0cb4-742d-ad36-501f6e36dd78",
+        "job_id": "01a112a4-0584-7072-acea-defb4ae55cdf",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+        "provenance": {
+          "assets": [
+            {
+              "asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
+              "blob_hash": "b69e38c5c4e5c67bd3e3bc463e149ef7dd3db11b66cdc0555cc73b8faf8fe30d",
+              "bytes": 82930,
+              "height": 1600,
+              "mime": "image/webp",
+              "role": "product_display",
+              "width": 1200
+            }
+          ],
+          "created_at": "2026-10-06T19:15:03.476195+00:00",
+          "endpoint": "http://127.0.0.1:18083/v1",
+          "model": "wardrobe-smolvlm",
+          "normalization": "conservative-taxonomy-word-candidates-v1",
+          "prompt_version": "visible-description-v1",
+          "provider_id": "01a112a3-d501-72ff-a776-908539302880",
+          "provider_name": "Actual SmolVLM",
+          "response_model": "wardrobe-smolvlm",
+          "transferred_images": [
+            {
+              "asset_id": "01a112a3-d513-73fc-9abd-f0290990a95a",
+              "bytes": 237631,
+              "height": 512,
+              "mime": "image/png",
+              "sha256": "67f17ac3a17923f78c5f7b324b209fe1edd887770882f2e1d0f63020159bb072",
+              "source_blob_hash": "b69e38c5c4e5c67bd3e3bc463e149ef7dd3db11b66cdc0555cc73b8faf8fe30d",
+              "source_role": "product_display",
+              "transform": "orientation-aware-fit-512-png",
+              "width": 384
+            }
+          ],
+          "usage": {
+            "completion_tokens": 15,
+            "prompt_tokens": 190,
+            "prompt_tokens_details": {
+              "cached_tokens": 189
+            },
+            "total_tokens": 205
+          }
+        },
+        "raw_text": " The shirt I'm wearing is an IMUA sand sharks collection.",
+        "schema_version": 1,
+        "state": "pending_review",
+        "suggested_facts": {
+          "category": "top",
+          "description": " The shirt I'm wearing is an IMUA sand sharks collection."
+        },
+        "target": {
+          "clothing_id": "01a112a3-d50a-720e-8af6-75fb19e7fd2b"
+        },
+        "uncertainties": {
+          "model_self_reported": " The shirt I'm wearing is an IMUA sand sharks collection.",
+          "notice": "视觉建议未经核实；品牌、材质、尺寸和不可见字段不能确定。模型自报描述/分数不是准确率。"
+        }
+      }
+    },
+    {
+      "fixture": "Zapato.jpg",
+      "job": {
+        "attempts": 1,
+        "created_at": "2026-10-06T19:15:03.653484+00:00",
+        "error": null,
+        "id": "01a112a4-0d65-7184-87e0-23fe707daf8c",
+        "kind": "recognition",
+        "lease_expires": 0,
+        "lease_token": null,
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+        "next_due": 0,
+        "operation_key": "Zapato.jpg",
+        "payload": {
+          "asset_ids": [
+            "01a112a4-0cd6-743d-b72c-8db16f2c3c2a"
+          ],
+          "assets": [
+            {
+              "asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
+              "blob_hash": "94467259bcde769779052c60c499c56d8d2d4db43bfd370cfe40d6744065ec7c",
+              "bytes": 6780,
+              "height": 177,
+              "mime": "image/webp",
+              "role": "product_display",
+              "width": 247
+            }
+          ],
+          "baseline": {
+            "asset_ids": [
+              "01a112a4-0cd6-743d-b72c-8db16f2c3c2a"
+            ],
+            "brand": null,
+            "category": "other",
+            "color": [],
+            "color_description": null,
+            "created_at": "2026-10-06T19:15:03.502577+00:00",
+            "currency": null,
+            "description": null,
+            "display_asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
+            "favorite": false,
+            "fit": null,
+            "id": "01a112a4-0cce-7058-b344-f7bf80963851",
+            "material": [],
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+            "name": "public shoe",
+            "notes": null,
+            "occasion": [],
+            "pattern": [],
+            "price_exponent": null,
+            "purchase_date": null,
+            "purchase_price_minor": null,
+            "purchase_store": null,
+            "purchase_url": null,
+            "schema_version": 1,
+            "seasons": [],
+            "size_label": null,
+            "status": "active",
+            "style": [],
+            "sub_category": null,
+            "tags": [],
+            "taxonomy_version": 1,
+            "updated_at": "2026-10-06T19:15:03.645537+00:00"
+          },
+          "provider": {
+            "adapter": "openai_compatible",
+            "authentication": "none",
+            "capabilities": [
+              "vision"
+            ],
+            "created_at": "2026-10-06T19:14:49.217522+00:00",
+            "endpoint": "http://127.0.0.1:18083/v1",
+            "id": "01a112a3-d501-72ff-a776-908539302880",
+            "model": "wardrobe-smolvlm",
+            "name": "Actual SmolVLM",
+            "schema_version": 1,
+            "updated_at": "2026-10-06T19:14:49.217522+00:00"
+          },
+          "request": {
+            "asset_ids": [
+              "01a112a4-0cd6-743d-b72c-8db16f2c3c2a"
+            ],
+            "clothing_id": "01a112a4-0cce-7058-b344-f7bf80963851",
+            "confirm_upload": true,
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+            "operation_key": "Zapato.jpg",
+            "provider_id": "01a112a3-d501-72ff-a776-908539302880",
+            "upload_role": "product_display"
+          },
+          "submission": "received",
+          "transferred_images": [
+            {
+              "asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
+              "bytes": 208391,
+              "height": 367,
+              "mime": "image/png",
+              "sha256": "636341637ef4a49925f57116132c255017c5996cdfa13f831c0d69d247967e6c",
+              "source_blob_hash": "94467259bcde769779052c60c499c56d8d2d4db43bfd370cfe40d6744065ec7c",
+              "source_role": "product_display",
+              "transform": "orientation-aware-fit-512-png",
+              "width": 512
+            }
+          ],
+          "upload_role": "product_display"
+        },
+        "progress": 100,
+        "result": {
+          "suggestion_id": "01a112a4-0e64-77db-a676-42a9e34e180a"
+        },
+        "schema_version": 1,
+        "state": "succeeded",
+        "updated_at": "2026-10-06T19:15:03.908828+00:00"
+      },
+      "elapsed_seconds": 0.25564333400689065,
+      "unchanged_clothing": {
+        "asset_ids": [
+          "01a112a4-0cd6-743d-b72c-8db16f2c3c2a"
+        ],
+        "brand": null,
+        "category": "other",
+        "color": [],
+        "color_description": null,
+        "created_at": "2026-10-06T19:15:03.502577+00:00",
+        "currency": null,
+        "description": null,
+        "display_asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
+        "favorite": false,
+        "fit": null,
+        "id": "01a112a4-0cce-7058-b344-f7bf80963851",
+        "material": [],
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+        "name": "public shoe",
+        "notes": null,
+        "occasion": [],
+        "pattern": [],
+        "price_exponent": null,
+        "purchase_date": null,
+        "purchase_price_minor": null,
+        "purchase_store": null,
+        "purchase_url": null,
+        "schema_version": 1,
+        "seasons": [],
+        "size_label": null,
+        "status": "active",
+        "style": [],
+        "sub_category": null,
+        "tags": [],
+        "taxonomy_version": 1,
+        "updated_at": "2026-10-06T19:15:03.645537+00:00"
+      },
+      "proposal": {
+        "baseline": {
+          "asset_ids": [
+            "01a112a4-0cd6-743d-b72c-8db16f2c3c2a"
+          ],
+          "brand": null,
+          "category": "other",
+          "color": [],
+          "color_description": null,
+          "created_at": "2026-10-06T19:15:03.502577+00:00",
+          "currency": null,
+          "description": null,
+          "display_asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
+          "favorite": false,
+          "fit": null,
+          "id": "01a112a4-0cce-7058-b344-f7bf80963851",
+          "material": [],
+          "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+          "name": "public shoe",
+          "notes": null,
+          "occasion": [],
+          "pattern": [],
+          "price_exponent": null,
+          "purchase_date": null,
+          "purchase_price_minor": null,
+          "purchase_store": null,
+          "purchase_url": null,
+          "schema_version": 1,
+          "seasons": [],
+          "size_label": null,
+          "status": "active",
+          "style": [],
+          "sub_category": null,
+          "tags": [],
+          "taxonomy_version": 1,
+          "updated_at": "2026-10-06T19:15:03.645537+00:00"
+        },
+        "id": "01a112a4-0e64-77db-a676-42a9e34e180a",
+        "job_id": "01a112a4-0d65-7184-87e0-23fe707daf8c",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+        "provenance": {
+          "assets": [
+            {
+              "asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
+              "blob_hash": "94467259bcde769779052c60c499c56d8d2d4db43bfd370cfe40d6744065ec7c",
+              "bytes": 6780,
+              "height": 177,
+              "mime": "image/webp",
+              "role": "product_display",
+              "width": 247
+            }
+          ],
+          "created_at": "2026-10-06T19:15:03.908578+00:00",
+          "endpoint": "http://127.0.0.1:18083/v1",
+          "model": "wardrobe-smolvlm",
+          "normalization": "conservative-taxonomy-word-candidates-v1",
+          "prompt_version": "visible-description-v1",
+          "provider_id": "01a112a3-d501-72ff-a776-908539302880",
+          "provider_name": "Actual SmolVLM",
+          "response_model": "wardrobe-smolvlm",
+          "transferred_images": [
+            {
+              "asset_id": "01a112a4-0cd6-743d-b72c-8db16f2c3c2a",
+              "bytes": 208391,
+              "height": 367,
+              "mime": "image/png",
+              "sha256": "636341637ef4a49925f57116132c255017c5996cdfa13f831c0d69d247967e6c",
+              "source_blob_hash": "94467259bcde769779052c60c499c56d8d2d4db43bfd370cfe40d6744065ec7c",
+              "source_role": "product_display",
+              "transform": "orientation-aware-fit-512-png",
+              "width": 512
+            }
+          ],
+          "usage": {
+            "completion_tokens": 12,
+            "prompt_tokens": 190,
+            "prompt_tokens_details": {
+              "cached_tokens": 189
+            },
+            "total_tokens": 202
+          }
+        },
+        "raw_text": " A black and white sneaker with white laces.",
+        "schema_version": 1,
+        "state": "pending_review",
+        "suggested_facts": {
+          "category": "shoes",
+          "color": [
+            "white",
+            "black"
+          ],
+          "description": " A black and white sneaker with white laces."
+        },
+        "target": {
+          "clothing_id": "01a112a4-0cce-7058-b344-f7bf80963851"
+        },
+        "uncertainties": {
+          "model_self_reported": " A black and white sneaker with white laces.",
+          "notice": "视觉建议未经核实；品牌、材质、尺寸和不可见字段不能确定。模型自报描述/分数不是准确率。"
+        }
+      }
+    },
+    {
+      "fixture": "Jeans.jpg",
+      "job": {
+        "attempts": 1,
+        "created_at": "2026-10-06T19:15:04.545537+00:00",
+        "error": null,
+        "id": "01a112a4-10e1-718a-8ddf-a23f5213d27b",
+        "kind": "recognition",
+        "lease_expires": 0,
+        "lease_token": null,
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+        "next_due": 0,
+        "operation_key": "Jeans.jpg",
+        "payload": {
+          "asset_ids": [
+            "01a112a4-0e83-76c6-874a-47faf7efa132"
+          ],
+          "assets": [
+            {
+              "asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
+              "blob_hash": "7dd85f03aa11cd355986f878c8a117a0179d47c7db9277bc6457c9f91ccf235a",
+              "bytes": 76166,
+              "height": 650,
+              "mime": "image/webp",
+              "role": "product_display",
+              "width": 435
+            }
+          ],
+          "baseline": {
+            "asset_ids": [
+              "01a112a4-0e83-76c6-874a-47faf7efa132"
+            ],
+            "brand": null,
+            "category": "other",
+            "color": [],
+            "color_description": null,
+            "created_at": "2026-10-06T19:15:03.932095+00:00",
+            "currency": null,
+            "description": null,
+            "display_asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
+            "favorite": false,
+            "fit": null,
+            "id": "01a112a4-0e7c-70e4-89a4-458190a1c878",
+            "material": [],
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+            "name": "public jeans",
+            "notes": null,
+            "occasion": [],
+            "pattern": [],
+            "price_exponent": null,
+            "purchase_date": null,
+            "purchase_price_minor": null,
+            "purchase_store": null,
+            "purchase_url": null,
+            "schema_version": 1,
+            "seasons": [],
+            "size_label": null,
+            "status": "active",
+            "style": [],
+            "sub_category": null,
+            "tags": [],
+            "taxonomy_version": 1,
+            "updated_at": "2026-10-06T19:15:04.537342+00:00"
+          },
+          "provider": {
+            "adapter": "openai_compatible",
+            "authentication": "none",
+            "capabilities": [
+              "vision"
+            ],
+            "created_at": "2026-10-06T19:14:49.217522+00:00",
+            "endpoint": "http://127.0.0.1:18083/v1",
+            "id": "01a112a3-d501-72ff-a776-908539302880",
+            "model": "wardrobe-smolvlm",
+            "name": "Actual SmolVLM",
+            "schema_version": 1,
+            "updated_at": "2026-10-06T19:14:49.217522+00:00"
+          },
+          "request": {
+            "asset_ids": [
+              "01a112a4-0e83-76c6-874a-47faf7efa132"
+            ],
+            "clothing_id": "01a112a4-0e7c-70e4-89a4-458190a1c878",
+            "confirm_upload": true,
+            "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+            "operation_key": "Jeans.jpg",
+            "provider_id": "01a112a3-d501-72ff-a776-908539302880",
+            "upload_role": "product_display"
+          },
+          "submission": "received",
+          "transferred_images": [
+            {
+              "asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
+              "bytes": 423118,
+              "height": 512,
+              "mime": "image/png",
+              "sha256": "2a72c382ec8f94931224a408a98c468db0936a94b6b184581ad3886280c27801",
+              "source_blob_hash": "7dd85f03aa11cd355986f878c8a117a0179d47c7db9277bc6457c9f91ccf235a",
+              "source_role": "product_display",
+              "transform": "orientation-aware-fit-512-png",
+              "width": 343
+            }
+          ],
+          "upload_role": "product_display"
+        },
+        "progress": 100,
+        "result": {
+          "suggestion_id": "01a112a4-12aa-70af-ab73-f8cf6d2a98e3"
+        },
+        "schema_version": 1,
+        "state": "succeeded",
+        "updated_at": "2026-10-06T19:15:05.002435+00:00"
+      },
+      "elapsed_seconds": 0.45723900001030415,
+      "unchanged_clothing": {
+        "asset_ids": [
+          "01a112a4-0e83-76c6-874a-47faf7efa132"
+        ],
+        "brand": null,
+        "category": "other",
+        "color": [],
+        "color_description": null,
+        "created_at": "2026-10-06T19:15:03.932095+00:00",
+        "currency": null,
+        "description": null,
+        "display_asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
+        "favorite": false,
+        "fit": null,
+        "id": "01a112a4-0e7c-70e4-89a4-458190a1c878",
+        "material": [],
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+        "name": "public jeans",
+        "notes": null,
+        "occasion": [],
+        "pattern": [],
+        "price_exponent": null,
+        "purchase_date": null,
+        "purchase_price_minor": null,
+        "purchase_store": null,
+        "purchase_url": null,
+        "schema_version": 1,
+        "seasons": [],
+        "size_label": null,
+        "status": "active",
+        "style": [],
+        "sub_category": null,
+        "tags": [],
+        "taxonomy_version": 1,
+        "updated_at": "2026-10-06T19:15:04.537342+00:00"
+      },
+      "proposal": {
+        "baseline": {
+          "asset_ids": [
+            "01a112a4-0e83-76c6-874a-47faf7efa132"
+          ],
+          "brand": null,
+          "category": "other",
+          "color": [],
+          "color_description": null,
+          "created_at": "2026-10-06T19:15:03.932095+00:00",
+          "currency": null,
+          "description": null,
+          "display_asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
+          "favorite": false,
+          "fit": null,
+          "id": "01a112a4-0e7c-70e4-89a4-458190a1c878",
+          "material": [],
+          "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+          "name": "public jeans",
+          "notes": null,
+          "occasion": [],
+          "pattern": [],
+          "price_exponent": null,
+          "purchase_date": null,
+          "purchase_price_minor": null,
+          "purchase_store": null,
+          "purchase_url": null,
+          "schema_version": 1,
+          "seasons": [],
+          "size_label": null,
+          "status": "active",
+          "style": [],
+          "sub_category": null,
+          "tags": [],
+          "taxonomy_version": 1,
+          "updated_at": "2026-10-06T19:15:04.537342+00:00"
+        },
+        "id": "01a112a4-12aa-70af-ab73-f8cf6d2a98e3",
+        "job_id": "01a112a4-10e1-718a-8ddf-a23f5213d27b",
+        "member_id": "01a112a3-d4ff-70dd-9bd1-a3018001ed53",
+        "provenance": {
+          "assets": [
+            {
+              "asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
+              "blob_hash": "7dd85f03aa11cd355986f878c8a117a0179d47c7db9277bc6457c9f91ccf235a",
+              "bytes": 76166,
+              "height": 650,
+              "mime": "image/webp",
+              "role": "product_display",
+              "width": 435
+            }
+          ],
+          "created_at": "2026-10-06T19:15:05.002180+00:00",
+          "endpoint": "http://127.0.0.1:18083/v1",
+          "model": "wardrobe-smolvlm",
+          "normalization": "conservative-taxonomy-word-candidates-v1",
+          "prompt_version": "visible-description-v1",
+          "provider_id": "01a112a3-d501-72ff-a776-908539302880",
+          "provider_name": "Actual SmolVLM",
+          "response_model": "wardrobe-smolvlm",
+          "transferred_images": [
+            {
+              "asset_id": "01a112a4-0e83-76c6-874a-47faf7efa132",
+              "bytes": 423118,
+              "height": 512,
+              "mime": "image/png",
+              "sha256": "2a72c382ec8f94931224a408a98c468db0936a94b6b184581ad3886280c27801",
+              "source_blob_hash": "7dd85f03aa11cd355986f878c8a117a0179d47c7db9277bc6457c9f91ccf235a",
+              "source_role": "product_display",
+              "transform": "orientation-aware-fit-512-png",
+              "width": 343
+            }
+          ],
+          "usage": {
+            "completion_tokens": 13,
+            "prompt_tokens": 190,
+            "prompt_tokens_details": {
+              "cached_tokens": 189
+            },
+            "total_tokens": 203
+          }
+        },
+        "raw_text": " The bottom of a blue jeans pant on a striped rug.",
+        "schema_version": 1,
+        "state": "pending_review",
+        "suggested_facts": {
+          "category": "bottom",
+          "color": [
+            "blue"
+          ],
+          "description": " The bottom of a blue jeans pant on a striped rug."
+        },
+        "target": {
+          "clothing_id": "01a112a4-0e7c-70e4-89a4-458190a1c878"
+        },
+        "uncertainties": {
+          "model_self_reported": " The bottom of a blue jeans pant on a striped rug.",
+          "notice": "视觉建议未经核实；品牌、材质、尺寸和不可见字段不能确定。模型自报描述/分数不是准确率。"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+npm notice run wardrobe-desktop@0.1.0 npx
+npm notice run 'playwright' test tests/feedback.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5174 --strictPort
+[WebServer] (node:66236) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 3 tests using 1 worker
+
+(node:66238) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/feedback.spec.ts:10:1 › 推荐意见评分与历史持久，Try Another保持约束和七宽度 (1.6s)
+  ✓  2 tests/feedback.spec.ts:24:1 › 实际穿了与改穿必须UI确认，响应丢失重试只记一次穿着 (1.5s)
+  ✓  3 tests/feedback.spec.ts:41:1 › UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着 (1.7s)
+
+  3 passed (5.9s)

@@ -1,0 +1,82 @@
+{
+  "confirmed_terminal_project_test_executables": [
+    {
+      "name": "outfits-c96ed020993d761c",
+      "bytes": 107492960
+    },
+    {
+      "name": "image_editing-8a2dcdd82019f0c5",
+      "bytes": 107502160
+    },
+    {
+      "name": "product_display-a18da5aa75ef9413",
+      "bytes": 107674256
+    },
+    {
+      "name": "assets-773e493192c33ac7",
+      "bytes": 107424496
+    },
+    {
+      "name": "jobs-de3e70e0e134969b",
+      "bytes": 107302720
+    },
+    {
+      "name": "imports-fdde2689a15efba1",
+      "bytes": 107570176
+    },
+    {
+      "name": "members-8f049ded7e2d3f06",
+      "bytes": 107242704
+    },
+    {
+      "name": "entrypoints-95eae7cede4a3832",
+      "bytes": 107749312
+    },
+    {
+      "name": "providers-3ea6371799df229d",
+      "bytes": 107350128
+    },
+    {
+      "name": "encryption-e7ed1076601f67ba",
+      "bytes": 107500304
+    },
+    {
+      "name": "application-ffdc02d1fe195a3e",
+      "bytes": 107313584
+    },
+    {
+      "name": "flatlay-5d698fcfee5160b0",
+      "bytes": 107546512
+    },
+    {
+      "name": "wears-1550ba0bb9fb26ec",
+      "bytes": 107601840
+    },
+    {
+      "name": "recognition-2f4b64dc71cadf25",
+      "bytes": 107774320
+    },
+    {
+      "name": "encrypted_package-045f42afeeda4e33",
+      "bytes": 107499744
+    },
+    {
+      "name": "authorization-fe956f04a592cf83",
+      "bytes": 107290272
+    },
+    {
+      "name": "tryon-f5da9cae3915c061",
+      "bytes": 107777344
+    },
+    {
+      "name": "care-3f096b7d4977dc9a",
+      "bytes": 107465296
+    },
+    {
+      "name": "clothing_management-84e697d05a982bad",
+      "bytes": 107281296
+    }
+  ],
+  "bytes_reclaimed": 2042359424,
+  "preserved": "current CLI, release, models, rlib/rmeta/build, source, evidence"
+}

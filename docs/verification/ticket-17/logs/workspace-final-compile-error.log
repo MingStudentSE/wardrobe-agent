@@ -1,0 +1,35 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-17/crates/wardrobe-core)
+error[E0308]: mismatched types
+   --> crates/wardrobe-core/src/recommendations.rs:254:35
+    |
+254 |             if !excluded.contains(id) {
+    |                          -------- ^^ expected `&String`, found `String`
+    |                          |
+    |                          arguments to this method are incorrect
+    |
+note: method defined here
+   --> /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/slice/mod.rs:2600:11
+help: consider borrowing here
+    |
+254 |             if !excluded.contains(&id) {
+    |                                   +
+
+error[E0308]: mismatched types
+   --> crates/wardrobe-core/src/recommendations.rs:297:31
+    |
+297 |                 excluded.push(id);
+    |                          ---- ^^ expected `String`, found `&String`
+    |                          |
+    |                          arguments to this method are incorrect
+    |
+note: method defined here
+   --> /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/alloc/src/vec/mod.rs:995:11
+help: try using a conversion method
+    |
+297 |                 excluded.push(id.to_string());
+    |                                 ++++++++++++
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `wardrobe-core` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `wardrobe-core` (lib test) due to 2 previous errors

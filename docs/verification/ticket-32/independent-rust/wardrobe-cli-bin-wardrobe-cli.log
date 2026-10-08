@@ -1,0 +1,8 @@
+   Compiling wardrobe-cli v0.1.0 (/private/tmp/wardrobe-merge-32/crates/wardrobe-cli)
+    Finished `test` profile [unoptimized] target(s) in 0.61s
+     Running unittests src/main.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wardrobe_cli-c63706bd91c01edb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

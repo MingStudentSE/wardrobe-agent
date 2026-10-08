@@ -1,0 +1,34 @@
+{"phase": "seeded", "database_bytes": 743522304, "media_bytes": 270001539}
+{"phase": "backup.create", "still_running": true, "free_bytes": 3363815424, "sqlite_and_wal_bytes": 1316328504}
+{"phase": "backup.create", "still_running": true, "free_bytes": 3045294080, "sqlite_and_wal_bytes": 1476538424}
+{"phase": "backup.create", "seconds": 13.652958916994976}
+{"phase": "backup.preview", "still_running": true, "free_bytes": 2941464576, "sqlite_and_wal_bytes": 1476538424}
+{"phase": "backup.preview", "still_running": true, "free_bytes": 2941456384, "sqlite_and_wal_bytes": 1476538424}
+{"phase": "backup.preview", "still_running": true, "free_bytes": 2941231104, "sqlite_and_wal_bytes": 1476538424}
+{"phase": "backup.preview", "seconds": 17.271633583994117}
+{"phase": "backup.restore", "still_running": true, "free_bytes": 3910520832, "sqlite_and_wal_bytes": 733316856}
+{"phase": "backup.restore", "still_running": true, "free_bytes": 3954167808, "sqlite_and_wal_bytes": 733316856}
+{"phase": "backup.restore", "still_running": true, "free_bytes": 3956756480, "sqlite_and_wal_bytes": 733316856}
+{"phase": "backup.restore", "still_running": true, "free_bytes": 2952196096, "sqlite_and_wal_bytes": 1466296056}
+{"phase": "backup.restore", "still_running": true, "free_bytes": 2951385088, "sqlite_and_wal_bytes": 1466296056}
+{"phase": "backup.restore", "still_running": true, "free_bytes": 2943553536, "sqlite_and_wal_bytes": 1466296056}
+{"phase": "backup.restore", "still_running": true, "free_bytes": 2378055680, "sqlite_and_wal_bytes": 2054649216}
+{"operation": "backup.restore", "diagnostic_lines": ["backup_test_phase=external_preview", "backup_test_phase=owned_copy_and_preview", "backup_test_phase=write_lock_and_prebackup", "backup_test_phase=attach", "backup_test_phase=insert:members", "backup_test_phase=insert:workspace", "backup_test_phase=insert:clothing", "backup_test_phase=insert:audit", "backup_test_phase=insert:outbox", "backup_test_phase=insert:assets", "backup_test_phase=insert:outfits", "backup_test_phase=insert:outfit_items", "backup_test_phase=insert:outfit_versions", "backup_test_phase=insert:wear_events", "backup_test_phase=insert:wear_receipts", "backup_test_phase=insert:wear_asset_refs", "backup_test_phase=insert:care_config", "backup_test_phase=insert:care_events", "backup_test_phase=insert:care_receipts", "backup_test_phase=insert:care_asset_refs", "backup_test_phase=insert:insights_preferences", "backup_test_phase=insert:recommendation_intents", "backup_test_phase=insert:recommendation_saves", "backup_test_phase=commit"]}
+{"phase": "backup.restore", "seconds": 39.60197975000483}
+{"phase": "backup.preview", "still_running": true, "free_bytes": 2227630080, "sqlite_and_wal_bytes": 2209693752}
+{"phase": "backup.preview", "still_running": true, "free_bytes": 2226933760, "sqlite_and_wal_bytes": 2209693752}
+{"phase": "backup.preview", "still_running": true, "free_bytes": 2226659328, "sqlite_and_wal_bytes": 2209693752}
+{
+  "clothing": 10000,
+  "wear_events": 100000,
+  "originals": 9,
+  "package_bytes": 1002981099,
+  "source_removed_before_restore": true,
+  "restart_public_reads": true,
+  "fixture_seed": "public API shapes expanded by explicit synthetic SQL transaction",
+  "seconds": {
+    "backup.create": 13.652958916994976,
+    "backup.preview": 17.271633583994117,
+    "backup.restore": 39.60197975000483
+  }
+}

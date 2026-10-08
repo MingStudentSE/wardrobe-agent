@@ -1,0 +1,16 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 1.01s
+     Running tests/wears.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/wears-1550ba0bb9fb26ec)
+
+running 8 tests
+test explicit_actual_wear_counts_events_and_local_days_without_template_side_effects ... ok
+test revoked_wear_retains_adopted_display_after_current_garment_detaches_it ... ok
+test public_history_keeps_template_snapshot_and_refuses_cross_member_and_future_facts ... ok
+test two_clients_cannot_both_correct_one_revision_or_reuse_key_for_another_intent ... ok
+test local_days_remain_user_date_across_utc_midnight_and_db_nine_repairs_missing_tables ... ok
+test corrections_and_revocation_append_history_recompute_and_preserve_exact_retry_receipts ... ok
+test wear_snapshot_retains_all_associated_pictures_not_only_selected_display ... ok
+test clients_discover_revision_contract_and_cannot_write_with_read_only_scope ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

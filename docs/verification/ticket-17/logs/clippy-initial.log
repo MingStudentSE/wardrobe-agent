@@ -1,0 +1,14 @@
+    Checking wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-17/crates/wardrobe-core)
+error: this assertion has a constant value
+   --> crates/wardrobe-core/tests/feedback.rs:472:5
+    |
+472 |     assert!(wardrobe_core::DATABASE_SCHEMA_VERSION >= 19);
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider moving this into a const block: `const { assert!(..) }`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#assertions_on_constants
+    = note: `-D clippy::assertions-on-constants` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::assertions_on_constants)]`
+
+error: could not compile `wardrobe-core` (test "feedback") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

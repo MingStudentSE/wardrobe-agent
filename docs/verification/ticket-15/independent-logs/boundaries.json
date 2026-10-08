@@ -1,0 +1,12 @@
+{
+  "timezone": "Pacific/Kiritimati",
+  "outside_day": "2026-09-30",
+  "inside_day": "2026-10-01",
+  "seven_local_day_edges_verified": true,
+  "cross_member_denied": "member_denied",
+  "archived_after_generation_save_rejected": "constraint_conflict",
+  "outfit_count": 0,
+  "actual_wear_count": 2,
+  "temporary_data_removed": true,
+  "credential_recorded": false
+}

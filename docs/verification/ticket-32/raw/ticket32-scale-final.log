@@ -1,0 +1,11 @@
+{"phase": "seeded", "database_bytes": 743403520, "media_bytes": 270001539}
+{"phase": "backup.create", "seconds": 19.339450458006468}
+{"phase": "backup.preview", "seconds": 32.624947625008645}
+Traceback (most recent call last):
+  File "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/scale.py", line 45, in <module>
+    start=time.monotonic();command(target,'backup.restore',{'directory':str(package),'confirm_overwrite':True});elapsed['backup.restore']=time.monotonic()-start;print(json.dumps({'phase':'backup.restore','seconds':elapsed['backup.restore']}),flush=True)
+                           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/wardrobe-ticket-32/docs/verification/ticket-32/scale.py", line 7, in command
+    if p.returncode:raise RuntimeError({"operation":name,"response":response})
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: {'operation': 'backup.restore', 'response': {'error': {'code': 'storage_error', 'message': '本地数据库操作失败'}}}

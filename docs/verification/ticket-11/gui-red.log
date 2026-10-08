@@ -1,0 +1,42 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test insights.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5215 --strictPort
+[WebServer] (node:45301) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:45303) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+  ✘  1 tests/insights.spec.ts:2:1 › 洞察手算分布、次数天数、90天边界、成员偏好重载及更正撤销重算 (1.3s)
+
+
+  1) tests/insights.spec.ts:2:1 › 洞察手算分布、次数天数、90天边界、成员偏好重载及更正撤销重算 ──────────────────────────────────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('link', { name: '洞察', exact: true })
+    Expected: visible
+    Timeout: 1000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('link', { name: '洞察', exact: true }) with timeout 1000ms
+      - waiting for getByRole('link', { name: '洞察', exact: true })
+
+
+      1 | import {test,expect} from '@playwright/test';
+      2 | test('洞察手算分布、次数天数、90天边界、成员偏好重载及更正撤销重算',async({page})=>{
+    > 3 |  await page.goto('/');await expect(page.getByRole('link',{name:'洞察',exact:true})).toBeVisible({timeout:1000});
+        |                                                                                   ^
+      4 |  const execute=async(operation:string,input:object)=>{const r=await page.request.post('/__wardrobe_dev_api',{data:{operation,input}});const body=await r.json();expect(body.error).toBeUndefined();return body.result;};
+      5 |  const m=await execute('member.create',{name:'洞察手算验收'});const member=m.member_id;const ids:string[]=[];
+      6 |  for(const [name,category,color]of [['A','top',['red','blue']],['B','top',['red']],['C','bottom',[]],['D','outerwear',['green']],['E','other',[]],['F','shoes',[]]] as [string,string,string[]][]){ids.push((await execute('clothing.create',{member_id:member,name,category,color})).id);}
+        at /private/tmp/wardrobe-ticket-11/apps/desktop/tests/insights.spec.ts:3:83
+
+    Error Context: test-results/insights-洞察手算分布、次数天数、90天边界、成员偏好重载及更正撤销重算/error-context.md
+
+  1 failed
+    tests/insights.spec.ts:2:1 › 洞察手算分布、次数天数、90天边界、成员偏好重载及更正撤销重算 ───────────────────────────────────

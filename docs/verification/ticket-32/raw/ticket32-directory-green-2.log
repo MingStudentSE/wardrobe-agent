@@ -1,0 +1,26 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-32/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 2.78s
+     Running tests/backup.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/backup-cbbda9a3225d5625)
+
+running 5 tests
+test data_directory_switch_verifies_copy_and_existing_application_and_reopened_tools_follow_it ... FAILED
+test restored_display_is_self_contained_and_corrupt_archive_never_overwrites_current_facts ... ok
+test portable_backup_preview_restore_preserves_actual_history_after_restart ... ok
+test credentials_are_absent_from_every_backup_file_and_never_authorize_restored_installation ... ok
+test preview_explains_overwrite_and_real_prebackup_can_restore_previous_installation ... ok
+
+failures:
+
+---- data_directory_switch_verifies_copy_and_existing_application_and_reopened_tools_follow_it stdout ----
+
+thread 'data_directory_switch_verifies_copy_and_existing_application_and_reopened_tools_follow_it' (3470202) panicked at crates/wardrobe-core/tests/backup.rs:317:14:
+called `Result::unwrap()` on an `Err` value: ApiError { code: "not_found", message: "找不到该成员的单品" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    data_directory_switch_verifies_copy_and_existing_application_and_reopened_tools_follow_it
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `-p wardrobe-core --test backup`

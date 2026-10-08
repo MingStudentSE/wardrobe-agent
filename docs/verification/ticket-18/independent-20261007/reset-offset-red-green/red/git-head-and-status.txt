@@ -1,0 +1,12 @@
+git rev-parse HEAD:
+cd7ef72e1b5dfb0423bc3937f2ea59553664ae09
+
+git status --porcelain (after this task; PNG modifications belong to the parallel GUI-metadata task, not this one):
+ M docs/verification/ticket-18/learning-1280.png
+ M docs/verification/ticket-18/learning-320.png
+ M docs/verification/ticket-18/learning-sources-1280.png
+ M docs/verification/ticket-18/learning-sources-320.png
+?? crates/wardrobe-core/tests/learning_reset_offsets.rs
+
+This task's only worktree change: new file crates/wardrobe-core/tests/learning_reset_offsets.rs
+No production source changes, no existing-test edits, no commit, no push.

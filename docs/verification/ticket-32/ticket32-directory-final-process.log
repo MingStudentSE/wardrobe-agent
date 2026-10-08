@@ -1,0 +1,17 @@
+{
+  "blocked_existing_mcp_writer": {
+    "observed_blocked": true,
+    "new_directory_contains_acknowledged_write": true
+  },
+  "actual_process_kill_during_copy": {
+    "exit": -9,
+    "old_source_readable": true,
+    "location_not_switched_before_explicit_recovery": true,
+    "explicit_recovery_succeeded": true
+  },
+  "actual_marker_publish_permission_failure": {
+    "error": "directory_io",
+    "old_source_readable": true,
+    "location_not_switched": true
+  }
+}

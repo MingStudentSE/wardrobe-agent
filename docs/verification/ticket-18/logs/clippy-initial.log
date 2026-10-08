@@ -1,0 +1,32 @@
+    Checking wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-18/crates/wardrobe-core)
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/wardrobe-core/src/learning.rs:202:10
+    |
+202 |     ) -> Result<(Value, std::collections::BTreeMap<(String, String), i64>), ApiError> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+    = note: `-D clippy::type-complexity` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::type_complexity)]`
+
+error: this creates an owned instance just for comparison
+   --> crates/wardrobe-core/src/learning.rs:247:27
+    |
+247 |             if request != input.to_string() {
+    |                           ^^^^^^^^^^^^^^^^^ help: try: `input`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#cmp_owned
+    = note: `-D clippy::cmp-owned` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::cmp_owned)]`
+
+error: this creates an owned instance just for comparison
+   --> crates/wardrobe-core/src/learning.rs:513:27
+    |
+513 |             if request != input.to_string() {
+    |                           ^^^^^^^^^^^^^^^^^ help: try: `input`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#cmp_owned
+
+error: could not compile `wardrobe-core` (lib) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `wardrobe-core` (lib test) due to 3 previous errors

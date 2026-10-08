@@ -1,0 +1,577 @@
+{
+  "durable_async_receipts": [
+    {
+      "receipt": {
+        "job_id": "01a113b5-7a6d-70b6-aba6-1f944dbad6d5",
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "result": null,
+        "schema_version": 1,
+        "state": "queued"
+      },
+      "reopened_job": {
+        "attempts": 0,
+        "created_at": "2026-10-07T00:13:42.893608+00:00",
+        "error": null,
+        "id": "01a113b5-7a6d-70b6-aba6-1f944dbad6d5",
+        "kind": "learning_recompute",
+        "lease_expires": 0,
+        "lease_token": null,
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "next_due": 0,
+        "operation_key": "learn",
+        "payload": {
+          "expected_state": {
+            "cutoff": null,
+            "suppressed": []
+          },
+          "request": {
+            "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+            "operation_key": "learn"
+          }
+        },
+        "progress": 0,
+        "result": null,
+        "schema_version": 1,
+        "state": "queued",
+        "updated_at": "2026-10-07T00:13:42.893608+00:00"
+      },
+      "terminal": {
+        "attempts": 1,
+        "created_at": "2026-10-07T00:13:42.893608+00:00",
+        "error": null,
+        "id": "01a113b5-7a6d-70b6-aba6-1f944dbad6d5",
+        "kind": "learning_recompute",
+        "lease_expires": 0,
+        "lease_token": null,
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "next_due": 0,
+        "operation_key": "learn",
+        "payload": {
+          "expected_state": {
+            "cutoff": null,
+            "suppressed": []
+          },
+          "request": {
+            "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+            "operation_key": "learn"
+          }
+        },
+        "progress": 100,
+        "result": {
+          "profile_id": "01a113b5-7a8b-7085-9784-9f99bfc54fac"
+        },
+        "schema_version": 1,
+        "state": "succeeded",
+        "updated_at": "2026-10-07T00:13:42.923790+00:00"
+      }
+    },
+    {
+      "receipt": {
+        "job_id": "01a113b5-7b13-725d-b37a-d8fa3c079ba5",
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "result": null,
+        "schema_version": 1,
+        "state": "queued"
+      },
+      "reopened_job": {
+        "attempts": 0,
+        "created_at": "2026-10-07T00:13:43.059758+00:00",
+        "error": null,
+        "id": "01a113b5-7b13-725d-b37a-d8fa3c079ba5",
+        "kind": "learning_recompute",
+        "lease_expires": 0,
+        "lease_token": null,
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "next_due": 0,
+        "operation_key": "afterforget",
+        "payload": {
+          "expected_state": {
+            "cutoff": null,
+            "suppressed": [
+              {
+                "dimension": "color",
+                "value": "blue"
+              }
+            ]
+          },
+          "request": {
+            "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+            "operation_key": "afterforget"
+          }
+        },
+        "progress": 0,
+        "result": null,
+        "schema_version": 1,
+        "state": "queued",
+        "updated_at": "2026-10-07T00:13:43.059758+00:00"
+      },
+      "terminal": {
+        "attempts": 1,
+        "created_at": "2026-10-07T00:13:43.059758+00:00",
+        "error": null,
+        "id": "01a113b5-7b13-725d-b37a-d8fa3c079ba5",
+        "kind": "learning_recompute",
+        "lease_expires": 0,
+        "lease_token": null,
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "next_due": 0,
+        "operation_key": "afterforget",
+        "payload": {
+          "expected_state": {
+            "cutoff": null,
+            "suppressed": [
+              {
+                "dimension": "color",
+                "value": "blue"
+              }
+            ]
+          },
+          "request": {
+            "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+            "operation_key": "afterforget"
+          }
+        },
+        "progress": 100,
+        "result": {
+          "profile_id": "01a113b5-7b33-72f5-a9e3-cf93342b19ed"
+        },
+        "schema_version": 1,
+        "state": "succeeded",
+        "updated_at": "2026-10-07T00:13:43.091248+00:00"
+      }
+    },
+    {
+      "receipt": {
+        "job_id": "01a113b5-7b89-74b9-8d2d-65765b40b730",
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "result": null,
+        "schema_version": 1,
+        "state": "queued"
+      },
+      "reopened_job": {
+        "attempts": 0,
+        "created_at": "2026-10-07T00:13:43.177801+00:00",
+        "error": null,
+        "id": "01a113b5-7b89-74b9-8d2d-65765b40b730",
+        "kind": "learning_recompute",
+        "lease_expires": 0,
+        "lease_token": null,
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "next_due": 0,
+        "operation_key": "afterreset",
+        "payload": {
+          "expected_state": {
+            "cutoff": "2026-10-07T00:13:43.162918+00:00",
+            "suppressed": []
+          },
+          "request": {
+            "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+            "operation_key": "afterreset"
+          }
+        },
+        "progress": 0,
+        "result": null,
+        "schema_version": 1,
+        "state": "queued",
+        "updated_at": "2026-10-07T00:13:43.177801+00:00"
+      },
+      "terminal": {
+        "attempts": 1,
+        "created_at": "2026-10-07T00:13:43.177801+00:00",
+        "error": null,
+        "id": "01a113b5-7b89-74b9-8d2d-65765b40b730",
+        "kind": "learning_recompute",
+        "lease_expires": 0,
+        "lease_token": null,
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "next_due": 0,
+        "operation_key": "afterreset",
+        "payload": {
+          "expected_state": {
+            "cutoff": "2026-10-07T00:13:43.162918+00:00",
+            "suppressed": []
+          },
+          "request": {
+            "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+            "operation_key": "afterreset"
+          }
+        },
+        "progress": 100,
+        "result": {
+          "profile_id": "01a113b5-7bb9-7158-a776-07e1fa7ecf27"
+        },
+        "schema_version": 1,
+        "state": "succeeded",
+        "updated_at": "2026-10-07T00:13:43.225152+00:00"
+      }
+    },
+    {
+      "receipt": {
+        "job_id": "01a113b5-7c09-772c-a65a-46adb055e87f",
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "result": null,
+        "schema_version": 1,
+        "state": "queued"
+      },
+      "reopened_job": {
+        "attempts": 0,
+        "created_at": "2026-10-07T00:13:43.305147+00:00",
+        "error": null,
+        "id": "01a113b5-7c09-772c-a65a-46adb055e87f",
+        "kind": "learning_recompute",
+        "lease_expires": 0,
+        "lease_token": null,
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "next_due": 0,
+        "operation_key": "rebuild",
+        "payload": {
+          "expected_state": {
+            "cutoff": "2026-10-07T00:13:43.162918+00:00",
+            "suppressed": []
+          },
+          "request": {
+            "include_prior": true,
+            "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+            "operation_key": "rebuild"
+          }
+        },
+        "progress": 0,
+        "result": null,
+        "schema_version": 1,
+        "state": "queued",
+        "updated_at": "2026-10-07T00:13:43.305147+00:00"
+      },
+      "terminal": {
+        "attempts": 1,
+        "created_at": "2026-10-07T00:13:43.305147+00:00",
+        "error": null,
+        "id": "01a113b5-7c09-772c-a65a-46adb055e87f",
+        "kind": "learning_recompute",
+        "lease_expires": 0,
+        "lease_token": null,
+        "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+        "next_due": 0,
+        "operation_key": "rebuild",
+        "payload": {
+          "expected_state": {
+            "cutoff": "2026-10-07T00:13:43.162918+00:00",
+            "suppressed": []
+          },
+          "request": {
+            "include_prior": true,
+            "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+            "operation_key": "rebuild"
+          }
+        },
+        "progress": 100,
+        "result": {
+          "profile_id": "01a113b5-7c24-7398-9160-ab337c49733d"
+        },
+        "schema_version": 1,
+        "state": "succeeded",
+        "updated_at": "2026-10-07T00:13:43.333179+00:00"
+      }
+    }
+  ],
+  "limited_operations": [
+    "learning.get",
+    "learning.set",
+    "learning.edit",
+    "learning.delete",
+    "learning.reset",
+    "learning.recompute",
+    "learning.history",
+    "learning.worker.run",
+    "jobs.get",
+    "jobs.cancel",
+    "recommendation.generate",
+    "wear.list"
+  ],
+  "explicit": {
+    "algorithm_version": "explicit-and-events-v1",
+    "created_at": "2026-10-07T00:13:42.980292+00:00",
+    "deleted": false,
+    "dimension": "color",
+    "id": "01a113b5-7ac4-70f0-b0a3-c9aaeea2f367",
+    "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+    "note": "explicit choice",
+    "revision": 1,
+    "root_id": "01a113b5-7ac4-70f0-b0a3-c9aaeea2f367",
+    "schema_version": 1,
+    "source": {
+      "kind": "explicit_user"
+    },
+    "value": "blue",
+    "weight": 5
+  },
+  "edited": {
+    "algorithm_version": "explicit-and-events-v1",
+    "created_at": "2026-10-07T00:13:43.025235+00:00",
+    "deleted": false,
+    "dimension": "color",
+    "id": "01a113b5-7af1-7702-a4ff-76610c234093",
+    "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+    "note": "explicit choice",
+    "revision": 2,
+    "root_id": "01a113b5-7ac4-70f0-b0a3-c9aaeea2f367",
+    "schema_version": 1,
+    "source": {
+      "kind": "explicit_user"
+    },
+    "value": "blue",
+    "weight": -2
+  },
+  "deleted": {
+    "created_at": "2026-10-07T00:13:43.043691+00:00",
+    "id": "01a113b5-7b03-7033-8e7d-3b41f372e688",
+    "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+    "operation": "learning.delete",
+    "schema_version": 1,
+    "state": {
+      "cutoff": null,
+      "suppressed": [
+        {
+          "dimension": "color",
+          "value": "blue"
+        }
+      ]
+    }
+  },
+  "reset": {
+    "created_at": "2026-10-07T00:13:43.162918+00:00",
+    "id": "01a113b5-7b7a-753e-a1f9-fc05cf7a341c",
+    "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+    "operation": "learning.reset",
+    "schema_version": 1,
+    "state": {
+      "cutoff": "2026-10-07T00:13:43.162918+00:00",
+      "suppressed": []
+    }
+  },
+  "profile": {
+    "algorithm_version": "explicit-and-events-v1",
+    "created_at": "2026-10-07T00:13:42.923641+00:00",
+    "explicit": [],
+    "id": "01a113b5-7a8b-7085-9784-9f99bfc54fac",
+    "include_prior": false,
+    "inferred": [
+      {
+        "algorithm_version": "explicit-and-events-v1",
+        "dimension": "category",
+        "source": {
+          "feedback_ids": [],
+          "kind": "inferred_events",
+          "wear_ids": [
+            "01a113b5-7a4d-70f4-8288-2fb91d13e7a9"
+          ]
+        },
+        "value": "top",
+        "weight": 1
+      },
+      {
+        "algorithm_version": "explicit-and-events-v1",
+        "dimension": "color",
+        "source": {
+          "feedback_ids": [],
+          "kind": "inferred_events",
+          "wear_ids": [
+            "01a113b5-7a4d-70f4-8288-2fb91d13e7a9"
+          ]
+        },
+        "value": "blue",
+        "weight": 1
+      }
+    ],
+    "local_installation_generation": "01a113b5-7a0d-771f-8379-9f98a71b78a1",
+    "local_source_version": 1,
+    "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+    "reset_boundary": null,
+    "schema_version": 1,
+    "source_stale": false
+  },
+  "rebuilt": {
+    "algorithm_version": "explicit-and-events-v1",
+    "created_at": "2026-10-07T00:13:43.333012+00:00",
+    "explicit": [],
+    "id": "01a113b5-7c24-7398-9160-ab337c49733d",
+    "include_prior": true,
+    "inferred": [
+      {
+        "algorithm_version": "explicit-and-events-v1",
+        "dimension": "category",
+        "source": {
+          "feedback_ids": [],
+          "kind": "inferred_events",
+          "wear_ids": [
+            "01a113b5-7a4d-70f4-8288-2fb91d13e7a9"
+          ]
+        },
+        "value": "top",
+        "weight": 1
+      },
+      {
+        "algorithm_version": "explicit-and-events-v1",
+        "dimension": "color",
+        "source": {
+          "feedback_ids": [],
+          "kind": "inferred_events",
+          "wear_ids": [
+            "01a113b5-7a4d-70f4-8288-2fb91d13e7a9"
+          ]
+        },
+        "value": "blue",
+        "weight": 1
+      }
+    ],
+    "local_installation_generation": "01a113b5-7a0d-771f-8379-9f98a71b78a1",
+    "local_source_version": 1,
+    "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+    "reset_boundary": null,
+    "schema_version": 1,
+    "source_stale": false
+  },
+  "recommendation": {
+    "actual_count": 1,
+    "controls": {
+      "limit": 1,
+      "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+      "operation_key": "preferred",
+      "timezone": "UTC"
+    },
+    "created_at": "2026-10-07T00:13:43.010668+00:00",
+    "creates_wear": false,
+    "feedback_context": {
+      "day_excluded_ids": [],
+      "disliked_set_count": 0,
+      "source": "explicit_effective_feedback"
+    },
+    "generation": {
+      "attempts": 0,
+      "source": "rules"
+    },
+    "id": "01a113b5-7ae2-7247-8c68-1387842ff1f1",
+    "learning_context": {
+      "algorithm_version": "explicit-and-events-v1",
+      "explicit_count": 1,
+      "hard_constraints_override": true,
+      "inferred_count": 2,
+      "inferred_source_stale": false,
+      "profile_id": "01a113b5-7a8b-7085-9784-9f99bfc54fac",
+      "source": "managed_member_memory"
+    },
+    "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+    "offline": true,
+    "proposals": [
+      {
+        "complete": true,
+        "items": [
+          {
+            "category": "top",
+            "clothing_id": "01a113b5-7a2e-7411-8810-029a3bd35587",
+            "layer": 0,
+            "name": "Blue",
+            "role": "top"
+          },
+          {
+            "category": "bottom",
+            "clothing_id": "01a113b5-7a38-7730-acb7-7cd6269267b7",
+            "layer": 0,
+            "name": "裤",
+            "role": "bottom"
+          },
+          {
+            "category": "shoes",
+            "clothing_id": "01a113b5-7a40-7380-aa25-5cded43d3f96",
+            "layer": 0,
+            "name": "鞋",
+            "role": "shoes"
+          }
+        ],
+        "missing_roles": [],
+        "occasion_verified": false,
+        "reasons": [
+          "离线角色规则：真实可用衣物，固定与排除约束已保留",
+          "日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除",
+          "目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）"
+        ],
+        "repeat_relaxed": false
+      }
+    ],
+    "recent_window": {
+      "from": "2026-10-01",
+      "source": "actual_effective_wear",
+      "through": "2026-10-07",
+      "timezone": "UTC"
+    },
+    "requested_count": 1,
+    "schema_version": 1,
+    "shortage_reasons": [],
+    "updated_at": "2026-10-07T00:13:43.010668+00:00",
+    "weather_context": {
+      "mode": "off",
+      "network_requested": false,
+      "source": "disabled",
+      "stale": false
+    }
+  },
+  "history_count": 8,
+  "wear_preserved": {
+    "created_at": "2026-10-07T00:13:42.861457+00:00",
+    "id": "01a113b5-7a4d-70f4-8288-2fb91d13e7a9",
+    "items": [
+      {
+        "clothing_id": "01a113b5-7a2e-7411-8810-029a3bd35587",
+        "snapshot": {
+          "brand": null,
+          "category": "top",
+          "color": [
+            "blue"
+          ],
+          "color_description": null,
+          "created_at": "2026-10-07T00:13:42.830954+00:00",
+          "currency": null,
+          "description": null,
+          "favorite": false,
+          "fit": null,
+          "id": "01a113b5-7a2e-7411-8810-029a3bd35587",
+          "material": [],
+          "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+          "name": "Blue",
+          "notes": null,
+          "occasion": [],
+          "pattern": [],
+          "price_exponent": null,
+          "purchase_date": null,
+          "purchase_price_minor": null,
+          "purchase_store": null,
+          "purchase_url": null,
+          "schema_version": 1,
+          "seasons": [],
+          "size_label": null,
+          "status": "active",
+          "style": [],
+          "sub_category": null,
+          "tags": [],
+          "taxonomy_version": 1,
+          "updated_at": "2026-10-07T00:13:42.830954+00:00"
+        }
+      }
+    ],
+    "kind": "record",
+    "local_date": "2020-01-01",
+    "local_time": null,
+    "member_id": "01a113b5-7a08-71ac-b31d-c1aac8425df7",
+    "notes": "",
+    "occurred_at": "2020-01-01T12:00:00+00:00",
+    "revision": 1,
+    "root_event_id": "01a113b5-7a4d-70f4-8288-2fb91d13e7a9",
+    "schema_version": 1,
+    "source_outfit": null,
+    "supersedes_event_id": null,
+    "time_precision": "date",
+    "timezone": "UTC"
+  },
+  "effective_wear_count": 1,
+  "credential_recorded": false,
+  "temporary_data_removed_on_exit": true
+}

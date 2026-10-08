@@ -1,0 +1,36 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/feedback.spec.ts -g UI当天排除
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5189 --strictPort
+[WebServer] (node:59353) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:59355) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/feedback.spec.ts:40:1 › UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着 (30.2s)
+
+
+  1) tests/feedback.spec.ts:40:1 › UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着 ──────────────────────────────────────
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.check: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for locator('#recommendations').getByLabel('固定 当天固定上衣', { exact: true })
+
+
+      41 |  await page.goto('/');await page.getByRole('link',{name:'推荐',exact:true}).click();const panel=page.locator('#recommendations');
+      42 |  const call=async(operation:string,input:object={})=>{const r=await page.request.post('/__wardrobe_dev_api',{data:{operation,input:{member_id:feedbackMember,...input}}});const b=await r.json();if(b.error)throw new Error(b.error.message);return b.result;};
+    > 43 |  await call('clothing.create',{name:'当天固定上衣',category:'top'});await panel.getByRole('button',{name:'刷新推荐库存',exact:true}).click();await panel.getByText('选择固定、排除与库存优先',{exact:true}).click();await panel.getByLabel('搜索推荐库存',{exact:true}).fill('当天固定上衣');await panel.getByLabel('固定 当天固定上衣',{exact:true}).check();await panel.getByRole('button',{name:'生成离线搭配',exact:true}).click();const feedback=panel.locator('.recommendation-feedback');const before=(await call('wear.list')).items.length;
+         |                                                                                                                                                                                                                                                                                                           ^
+      44 |  await feedback.getByText('当天排除所选单品',{exact:true}).click();const day=feedback.locator('details').filter({has:page.getByRole('button',{name:'确认当天排除',exact:true})});for(const checkbox of await day.getByRole('checkbox').all())await checkbox.uncheck();
+      45 |  await day.getByLabel('当天固定上衣',{exact:true}).check();await day.getByRole('button',{name:'确认当天排除',exact:true}).click();await expect(feedback.getByRole('status')).toContainText('反馈已保存');
+      46 |  await panel.getByRole('button',{name:'生成离线搭配',exact:true}).click();await expect(panel.getByRole('alert')).toContainText('当天排除');expect((await call('wear.list')).items.length).toBe(before);
+        at /private/tmp/wardrobe-ticket-17/apps/desktop/tests/feedback.spec.ts:43:299
+
+    Error Context: test-results/feedback-UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着/error-context.md
+
+  1 failed
+    tests/feedback.spec.ts:40:1 › UI当天排除与固定冲突、反馈更正撤销历史均不改变穿着 ───────────────────────────────────────

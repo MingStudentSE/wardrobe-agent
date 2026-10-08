@@ -1,0 +1,528 @@
+{
+  "actual_weather": {
+    "cache": {
+      "attribution": "Weather data by Open-Meteo · CC BY 4.0",
+      "location": "Shanghai public example",
+      "obtained_at": "2026-10-06T20:59:07.161549+00:00",
+      "source": "open_meteo_model",
+      "source_url": "https://open-meteo.com/",
+      "stale": false,
+      "temperature_c": 13.6,
+      "valid_time": "2026-10-06T20:45:00+00:00"
+    },
+    "config": {
+      "attribution": "Weather data by Open-Meteo · CC BY 4.0",
+      "endpoint": "https://api.open-meteo.com/v1/forecast",
+      "latitude": 31.23,
+      "location": "Shanghai public example",
+      "longitude": 121.47,
+      "mode": "automatic",
+      "source_url": "https://open-meteo.com/",
+      "usage": "noncommercial"
+    },
+    "last_error": null,
+    "member_id": "01a11303-4e65-70d4-9f3d-202752b45d7b",
+    "schema_version": 1
+  },
+  "generated": {
+    "actual_count": 3,
+    "controls": {
+      "fixed_ids": [
+        "01a11303-4e92-75a7-9820-70232ff537c5"
+      ],
+      "member_id": "01a11303-4e65-70d4-9f3d-202752b45d7b",
+      "operation_key": "authorized-generate",
+      "provider_id": "01a11303-522f-75bc-86fb-3dd4c8eaa78a",
+      "strategy": "ai",
+      "timezone": "Asia/Shanghai",
+      "weather": {
+        "mode": "manual",
+        "temperature_c": 20
+      }
+    },
+    "created_at": "2026-10-06T20:59:07.201836+00:00",
+    "creates_wear": false,
+    "generation": {
+      "attempts": 1,
+      "failure_codes": [
+        "provider_network"
+      ],
+      "job_id": "01a11303-5240-7280-9dbe-ece2b13ecea3",
+      "provider_id": "01a11303-522f-75bc-86fb-3dd4c8eaa78a",
+      "provider_outcome": "unknown",
+      "source": "rule_fallback"
+    },
+    "id": "01a11303-5241-75cf-8ba9-2f566b6f3eca",
+    "member_id": "01a11303-4e65-70d4-9f3d-202752b45d7b",
+    "offline": true,
+    "proposals": [
+      {
+        "complete": true,
+        "items": [
+          {
+            "category": "bottom",
+            "clothing_id": "01a11303-4e92-75a7-9820-70232ff537c5",
+            "layer": 0,
+            "name": "CLI裤子",
+            "role": "bottom"
+          },
+          {
+            "category": "top",
+            "clothing_id": "01a11303-4e7a-7557-9b40-651a6a331a9d",
+            "layer": 0,
+            "name": "CLI上衣A",
+            "role": "top"
+          },
+          {
+            "category": "shoes",
+            "clothing_id": "01a11303-4e99-728f-9cc5-56bf68ca7a56",
+            "layer": 0,
+            "name": "CLI鞋",
+            "role": "shoes"
+          }
+        ],
+        "missing_roles": [],
+        "occasion_verified": false,
+        "reasons": [
+          "离线角色规则：真实可用衣物，固定与排除约束已保留",
+          "日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除",
+          "目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）"
+        ],
+        "repeat_relaxed": false
+      },
+      {
+        "complete": true,
+        "items": [
+          {
+            "category": "bottom",
+            "clothing_id": "01a11303-4e92-75a7-9820-70232ff537c5",
+            "layer": 0,
+            "name": "CLI裤子",
+            "role": "bottom"
+          },
+          {
+            "category": "top",
+            "clothing_id": "01a11303-4e83-73bb-b9dc-c626110c8617",
+            "layer": 0,
+            "name": "CLI上衣B",
+            "role": "top"
+          },
+          {
+            "category": "shoes",
+            "clothing_id": "01a11303-4e99-728f-9cc5-56bf68ca7a56",
+            "layer": 0,
+            "name": "CLI鞋",
+            "role": "shoes"
+          }
+        ],
+        "missing_roles": [],
+        "occasion_verified": false,
+        "reasons": [
+          "离线角色规则：真实可用衣物，固定与排除约束已保留",
+          "日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除",
+          "目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）"
+        ],
+        "repeat_relaxed": false
+      },
+      {
+        "complete": true,
+        "items": [
+          {
+            "category": "bottom",
+            "clothing_id": "01a11303-4e92-75a7-9820-70232ff537c5",
+            "layer": 0,
+            "name": "CLI裤子",
+            "role": "bottom"
+          },
+          {
+            "category": "top",
+            "clothing_id": "01a11303-4e8a-7376-a93c-b2303169b826",
+            "layer": 0,
+            "name": "CLI上衣C",
+            "role": "top"
+          },
+          {
+            "category": "shoes",
+            "clothing_id": "01a11303-4e99-728f-9cc5-56bf68ca7a56",
+            "layer": 0,
+            "name": "CLI鞋",
+            "role": "shoes"
+          }
+        ],
+        "missing_roles": [],
+        "occasion_verified": false,
+        "reasons": [
+          "离线角色规则：真实可用衣物，固定与排除约束已保留",
+          "日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除",
+          "目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）"
+        ],
+        "repeat_relaxed": false
+      }
+    ],
+    "recent_window": {
+      "from": "2026-10-01",
+      "source": "actual_effective_wear",
+      "through": "2026-10-07",
+      "timezone": "Asia/Shanghai"
+    },
+    "requested_count": 3,
+    "schema_version": 1,
+    "shortage_reasons": [],
+    "updated_at": "2026-10-06T20:59:07.201836+00:00",
+    "weather_context": {
+      "location": null,
+      "mode": "manual",
+      "network_requested": false,
+      "obtained_at": "2026-10-06T20:59:07.195839+00:00",
+      "source": "manual",
+      "stale": false,
+      "temperature_c": 20.0
+    }
+  },
+  "replaced": {
+    "actual_count": 1,
+    "controls": {
+      "action_excluded_ids": [
+        "01a11303-4e7a-7557-9b40-651a6a331a9d"
+      ],
+      "fixed_ids": [
+        "01a11303-4e92-75a7-9820-70232ff537c5"
+      ],
+      "limit": 1,
+      "member_id": "01a11303-4e65-70d4-9f3d-202752b45d7b",
+      "operation_key": "replace",
+      "provider_id": "01a11303-522f-75bc-86fb-3dd4c8eaa78a",
+      "replacement_category": "top",
+      "retained_ids": [
+        "01a11303-4e92-75a7-9820-70232ff537c5",
+        "01a11303-4e99-728f-9cc5-56bf68ca7a56"
+      ],
+      "retained_items": [
+        {
+          "clothing_id": "01a11303-4e92-75a7-9820-70232ff537c5",
+          "layer": 0,
+          "role": "bottom"
+        },
+        {
+          "clothing_id": "01a11303-4e99-728f-9cc5-56bf68ca7a56",
+          "layer": 0,
+          "role": "shoes"
+        }
+      ],
+      "source_intent": "01a11303-5241-75cf-8ba9-2f566b6f3eca",
+      "strategy": "ai",
+      "timezone": "Asia/Shanghai",
+      "weather": {
+        "mode": "manual",
+        "temperature_c": 20
+      }
+    },
+    "created_at": "2026-10-06T20:59:07.230770+00:00",
+    "creates_wear": false,
+    "generation": {
+      "attempts": 1,
+      "failure_codes": [
+        "provider_network"
+      ],
+      "job_id": "01a11303-525d-7327-a25d-5d9df64837d5",
+      "provider_id": "01a11303-522f-75bc-86fb-3dd4c8eaa78a",
+      "provider_outcome": "unknown",
+      "source": "rule_fallback"
+    },
+    "id": "01a11303-525e-71b5-9c42-32b2c6b1647b",
+    "member_id": "01a11303-4e65-70d4-9f3d-202752b45d7b",
+    "offline": true,
+    "proposals": [
+      {
+        "complete": true,
+        "items": [
+          {
+            "category": "bottom",
+            "clothing_id": "01a11303-4e92-75a7-9820-70232ff537c5",
+            "layer": 0,
+            "name": "CLI裤子",
+            "role": "bottom"
+          },
+          {
+            "category": "shoes",
+            "clothing_id": "01a11303-4e99-728f-9cc5-56bf68ca7a56",
+            "layer": 0,
+            "name": "CLI鞋",
+            "role": "shoes"
+          },
+          {
+            "category": "top",
+            "clothing_id": "01a11303-4e83-73bb-b9dc-c626110c8617",
+            "layer": 0,
+            "name": "CLI上衣B",
+            "role": "top"
+          }
+        ],
+        "missing_roles": [],
+        "occasion_verified": false,
+        "reasons": [
+          "离线角色规则：真实可用衣物，固定与排除约束已保留",
+          "日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除",
+          "目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）"
+        ],
+        "repeat_relaxed": false
+      }
+    ],
+    "recent_window": {
+      "from": "2026-10-01",
+      "source": "actual_effective_wear",
+      "through": "2026-10-07",
+      "timezone": "Asia/Shanghai"
+    },
+    "requested_count": 1,
+    "schema_version": 1,
+    "shortage_reasons": [],
+    "updated_at": "2026-10-06T20:59:07.230770+00:00",
+    "weather_context": {
+      "location": null,
+      "mode": "manual",
+      "network_requested": false,
+      "obtained_at": "2026-10-06T20:59:07.227666+00:00",
+      "source": "manual",
+      "stale": false,
+      "temperature_c": 20.0
+    }
+  },
+  "changed": {
+    "actual_count": 1,
+    "controls": {
+      "excluded_sets": [
+        [
+          "01a11303-4e92-75a7-9820-70232ff537c5",
+          "01a11303-4e99-728f-9cc5-56bf68ca7a56",
+          "01a11303-4e83-73bb-b9dc-c626110c8617"
+        ]
+      ],
+      "fixed_ids": [
+        "01a11303-4e92-75a7-9820-70232ff537c5"
+      ],
+      "limit": 1,
+      "member_id": "01a11303-4e65-70d4-9f3d-202752b45d7b",
+      "operation_key": "change",
+      "provider_id": "01a11303-522f-75bc-86fb-3dd4c8eaa78a",
+      "source_intent": "01a11303-525e-71b5-9c42-32b2c6b1647b",
+      "strategy": "ai",
+      "timezone": "Asia/Shanghai",
+      "weather": {
+        "mode": "manual",
+        "temperature_c": 20
+      }
+    },
+    "created_at": "2026-10-06T20:59:07.246677+00:00",
+    "creates_wear": false,
+    "generation": {
+      "attempts": 1,
+      "failure_codes": [
+        "provider_network"
+      ],
+      "job_id": "01a11303-526d-72a5-b9f3-41713755dfed",
+      "provider_id": "01a11303-522f-75bc-86fb-3dd4c8eaa78a",
+      "provider_outcome": "unknown",
+      "source": "rule_fallback"
+    },
+    "id": "01a11303-526e-765e-b33c-119a487c6f29",
+    "member_id": "01a11303-4e65-70d4-9f3d-202752b45d7b",
+    "offline": true,
+    "proposals": [
+      {
+        "complete": true,
+        "items": [
+          {
+            "category": "bottom",
+            "clothing_id": "01a11303-4e92-75a7-9820-70232ff537c5",
+            "layer": 0,
+            "name": "CLI裤子",
+            "role": "bottom"
+          },
+          {
+            "category": "top",
+            "clothing_id": "01a11303-4e7a-7557-9b40-651a6a331a9d",
+            "layer": 0,
+            "name": "CLI上衣A",
+            "role": "top"
+          },
+          {
+            "category": "shoes",
+            "clothing_id": "01a11303-4e99-728f-9cc5-56bf68ca7a56",
+            "layer": 0,
+            "name": "CLI鞋",
+            "role": "shoes"
+          }
+        ],
+        "missing_roles": [],
+        "occasion_verified": false,
+        "reasons": [
+          "离线角色规则：真实可用衣物，固定与排除约束已保留",
+          "日常场合适宜性未验证：部分单品未记录对应场合标签；不作为硬排除",
+          "目标：平衡选择；场合：日常（只采用已记录标签，不推断未知事实）"
+        ],
+        "repeat_relaxed": false
+      }
+    ],
+    "recent_window": {
+      "from": "2026-10-01",
+      "source": "actual_effective_wear",
+      "through": "2026-10-07",
+      "timezone": "Asia/Shanghai"
+    },
+    "requested_count": 1,
+    "schema_version": 1,
+    "shortage_reasons": [],
+    "updated_at": "2026-10-06T20:59:07.246677+00:00",
+    "weather_context": {
+      "location": null,
+      "mode": "manual",
+      "network_requested": false,
+      "obtained_at": "2026-10-06T20:59:07.243915+00:00",
+      "source": "manual",
+      "stale": false,
+      "temperature_c": 20.0
+    }
+  },
+  "saved": {
+    "created_at": "2026-10-06T20:59:07.259769+00:00",
+    "favorite": false,
+    "id": "01a11303-527b-734d-b684-1677079bed55",
+    "items": [
+      {
+        "clothing_id": "01a11303-4e92-75a7-9820-70232ff537c5",
+        "layer": 0,
+        "role": "bottom",
+        "snapshot": {
+          "brand": null,
+          "category": "bottom",
+          "color": [],
+          "color_description": null,
+          "created_at": "2026-10-06T20:59:06.258305+00:00",
+          "currency": null,
+          "description": null,
+          "favorite": false,
+          "fit": null,
+          "id": "01a11303-4e92-75a7-9820-70232ff537c5",
+          "material": [],
+          "member_id": "01a11303-4e65-70d4-9f3d-202752b45d7b",
+          "name": "CLI裤子",
+          "notes": null,
+          "occasion": [],
+          "pattern": [],
+          "price_exponent": null,
+          "purchase_date": null,
+          "purchase_price_minor": null,
+          "purchase_store": null,
+          "purchase_url": null,
+          "schema_version": 1,
+          "seasons": [],
+          "size_label": null,
+          "status": "active",
+          "style": [],
+          "sub_category": null,
+          "tags": [],
+          "taxonomy_version": 1,
+          "updated_at": "2026-10-06T20:59:06.258305+00:00"
+        }
+      },
+      {
+        "clothing_id": "01a11303-4e7a-7557-9b40-651a6a331a9d",
+        "layer": 0,
+        "role": "top",
+        "snapshot": {
+          "brand": null,
+          "category": "top",
+          "color": [],
+          "color_description": null,
+          "created_at": "2026-10-06T20:59:06.234443+00:00",
+          "currency": null,
+          "description": null,
+          "favorite": false,
+          "fit": null,
+          "id": "01a11303-4e7a-7557-9b40-651a6a331a9d",
+          "material": [],
+          "member_id": "01a11303-4e65-70d4-9f3d-202752b45d7b",
+          "name": "CLI上衣A",
+          "notes": null,
+          "occasion": [],
+          "pattern": [],
+          "price_exponent": null,
+          "purchase_date": null,
+          "purchase_price_minor": null,
+          "purchase_store": null,
+          "purchase_url": null,
+          "schema_version": 1,
+          "seasons": [],
+          "size_label": null,
+          "status": "active",
+          "style": [],
+          "sub_category": null,
+          "tags": [],
+          "taxonomy_version": 1,
+          "updated_at": "2026-10-06T20:59:06.234443+00:00"
+        }
+      },
+      {
+        "clothing_id": "01a11303-4e99-728f-9cc5-56bf68ca7a56",
+        "layer": 0,
+        "role": "shoes",
+        "snapshot": {
+          "brand": null,
+          "category": "shoes",
+          "color": [],
+          "color_description": null,
+          "created_at": "2026-10-06T20:59:06.265822+00:00",
+          "currency": null,
+          "description": null,
+          "favorite": false,
+          "fit": null,
+          "id": "01a11303-4e99-728f-9cc5-56bf68ca7a56",
+          "material": [],
+          "member_id": "01a11303-4e65-70d4-9f3d-202752b45d7b",
+          "name": "CLI鞋",
+          "notes": null,
+          "occasion": [],
+          "pattern": [],
+          "price_exponent": null,
+          "purchase_date": null,
+          "purchase_price_minor": null,
+          "purchase_store": null,
+          "purchase_url": null,
+          "schema_version": 1,
+          "seasons": [],
+          "size_label": null,
+          "status": "active",
+          "style": [],
+          "sub_category": null,
+          "tags": [],
+          "taxonomy_version": 1,
+          "updated_at": "2026-10-06T20:59:06.265822+00:00"
+        }
+      }
+    ],
+    "member_id": "01a11303-4e65-70d4-9f3d-202752b45d7b",
+    "name": "CLI-MCP离线搭配",
+    "schema_version": 1,
+    "status": "active",
+    "updated_at": "2026-10-06T20:59:07.259769+00:00",
+    "version": 1
+  },
+  "wear_count": 0,
+  "template_count": 1,
+  "authorized_operations": [
+    "recommendation.generate",
+    "recommendation.get",
+    "recommendation.list",
+    "recommendation.replace",
+    "recommendation.change",
+    "recommendation.save",
+    "wear.list",
+    "outfit.list",
+    "weather.configure",
+    "weather.get",
+    "weather.refresh"
+  ],
+  "temporary_data_removed_on_exit": true,
+  "credential_recorded": false
+}

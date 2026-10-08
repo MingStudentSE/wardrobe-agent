@@ -1,0 +1,41 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/backup.spec.ts
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5174 --strictPort
+[WebServer] (node:12351) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:12353) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/backup.spec.ts:3:1 › 备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度 (6.1s)
+
+
+  1) tests/backup.spec.ts:3:1 › 备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度 ────────────────────────────────────────
+
+    Error: expect(locator).not.toHaveValue(expected) failed
+
+    Locator: getByLabel('回退备份目录', { exact: true })
+    Expected: not ""
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "not toHaveValue" getByLabel('回退备份目录', { exact: true }) with timeout 5000ms
+      - waiting for getByLabel('回退备份目录', { exact: true })
+
+
+       9 |  await page.getByRole('button',{name:'创建本地备份',exact:true}).click();await expect(page.getByRole('status').filter({hasText:'备份已创建'})).toBeVisible();const packagePath=await page.getByLabel('恢复包目录',{exact:true}).inputValue();expect(packagePath.startsWith(folder)).toBeTruthy();
+      10 |  const after=await request.post('/__wardrobe_dev_api',{data:{operation:'clothing.create',input:{member_id:'default',name:'备份后新增，不应留在覆盖库',category:'top'}}});const removed=(await after.json()).result;
+    > 11 |  await page.getByRole('button',{name:'预览恢复范围',exact:true}).click();await expect(page.getByText('恢复前先看清范围',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'覆盖恢复当前衣橱',exact:true})).toBeDisabled();await page.getByLabel('确认覆盖当前事实并保留预备备份').check();await page.getByRole('button',{name:'覆盖恢复当前衣橱',exact:true}).click();await expect(page.getByRole('status').filter({hasText:'恢复完成'})).toBeVisible();await expect(page.getByLabel('回退备份目录',{exact:true})).not.toHaveValue('');
+         |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ^
+      12 |  const read=await request.post('/__wardrobe_dev_api',{data:{operation:'clothing.get',input:{member_id:'default',id:removed.id}}});expect((await read.json()).error.code).toBe('not_found');
+      13 |  for(const width of [320,375,414,768,1024,1280,1440]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();if(width===320||width===1280)await page.locator('#backup-settings').screenshot({path:`../../docs/verification/ticket-32/backup-${width}.png`});}
+      14 |  }finally{rmSync(folder,{recursive:true,force:true});}
+        at /private/tmp/wardrobe-ticket-32/apps/desktop/tests/backup.spec.ts:11:471
+
+    Error Context: test-results/backup-备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度/error-context.md
+
+  1 failed
+    tests/backup.spec.ts:3:1 › 备份范围持久化、实际预览覆盖恢复、保留回退备份与七宽度 ─────────────────────────────────────────

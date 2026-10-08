@@ -1,0 +1,44 @@
+npm notice run wardrobe-desktop@0.1.0 test:e2e
+npm notice run playwright test tests/insights.spec.ts --grep 重载时提前
+[WebServer] npm notice run wardrobe-desktop@0.1.0 dev
+[WebServer] npm notice run vite --host 127.0.0.1 --port 5217 --strictPort
+[WebServer] (node:77484) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:77486) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+  ✘  1 tests/insights.spec.ts:24:1 › 重载时提前打开洞察会等待衣物加载后读取已保存阈值 (5.6s)
+
+
+  1) tests/insights.spec.ts:24:1 › 重载时提前打开洞察会等待衣物加载后读取已保存阈值 ────────────────────────────────────────
+
+    Error: expect(locator).toHaveValue(expected) failed
+
+    Locator:  locator('#insights').getByLabel('久未穿天数')
+    Expected: "89"
+    Received: "90"
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveValue" locator('#insights').getByLabel('久未穿天数') with timeout 5000ms
+      - waiting for locator('#insights').getByLabel('久未穿天数')
+        - locator resolved to <input min="1" step="1" disabled value="90" max="36500" type="number" aria-invalid="false"/>
+        13 × unexpected value "90"
+           - locator resolved to <input min="1" step="1" value="90" max="36500" type="number" aria-invalid="false"/>
+        - unexpected value "90"
+
+
+      22 |  await panel.getByRole('button',{name:'重新计算洞察'}).focus();await expect(panel.getByRole('button',{name:'重新计算洞察'})).toBeFocused();
+      23 | });
+    > 24 | test('重载时提前打开洞察会等待衣物加载后读取已保存阈值',async({page})=>{const call=async(operation:string,input:object)=>{const response=await page.request.post('/__wardrobe_dev_api',{data:{operation,input}});const body=await response.json();expect(body.error).toBeUndefined();return body.result;};const member=(await call('member.create',{name:'洞察延迟加载'})).member_id;await call('insights.configure',{member_id:member,stale_days:89,expected_revision:0});await call('member.select',{member_id:member});let release!:()=>void;const gate=new Promise<void>(r=>release=r);let blocked=false;await page.route('**/__wardrobe_dev_api',async route=>{if(route.request().postDataJSON().operation==='clothing.list'){const response=await route.fetch();blocked=true;await gate;await route.fulfill({response});return;}await route.continue();});await page.goto('/');await expect.poll(()=>blocked).toBe(true);await expect(page.getByRole('combobox',{name:'当前成员',exact:true})).toHaveValue(member);const panel=page.locator('#insights');await panel.locator('summary').click();await expect(panel.getByLabel('久未穿天数')).toBeDisabled();release();await expect(panel.getByLabel('久未穿天数')).toHaveValue('89');await expect(panel.getByText('库存 0 件',{exact:true})).toBeVisible();await expect(panel.getByRole('status').filter({hasText:'正在重算洞察'})).toHaveCount(0);});
+         |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              ^
+      25 |
+        at /private/tmp/wardrobe-merge-11/apps/desktop/tests/insights.spec.ts:24:1134
+
+    Error Context: test-results/insights-重载时提前打开洞察会等待衣物加载后读取已保存阈值/error-context.md
+
+  1 failed
+    tests/insights.spec.ts:24:1 › 重载时提前打开洞察会等待衣物加载后读取已保存阈值 ─────────────────────────────────────────
