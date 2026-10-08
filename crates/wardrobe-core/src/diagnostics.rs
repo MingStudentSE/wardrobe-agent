@@ -80,6 +80,23 @@ pub(crate) fn new_trace_id() -> String {
     uuid::Uuid::now_v7().to_string()
 }
 
+/// 旁路命令（不经 Application::open，如桌面端天气城市搜索）的日志入口：
+/// 进程内幂等初始化默认数据目录的日志汇（GUI 的 application 命令在此前或此后
+/// 打开的 Application 共享同一 logs 目录），之后尽力写入事件；失败静默降级。
+/// 事件由调用方按构造脱敏后组装（run_id/ts/level 由这里补齐）。
+pub fn log_bypass_event(event_type: &str, fields: Value) {
+    static BYPASS: OnceLock<Option<Logger>> = OnceLock::new();
+    let logger = BYPASS.get_or_init(|| {
+        let data_dir = crate::default_database_path()
+            .parent()
+            .map(Path::to_path_buf)?;
+        Some(Logger::new(&data_dir, LogLimits::default()))
+    });
+    if let Some(logger) = logger {
+        logger.log_event(Level::Info, event_type, fields);
+    }
+}
+
 // 当前调用链路的线程局部上下文：`Application::execute` 进入业务函数前置位，
 // 返回后恢复。持久任务的创建（jobs::insert）在业务函数内读取它，把本次调用的
 // trace_id 写进任务文档——worker 可能运行在另一进程，trace 只经任务文档传递，
