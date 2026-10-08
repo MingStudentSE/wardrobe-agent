@@ -1358,6 +1358,127 @@ fn provider_requests_are_logged_sanitized_and_share_the_job_trace() {
     }
 }
 
+/// #44 验收：从提交到 worker/供应商结果的全部事件可用单一 trace_id 经
+/// diagnostics.logs.query 查出，覆盖 waiting_input 场景——
+/// 「这个任务为什么停在 waiting_input」「供应商请求到底发出去没有」一条查询还原。
+#[test]
+fn full_async_chain_is_queryable_by_a_single_trace_id() {
+    use std::io::Write;
+    let _guard = fs_lock();
+    // 供应商返回 5xx：提交已到达但结果未知 → 任务 waiting_input
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        read_request_text(&mut s);
+        let body = r#"{"error":"internal"}"#;
+        s.write_all(
+            format!(
+                "HTTP/1.1 500 Internal Server Error\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let p = app
+        .execute(
+            "provider.save",
+            json!({"name":"批次链路","endpoint":endpoint,"model":"trace-model","capabilities":["vision"],"authentication":"none"}),
+        )
+        .unwrap();
+    let path = dir.path().join("fixture.png");
+    image::RgbImage::new(16, 16).save(&path).unwrap();
+    let c = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":"default","name":"手工","category":"top"}),
+        )
+        .unwrap();
+    let a = app
+        .execute("assets.import", json!({"member_id":"default","path":path}))
+        .unwrap();
+    app.execute(
+        "assets.adopt",
+        json!({"member_id":"default","clothing_id":c["id"],"asset_id":a["id"]}),
+    )
+    .unwrap();
+    let job = app
+        .execute(
+            "recognition.create",
+            json!({"member_id":"default","operation_key":"chain","clothing_id":c["id"],"provider_id":p["id"],"asset_ids":[a["id"]],"upload_role":"product_display","confirm_upload":true}),
+        )
+        .unwrap();
+    let trace = job["trace_id"].as_str().unwrap().to_string();
+    // worker 侧以一次全新的 Application 调用推进任务（另一进程同构）：
+    // 这次调用有自己的新 trace，任务链事件仍归入文档里的创建 trace
+    let out = app
+        .execute(
+            "recognition.process",
+            json!({"member_id":"default","id":job["id"]}),
+        )
+        .unwrap();
+    server.join().unwrap();
+    assert_eq!(out["state"], "waiting_input");
+    assert_eq!(out["error"]["code"], "submission_unknown");
+
+    // 单一 trace_id 一次查询还原整条链
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"trace_id":trace,"limit":100}),
+        )
+        .unwrap();
+    let items = queried["items"].as_array().unwrap();
+    let chain: Vec<(String, String)> = items
+        .iter()
+        .map(|e| {
+            (
+                e["event_type"].as_str().unwrap_or("").to_string(),
+                e["operation"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        chain,
+        vec![
+            // enqueue 在任务落盘时写入；operation 事件按 #42 约定在调用完成后写
+            ("job".to_string(), "job.enqueue".to_string()),
+            ("operation".to_string(), "recognition.create".to_string()),
+            ("job".to_string(), "job.state".to_string()),
+            (
+                "provider_request".to_string(),
+                "provider.request".to_string()
+            ),
+            ("job".to_string(), "job.state".to_string()),
+        ],
+        "提交→排队→运行→供应商请求→waiting_input 必须在同一 trace 下：{items:?}"
+    );
+    // 「供应商请求到底发出去没有」：事件证明请求真实发出且到达，5xx 结果未知
+    let request = items
+        .iter()
+        .find(|e| e["event_type"] == "provider_request")
+        .unwrap();
+    assert_eq!(request["outcome"], "outcome_unknown");
+    assert_eq!(request["http_status"], 500);
+    assert_eq!(request["model"], "trace-model");
+    // 「为什么停在 waiting_input」：迁移事件带最终状态与原因
+    let stuck = items.last().unwrap();
+    assert_eq!(stuck["state_from"], "running");
+    assert_eq!(stuck["state_to"], "waiting_input");
+    assert_eq!(stuck["error_code"], "submission_unknown");
+    // worker 调用自身的 trace 是新分配的：不入任务链（trace 经文档统一，不经调用栈）
+    assert!(
+        !items
+            .iter()
+            .any(|e| e["event_type"] == "operation" && e["operation"] == "recognition.process"),
+        "worker 调用的 operation 事件属于调用自身的 trace，不属于任务链：{items:?}"
+    );
+}
+
 #[test]
 fn process_panic_leaves_a_scene_in_the_log() {
     // 钩子触发时会向进程内全部日志汇写入并可能驱动它们清理，
