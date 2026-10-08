@@ -113,6 +113,7 @@ ldd /usr/bin/wardrobe-desktop  # libheif.so.1/libde265.so.0 均解析到 /usr/bi
 
 ### 7.0 本轮进展（VM 管线全部落地）
 - **ISO 工程化（关键突破）**：官方原版 ISO 在 QEMU edk2 上有两条死路——(1) `hdiutil makehybrid` 无法生成 El Torito EFI 引导目录（固件不会自动引导 USB-CD，落到 UEFI Shell）；(2) cdboot 的 "Press any key" 窗口 <2s，QMP input-send-event / 自写 VNC 客户端 / 长 按 三种键注路径全部错过。**解法**：xorriso 以 Microsoft 自带的 `efi/microsoft/boot/efisys_noprompt.bin` 作为 El Torito EFI 引导映像重建 ISO（`-no-emul-boot -e ...`），固件自动引导、无按键、无交互——已实证固件加载 `Boot0001 UEFI QEMU USB HARDRIVE` 并进入 cdboot_noprompt。
+- **输入通道实测补充（第二轮）**：cdboot 的 "Press any key" 对 QMP input-send-event / 自写 VNC 客户端 / HMP sendkey 三条通道全部不响应（UEFI Shell 中同样的注入可靠回显）——按住/连发/长按共 45s 窗口覆盖测试均错过；efisys_noprompt 自动引导可过固件，但 cdboot_noprompt 经 USB-CD 读 boot.wim（630MB）在 xorriso(level3) 与 mkisofs(-udf) 两种自制布局上均停滞（CPU 长时间为 0.3–3%，读不动）。**若自动路径仍不可达，回退为一次人工按键**：`open vnc://127.0.0.1:5901` 在 Screen Sharing 里于出现 "Press any key" 时按一次空格（出现于 VM 启动后约 1–2 分钟）——此后无人值守链全自动。
 - **遗留给下一轮的精确状态**：xorriso 布局（iso-level 3 无 UDF）上 boot.wim 经 edk2 USB-CD 读取极慢/失败（30 分钟未完成、启动循环），且重建过程中原版与 noprompt ISO 均被误删（`rm` 顺序失误）。**所需人工动作**：浏览器会话重新下载 Win11 ARM64 ISO（26300 en-us，~8.5GB）至 `codex/vm/iso/Win11_ARM64_en-us_26300.iso`；随后执行：
   1. `cd codex/vm/isobuild && 7z x <原版ISO> -otree` → `cp bootmgfw.efi` 流程同 `scripts/vm/wardrobe-windows-vm.sh` 头注释（含 efisys_noprompt 换轴 + Autounattend.xml 注入 + xorriso 重建）；
   2. `scripts/vm/wardrobe-windows-vm.sh start`（自动引导 → 无人值守安装 → firstlogon 自动装 NetKVM + OpenSSH）；
