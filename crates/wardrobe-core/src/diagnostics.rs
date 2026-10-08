@@ -665,19 +665,8 @@ impl Application {
                 Some(level.to_owned())
             }
         };
-        let parse_time = |key: &str| -> Result<Option<chrono::DateTime<chrono::FixedOffset>>, ApiError> {
-            match input.get(key) {
-                None | Some(Value::Null) => Ok(None),
-                Some(value) => match value.as_str() {
-                    Some(text) => chrono::DateTime::parse_from_rfc3339(text)
-                        .map(Some)
-                        .map_err(|_| ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
-                    None => Err(ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
-                },
-            }
-        };
-        let since = parse_time("since")?;
-        let until = parse_time("until")?;
+        let since = parse_rfc3339_field(&input, "since")?;
+        let until = parse_rfc3339_field(&input, "until")?;
         if let (Some(start), Some(end)) = (since, until) {
             if start > end {
                 return Err(ApiError::new("invalid_input", "时间范围起止颠倒"));
@@ -860,11 +849,9 @@ impl Application {
                 return Err(ApiError::new("invalid_input", "显式时间窗须同时提供 from 与 to"));
             }
             let parse_time = |key: &str| -> Result<chrono::DateTime<chrono::FixedOffset>, ApiError> {
-                input
-                    .get(key)
-                    .and_then(Value::as_str)
-                    .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
-                    .ok_or_else(|| ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间")))
+                parse_rfc3339_field(&input, key)?.ok_or_else(|| {
+                    ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))
+                })
             };
             let from = parse_time("from")?;
             let to = parse_time("to")?;
@@ -972,12 +959,7 @@ impl Application {
                 *slot += 1;
             }
         }
-        let errors: Vec<&Value> = selected.iter().filter(|e| e["level"] == "error").collect();
-        let window_start = errors.len().saturating_sub(RECENT_ERRORS_LIMIT);
-        let recent_errors: Vec<Value> = errors[window_start..]
-            .iter()
-            .map(|event| recent_error_item(event))
-            .collect();
+        let recent_errors: Vec<Value> = recent_errors_window(selected.iter());
         let mut meta = json!({
             "kind": kind_name,
             "schema_version": 1,
@@ -1056,15 +1038,7 @@ impl Application {
             .connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))?;
         let events = self.logger.read_events();
-        let errors: Vec<&Value> = events
-            .iter()
-            .filter(|event| event["level"] == "error")
-            .collect();
-        let window_start = errors.len().saturating_sub(RECENT_ERRORS_LIMIT);
-        let recent_errors: Vec<Value> = errors[window_start..]
-            .iter()
-            .map(|event| recent_error_item(event))
-            .collect();
+        let recent_errors: Vec<Value> = recent_errors_window(events.iter());
         let (total_bytes, file_count) = self.logger.occupancy();
         Ok(json!({
             "schema_version": 1,
@@ -1598,6 +1572,37 @@ mod tests {
         assert_eq!(limits.max_file_bytes, 10 * 1024 * 1024);
         assert_eq!(limits.max_total_bytes, 256 * 1024 * 1024);
         assert_eq!(limits.retention_days, 14);
+    }
+}
+
+/// 最近错误窗口投影：时间升序事件流中 level=error 的末尾 RECENT_ERRORS_LIMIT 条
+/// （diagnostics.summary 与 diagnostics.export 同一口径）。
+fn recent_errors_window<'a>(events: impl IntoIterator<Item = &'a Value>) -> Vec<Value> {
+    let errors: Vec<&Value> = events
+        .into_iter()
+        .filter(|event| event["level"] == "error")
+        .collect();
+    let window_start = errors.len().saturating_sub(RECENT_ERRORS_LIMIT);
+    errors[window_start..]
+        .iter()
+        .map(|event| recent_error_item(event))
+        .collect()
+}
+
+/// RFC3339 时间输入字段的共用解析（logs.query 的 since/until 与 export 的 from/to）：
+/// 缺省或 null 视为未提供；非字符串或不可解析报同一 invalid_input。
+fn parse_rfc3339_field(
+    input: &Value,
+    key: &str,
+) -> Result<Option<chrono::DateTime<chrono::FixedOffset>>, ApiError> {
+    match input.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => match value.as_str() {
+            Some(text) => chrono::DateTime::parse_from_rfc3339(text)
+                .map(Some)
+                .map_err(|_| ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
+            None => Err(ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
+        },
     }
 }
 
