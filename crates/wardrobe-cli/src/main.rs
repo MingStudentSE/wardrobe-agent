@@ -45,7 +45,7 @@ fn resolve_db(
     if let Some(resolved) = wardrobe_core::profiles::resolve(profile.as_deref())? {
         return Ok(resolved);
     }
-    Ok(wardrobe_core::default_database_path())
+    wardrobe_core::default_database_path_checked()
 }
 /// resolve 数据库路径的统一出口：存储配置失败（storage_error）打印错误并 exit 1，
 /// 其余业务/校验拒绝走 fail() exit 2（mcp、logs、doctor、execute 同一形状）。
