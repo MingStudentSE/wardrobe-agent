@@ -2,7 +2,7 @@ name: Packaged media runtime
 on:
   workflow_dispatch:
   push:
-    branches: [codex/beta-integration]
+    branches: [development]
     paths:
       - .github/workflows/media-bundles.yml
       - scripts/prepare-media-distribution.py
