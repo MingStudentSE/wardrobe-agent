@@ -56,7 +56,9 @@ fn day_clothing(plan: &Value, index: usize) -> Vec<String> {
 }
 
 fn assert_no_wear(app: &Application, member: &str) {
-    let wears = app.execute("wear.list", json!({"member_id":member})).unwrap();
+    let wears = app
+        .execute("wear.list", json!({"member_id":member}))
+        .unwrap();
     assert_eq!(
         wears["items"],
         json!([]),
@@ -127,7 +129,9 @@ fn wedding_event_plan_completes_from_real_inventory_and_never_records_wear() {
         "基础角色（鞋）必须覆盖"
     );
     assert!(
-        !day_ids.iter().any(|id| id == created[3]["id"].as_str().unwrap()),
+        !day_ids
+            .iter()
+            .any(|id| id == created[3]["id"].as_str().unwrap()),
         "被排除单品绝不出现"
     );
     // 去重打包清单：单事件与当天方案同集
@@ -185,7 +189,10 @@ fn wedding_event_plan_completes_from_real_inventory_and_never_records_wear() {
             }),
         )
         .unwrap();
-    assert_eq!(replay["id"], plan["id"], "同 operation_key 幂等返回同一计划");
+    assert_eq!(
+        replay["id"], plan["id"],
+        "同 operation_key 幂等返回同一计划"
+    );
     assert_no_wear(&app, &member);
 }
 
@@ -216,10 +223,7 @@ fn interview_plan_reports_shortage_instead_of_fabricating() {
         "排除唯一上衣后方案不完整"
     );
     let reasons = plan["shortage_reasons"].as_array().unwrap();
-    assert!(
-        !reasons.is_empty(),
-        "库存不足必须给出明确的无解/短缺原因"
-    );
+    assert!(!reasons.is_empty(), "库存不足必须给出明确的无解/短缺原因");
     assert!(
         reasons
             .iter()
@@ -239,12 +243,18 @@ fn fixed_and_excluded_and_ownership_are_server_validated() {
     let d = tempfile::tempdir().unwrap();
     let app = open_app(d.path());
     let member = bootstrap_member(&app);
-    let other = app.execute("member.create", json!({"name":"家人"})).unwrap();
+    let other = app
+        .execute("member.create", json!({"name":"家人"}))
+        .unwrap();
     let other_id = other["member_id"].as_str().unwrap().to_string();
     let mine = seed(
         &app,
         &member,
-        &[("西装外套", "outerwear"), ("西裤", "bottom"), ("皮鞋", "shoes")],
+        &[
+            ("西装外套", "outerwear"),
+            ("西裤", "bottom"),
+            ("皮鞋", "shoes"),
+        ],
     );
     let theirs = seed(&app, &other_id, &[("别人的领带", "accessory")]);
     let suit = mine[0]["id"].as_str().unwrap();
@@ -267,7 +277,11 @@ fn fixed_and_excluded_and_ownership_are_server_validated() {
         json!({"member_id":member,"operation_key":"fx-foreign","timezone":"UTC","kind":"event",
                "occasion":"interview","fixed_ids":[theirs[0]["id"].as_str().unwrap()]}),
     );
-    assert_eq!(foreign.unwrap_err().code, "not_found", "不能使用其他成员的单品");
+    assert_eq!(
+        foreign.unwrap_err().code,
+        "not_found",
+        "不能使用其他成员的单品"
+    );
 
     // 固定单品待洗（手动待洗）：可用性校验拒绝
     app.execute(
@@ -282,8 +296,7 @@ fn fixed_and_excluded_and_ownership_are_server_validated() {
     );
     let error = dirty.unwrap_err();
     assert_eq!(
-        error.code,
-        "constraint_conflict",
+        error.code, "constraint_conflict",
         "待洗/不可用的固定单品必须拒绝"
     );
     assert_no_wear(&app, &member);
@@ -359,7 +372,12 @@ fn travel_plan_rotates_days_and_dedupes_packing_list() {
         );
     }
     // 贴身衣物不连续两天重复：day1 与 day0 的 top/bottom 必须不同
-    for kind in [all[0].clone(), all[1].clone(), all[2].clone(), all[3].clone()] {
+    for kind in [
+        all[0].clone(),
+        all[1].clone(),
+        all[2].clone(),
+        all[3].clone(),
+    ] {
         assert!(
             !d0.contains(&kind) || !d1.contains(&kind),
             "上衣/下装不得连续两天重复（day0/day1）：{kind}"
@@ -386,10 +404,9 @@ fn travel_plan_rotates_days_and_dedupes_packing_list() {
         "鞋跨天复用，打包清单只出现一次并列出各天"
     );
     assert!(
-        packing
-            .iter()
-            .all(|item| item["days"].as_array().unwrap().len() == 1
-                || item["reused"] == json!(true)),
+        packing.iter().all(
+            |item| item["days"].as_array().unwrap().len() == 1 || item["reused"] == json!(true)
+        ),
         "重复使用的条目必须带 reused 标记"
     );
     let mut packed_ids: Vec<&str> = packing
@@ -398,11 +415,7 @@ fn travel_plan_rotates_days_and_dedupes_packing_list() {
         .collect();
     packed_ids.sort();
     packed_ids.dedup();
-    assert_eq!(
-        packed_ids.len(),
-        packing.len(),
-        "打包清单内衣物必须去重"
-    );
+    assert_eq!(packed_ids.len(), packing.len(), "打包清单内衣物必须去重");
     assert_no_wear(&app, &member);
 }
 
@@ -414,7 +427,11 @@ fn travel_shortage_is_reported_with_reasons_when_inventory_cannot_rotate() {
     let created = seed(
         &app,
         &member,
-        &[("唯一上衣", "top"), ("唯一长裤", "bottom"), ("唯一鞋", "shoes")],
+        &[
+            ("唯一上衣", "top"),
+            ("唯一长裤", "bottom"),
+            ("唯一鞋", "shoes"),
+        ],
     );
     let all = ids(&created);
     let plan = app
@@ -441,7 +458,8 @@ fn travel_shortage_is_reported_with_reasons_when_inventory_cannot_rotate() {
     let d0 = day_clothing(&plan, 0);
     let d1 = day_clothing(&plan, 1);
     assert!(
-        all.iter().all(|id| d0.contains(id) || d1.contains(id) || day_clothing(&plan, 2).contains(id)),
+        all.iter()
+            .all(|id| d0.contains(id) || d1.contains(id) || day_clothing(&plan, 2).contains(id)),
         "仅使用真实库存"
     );
     assert_no_wear(&app, &member);
@@ -552,7 +570,11 @@ fn weather_is_optional_reference_and_failure_degrades_to_manual_notes() {
     let created = seed(
         &app,
         &member,
-        &[("连衣裙", "dress"), ("大衣", "outerwear"), ("皮鞋", "shoes")],
+        &[
+            ("连衣裙", "dress"),
+            ("大衣", "outerwear"),
+            ("皮鞋", "shoes"),
+        ],
     );
     // automatic 但未配置天气 → 不可用但计划照常完成（不阻断）
     let plan = app
@@ -754,7 +776,9 @@ fn ai_strategy_receipts_before_http_and_worker_adopts_validated_plan() {
     let dress = created[0]["id"].as_str().unwrap().to_string();
     let model = ScriptedModel::start(vec![
         // 回复合法的逐天指派（与规则候选一致的完整方案）
-        ScriptedTurn::Reply(json!({"days":[{"index":0,"clothing_ids":[dress, created[1]["id"], created[2]["id"]]}],"explanation":"婚礼正装"})),
+        ScriptedTurn::Reply(
+            json!({"days":[{"index":0,"clothing_ids":[dress, created[1]["id"], created[2]["id"]]}],"explanation":"婚礼正装"}),
+        ),
     ]);
     let provider = app
         .execute(
@@ -785,7 +809,10 @@ fn ai_strategy_receipts_before_http_and_worker_adopts_validated_plan() {
 
     // worker 驱动：一次模型 POST，模型输出经服务端校验后采纳
     let job = app
-        .execute("scenario.worker.run", json!({"member_id":member,"id":job_id}))
+        .execute(
+            "scenario.worker.run",
+            json!({"member_id":member,"id":job_id}),
+        )
         .expect("worker 必须驱动场景任务");
     assert_eq!(job["state"], "succeeded", "worker 结果：{job}");
     assert_eq!(model.post_count(), 1, "恰好一次模型请求");
@@ -811,7 +838,10 @@ fn ai_strategy_receipts_before_http_and_worker_adopts_validated_plan() {
 
     // 终态重放不再发起任何 POST
     let replay = app
-        .execute("scenario.worker.run", json!({"member_id":member,"id":job_id}))
+        .execute(
+            "scenario.worker.run",
+            json!({"member_id":member,"id":job_id}),
+        )
         .unwrap();
     assert_eq!(replay["state"], "succeeded");
     assert_eq!(model.post_count(), 1, "终态重放不重发模型请求");
@@ -822,11 +852,7 @@ fn model_failure_falls_back_to_rules_with_explicit_feedback() {
     let d = tempfile::tempdir().unwrap();
     let app = open_app(d.path());
     let member = bootstrap_member(&app);
-    let created = seed(
-        &app,
-        &member,
-        &[("连衣裙", "dress"), ("高跟鞋", "shoes")],
-    );
+    let created = seed(&app, &member, &[("连衣裙", "dress"), ("高跟鞋", "shoes")]);
     let fabricated = uuid::Uuid::now_v7().to_string();
     let model = ScriptedModel::start(vec![
         // 三次全部编造不存在的单品：初始 + 两次重试后必须如实降级
@@ -850,18 +876,16 @@ fn model_failure_falls_back_to_rules_with_explicit_feedback() {
         .unwrap();
     let job_id = receipt["job_id"].as_str().unwrap().to_string();
     let job = app
-        .execute("scenario.worker.run", json!({"member_id":member,"id":job_id}))
+        .execute(
+            "scenario.worker.run",
+            json!({"member_id":member,"id":job_id}),
+        )
         .unwrap();
     assert_eq!(
-        job["state"],
-        "succeeded",
+        job["state"], "succeeded",
         "模型失败但规则可用：降级而不是整体失败"
     );
-    assert_eq!(
-        model.post_count(),
-        3,
-        "模型失败须有限重试（初始+2）后降级"
-    );
+    assert_eq!(model.post_count(), 3, "模型失败须有限重试（初始+2）后降级");
     let plan_id = job["result"]["plan_id"].as_str().unwrap().to_string();
     let plan = app
         .execute("scenario.get", json!({"member_id":member,"id":plan_id}))
@@ -886,8 +910,7 @@ fn model_failure_falls_back_to_rules_with_explicit_feedback() {
     );
     assert_eq!(plan["creates_wear"], false);
     assert!(
-        day_clothing(&plan, 0)
-            .contains(&created[0]["id"].as_str().unwrap().to_string()),
+        day_clothing(&plan, 0).contains(&created[0]["id"].as_str().unwrap().to_string()),
         "降级计划使用真实规则结果"
     );
     assert_no_wear(&app, &member);
@@ -916,7 +939,10 @@ fn unknown_model_outcome_waits_for_input_and_never_blind_resends() {
         .unwrap();
     let job_id = receipt["job_id"].as_str().unwrap().to_string();
     let job = app
-        .execute("scenario.worker.run", json!({"member_id":member,"id":job_id}))
+        .execute(
+            "scenario.worker.run",
+            json!({"member_id":member,"id":job_id}),
+        )
         .unwrap();
     assert_eq!(
         job["state"], "waiting_input",
@@ -934,7 +960,10 @@ fn unknown_model_outcome_waits_for_input_and_never_blind_resends() {
         "已提交任务不能通过 jobs.retry 盲重发"
     );
     let replay = app
-        .execute("scenario.worker.run", json!({"member_id":member,"id":job_id}))
+        .execute(
+            "scenario.worker.run",
+            json!({"member_id":member,"id":job_id}),
+        )
         .unwrap();
     assert_eq!(replay["state"], "waiting_input");
     assert_eq!(model.post_count(), 1, "未知结果不重发请求");
@@ -1060,7 +1089,11 @@ fn concurrent_update_conflicts_instead_of_silently_overwriting_committed_change(
     let created = seed(
         &app,
         &member,
-        &[("礼服A", "dress"), ("礼服B", "one_piece"), ("高跟鞋", "shoes")],
+        &[
+            ("礼服A", "dress"),
+            ("礼服B", "one_piece"),
+            ("高跟鞋", "shoes"),
+        ],
     );
     let plan = app
         .execute(
@@ -1124,7 +1157,12 @@ fn concurrent_delete_conflicts_instead_of_silently_overwriting_committed_change(
         &path,
         &plan_id,
         "已提交的并发修改",
-        move |app| app.execute("scenario.delete", json!({"member_id":worker_member,"id":worker_plan_id})),
+        move |app| {
+            app.execute(
+                "scenario.delete",
+                json!({"member_id":worker_member,"id":worker_plan_id}),
+            )
+        },
     );
     let err = outcome.expect_err("并发提交先行时 delete 必须显式冲突而不是覆盖");
     assert_eq!(err.code, "version_conflict", "{err:?}");

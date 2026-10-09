@@ -321,14 +321,12 @@ impl Application {
         let timezone = string(&job["payload"], "timezone")?;
         Ok(match operation {
             "clothing.list" => {
-                let limit = supplied
-                    .get("limit")
-                    .map_or(Ok(24), |value| {
-                        value
-                            .as_u64()
-                            .filter(|limit| (1..=24).contains(limit))
-                            .ok_or_else(|| invalid("工具分页数量须为1–24"))
-                    })?;
+                let limit = supplied.get("limit").map_or(Ok(24), |value| {
+                    value
+                        .as_u64()
+                        .filter(|limit| (1..=24).contains(limit))
+                        .ok_or_else(|| invalid("工具分页数量须为1–24"))
+                })?;
                 (json!({"member_id":member,"limit":limit}), json!({}))
             }
             "recommendation.generate" => {
@@ -396,7 +394,10 @@ impl Application {
                     .with_timezone(&zone)
                     .date_naive()
                     .to_string();
-                (json!({"member_id":member,"as_of_date":as_of_date,"timezone":timezone}), json!({}))
+                (
+                    json!({"member_id":member,"as_of_date":as_of_date,"timezone":timezone}),
+                    json!({}),
+                )
             }
             "wear.record" => {
                 let ids = stylist_string_list(supplied, "clothing_ids", 24)?;
@@ -414,8 +415,7 @@ impl Application {
                 if let Some(notes) = notes {
                     arguments["notes"] = json!(notes);
                 }
-                let model_fields =
-                    json!({"clothing_ids":arguments["clothing_ids"],"notes":arguments.get("notes").cloned().unwrap_or(Value::Null)});
+                let model_fields = json!({"clothing_ids":arguments["clothing_ids"],"notes":arguments.get("notes").cloned().unwrap_or(Value::Null)});
                 (arguments, model_fields)
             }
             "care.record" => {
@@ -433,8 +433,7 @@ impl Application {
                 if let Some(notes) = notes {
                     arguments["notes"] = json!(notes);
                 }
-                let model_fields =
-                    json!({"clothing_id":clothing_id,"action":action,"notes":arguments.get("notes").cloned().unwrap_or(Value::Null)});
+                let model_fields = json!({"clothing_id":clothing_id,"action":action,"notes":arguments.get("notes").cloned().unwrap_or(Value::Null)});
                 (arguments, model_fields)
             }
             "care.correct" => {
@@ -514,9 +513,7 @@ impl Application {
                         .map(|season| {
                             season
                                 .as_str()
-                                .filter(|s| {
-                                    ["spring", "summer", "autumn", "winter"].contains(s)
-                                })
+                                .filter(|s| ["spring", "summer", "autumn", "winter"].contains(s))
                                 .map(str::to_owned)
                                 .ok_or_else(|| invalid("季节无效"))
                         })
@@ -554,7 +551,10 @@ impl Application {
         let zone: chrono_tz::Tz = timezone
             .parse()
             .map_err(|_| ApiError::new("storage_error", "任务时区损坏"))?;
-        Ok(chrono::Utc::now().with_timezone(&zone).date_naive().to_string())
+        Ok(chrono::Utc::now()
+            .with_timezone(&zone)
+            .date_naive()
+            .to_string())
     }
     fn stylist_answer(
         &self,
@@ -755,7 +755,9 @@ fn stylist_string_list(
         .unwrap_or_else(|| Ok(Vec::new()))
 }
 /// 模型帧可选备注：最多1000字符；缺省或null为无备注。
-fn stylist_optional_notes(supplied: &serde_json::Map<String, Value>) -> Result<Option<String>, ApiError> {
+fn stylist_optional_notes(
+    supplied: &serde_json::Map<String, Value>,
+) -> Result<Option<String>, ApiError> {
     match supplied.get("notes") {
         None | Some(Value::Null) => Ok(None),
         Some(value) => value

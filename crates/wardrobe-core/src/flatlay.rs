@@ -136,8 +136,9 @@ impl Application {
         doc["lease_expires"] = json!(0);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         doc["result"] = json!({"id":uuid::Uuid::now_v7().to_string(),"blob_hash":hash,"local_path":path,"role":"outfit","sync_scope":"local_only","width":image.width(),"height":image.height(),"bytes":bytes.len(),"mime":"image/webp","quality":82,"request_id":request_id,"source_outfit_id":job["payload"]["outfit_id"],"source_version":job["payload"]["outfit_version"],"inputs":job["payload"]["inputs"],"provider_id":job["payload"]["provider"]["id"],"model":job["payload"]["provider"]["model"],"adopted":false});
-        crate::jobs::save(&tx, &doc)?;
+        let pending = self.save_job(&tx, &doc)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(doc)
     }
     pub(super) fn flatlay_save(&self, input: Value) -> Result<Value, ApiError> {
@@ -156,8 +157,9 @@ impl Application {
         doc["state"] = json!("succeeded");
         doc["result"]["adopted"] = json!(true);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        crate::jobs::save(&tx, &doc)?;
+        let pending = self.save_job(&tx, &doc)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(doc)
     }
     pub(super) fn flatlay_preview(&self, input: Value) -> Result<Value, ApiError> {

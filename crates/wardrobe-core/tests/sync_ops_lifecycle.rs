@@ -932,16 +932,17 @@ fn epoch_rotation_then_remote_switch_publishes_to_new_remote() {
 
     // 纪元推进（撤销对端）：下一次入队把目标键滚动到纪元派生键。
     let peer_state: Value = peer.execute("encryption.status", json!({})).unwrap();
-    let peer_device = peer_state["state"]["device_id"].as_str().unwrap().to_owned();
+    let peer_device = peer_state["state"]["device_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     owner
         .execute(
             "encryption.device.revoke",
             json!({"device_id":peer_device,"password":"纪元切换空间口令-唯一短语"}),
         )
         .unwrap();
-    let space = owner
-        .execute("space.default", json!({}))
-        .unwrap()["space_id"]
+    let space = owner.execute("space.default", json!({})).unwrap()["space_id"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -1037,7 +1038,10 @@ fn epoch_rotation_migration_overwrites_stale_credential_and_switch_lands_on_new_
 
     // 纪元推进（撤销对端）。
     let peer_state: Value = peer.execute("encryption.status", json!({})).unwrap();
-    let peer_device = peer_state["state"]["device_id"].as_str().unwrap().to_owned();
+    let peer_device = peer_state["state"]["device_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     owner
         .execute(
             "encryption.device.revoke",
@@ -1047,13 +1051,12 @@ fn epoch_rotation_migration_overwrites_stale_credential_and_switch_lands_on_new_
 
     // 在纪元派生键上预置「上一周期残留的旧凭据」（真实场景：上次轮换迁移
     // 留下的上一远端凭据；与当前文档权威凭据不同）。
-    let space = owner
-        .execute("space.default", json!({}))
-        .unwrap()["space_id"]
+    let space = owner.execute("space.default", json!({})).unwrap()["space_id"]
         .as_str()
         .unwrap()
         .to_owned();
-    let rolled_key = sha256_hex(&json!({"directory":Value::Null,"space_id":space,"epoch":2}).to_string());
+    let rolled_key =
+        sha256_hex(&json!({"directory":Value::Null,"space_id":space,"epoch":2}).to_string());
     keyring::Entry::new("wardrobe-agent.sync", &rolled_key)
         .unwrap()
         .set_password("stale-credential-from-previous-cycle")

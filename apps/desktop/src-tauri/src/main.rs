@@ -6,79 +6,60 @@ async fn application(
     input: serde_json::Value,
 ) -> Result<serde_json::Value, wardrobe_core::ApiError> {
     tauri::async_runtime::spawn_blocking(move || {
-        wardrobe_core::Application::open(&wardrobe_core::default_database_path())?
+        wardrobe_core::Application::open(&wardrobe_core::default_database_path_checked()?)?
             .execute(&operation, input)
     })
     .await
-    .map_err(|_| wardrobe_core::ApiError::of("execution_failed", "本地操作未完成，请重试"))?
+    .map_err(|_| wardrobe_core::ApiError::custom("execution_failed", "本地操作未完成，请重试"))?
 }
 #[tauri::command]
 async fn search_weather_city(name: String) -> Result<serde_json::Value, String> {
     let name = name.trim().to_owned();
-    if name.chars().count() < 2 || name.chars().count() > 120 {
+    let started = std::time::Instant::now();
+    // 诊断（#41）：结果类别事件；不含用户输入的城市名全文，只记长度（脱敏按构造）。
+    // application 命令每次 Application::open 初始化 logger，本旁路命令在此之前被调用
+    // 也必须可用：log_bypass_event 进程内幂等初始化。
+    let query_length = name.chars().count();
+    let log = |outcome: &str| {
+        wardrobe_core::diagnostics::log_bypass_event(
+            "weather_search",
+            serde_json::json!({
+                "operation": "weather.city_search",
+                "outcome": outcome,
+                "duration_ms": started.elapsed().as_millis() as u64,
+                "query_length": query_length,
+            }),
+        );
+    };
+    if query_length < 2 || query_length > 120 {
+        log("validation_error");
         return Err("请输入 2 至 120 个字符的城市名称".into());
     }
-    let search = name.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(12)).build()
             .and_then(|client| client.get("https://geocoding-api.open-meteo.com/v1/search")
-                .query(&[("name", search.as_str()), ("count", "6"), ("language", "zh"), ("format", "json")])
+                .query(&[("name", name.as_str()), ("count", "6"), ("language", "zh"), ("format", "json")])
                 .send()?.error_for_status()?.json::<serde_json::Value>())
-            .map_err(|_| "城市搜索暂不可用，请重试或手填坐标。".to_string())
-    }).await.map_err(|_| "城市搜索未完成，请重试。".to_string())?;
-    // 桌面旁路的天气城市搜索记录结果类别（同一日志流，不含查询原文以外内容）
-    let data_dir = wardrobe_core::default_database_path()
-        .parent()
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_default();
-    wardrobe_core::logging::emit_to(
-        &data_dir,
-        "info",
-        "provider",
-        "weather.city_search",
-        if result.is_ok() { "ok" } else { "error" },
-        serde_json::json!({"endpoint_category": "geocoding", "query_length": name.chars().count()}),
-    );
+    }).await;
+    log(match &result {
+        Ok(Ok(_)) => "ok",
+        Ok(Err(error)) if error.is_timeout() => "timeout",
+        Ok(Err(error)) if error.is_status() => "http_error",
+        Ok(Err(_)) => "error",
+        Err(_) => "error",
+    });
     result
-}
-
-/// 在系统文件管理器中定位导出的诊断文件（桌面端专用）。
-#[tauri::command]
-fn reveal_path(path: String) -> Result<(), String> {
-    let path = std::path::PathBuf::from(&path);
-    if !path.exists() {
-        return Err("文件不存在，可能已被移动或删除".into());
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .args(["-R", &path.to_string_lossy()])
-            .spawn()
-            .map_err(|error| error.to_string())?;
-    }
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(format!("/select,{}", path.to_string_lossy()))
-            .spawn()
-            .map_err(|error| error.to_string())?;
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        let directory = path.parent().unwrap_or(&path).to_string_lossy().to_string();
-        std::process::Command::new("xdg-open")
-            .arg(directory)
-            .spawn()
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(())
+        .map_err(|_| "城市搜索未完成，请重试。".to_string())?
+        .map_err(|_| "城市搜索暂不可用，请重试或手填坐标。".to_string())
 }
 fn main() {
-    wardrobe_core::logging::install_panic_hook();
-    wardrobe_core::logging::begin_run();
+    // 日志核心：进程级 panic 钩子（幂等），崩溃现场写入数据目录 logs/。
+    // application 命令每次调用都 Application::open，日志初始化进程内幂等、run_id 每进程仅生成一次。
+    wardrobe_core::diagnostics::install_panic_hook();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(scheduler::setup)
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -91,7 +72,6 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             application,
             search_weather_city,
-            reveal_path,
             scheduler::native_schedule
         ])
         .run(tauri::generate_context!())

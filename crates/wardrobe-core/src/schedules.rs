@@ -430,7 +430,7 @@ impl Application {
                         &id,
                         payload,
                     ) {
-                        Ok(job) => {
+                        Ok((job, _created)) => {
                             execution["job_id"] = job["id"].clone();
                             queued.push(execution.clone());
                         }
@@ -564,7 +564,7 @@ impl Application {
                         } else {
                             ("schedule", execution.clone())
                         };
-                    let job = crate::jobs::insert(
+                    let (job, _created) = crate::jobs::insert(
                         &tx,
                         doc["member_id"].as_str().unwrap(),
                         kind,

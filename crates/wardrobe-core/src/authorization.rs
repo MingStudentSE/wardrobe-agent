@@ -14,6 +14,7 @@ fn privileged(operation: &str) -> bool {
         || operation.starts_with("client.")
         || operation.starts_with("provider.credential.")
         || operation.starts_with("encryption.")
+        // 诊断查询含日志原文与底层原因：仅本机可信入口，外部客户端永远无法获得
         || operation.starts_with("diagnostics.")
 }
 /// 描述符 scope 元数据：与上方 privileged()、maintenance::is_global_operation()
@@ -128,7 +129,7 @@ fn check_grant_operation(grant: &Value, operation: &str) -> Result<(), ApiError>
     if privileged(operation) {
         return Err(ApiError::new(
             "scope_denied",
-            "客户端不能登记授权或管理系统凭据，请使用可信本机设置",
+            "客户端不能登记授权、管理系统凭据或读取诊断，请使用可信本机设置",
         ));
     }
     if operation != "capabilities"
@@ -171,13 +172,33 @@ impl Application {
         operation: &str,
         input: Value,
     ) -> Result<Value, ApiError> {
+        self.execute_as_client_traced(token, operation, input, crate::diagnostics::new_trace_id())
+    }
+    fn execute_as_client_traced(
+        &self,
+        token: &str,
+        operation: &str,
+        input: Value,
+        trace_id: String,
+    ) -> Result<Value, ApiError> {
         if self.installation_changed()? {
             return Application::open(std::path::Path::new(self.connection.path().unwrap()))?
-                .execute_as_client(token, operation, input);
+                .execute_as_client_traced(token, operation, input, trace_id);
         }
         if let Some(path) = self.redirected()? {
-            return Application::open(&path)?.execute_as_client(token, operation, input);
+            return Application::open(&path)?
+                .execute_as_client_traced(token, operation, input, trace_id);
         }
+        self.logged(trace_id, operation, input, |app, operation, input| {
+            app.authorized_execute(token, operation, input)
+        })
+    }
+    fn authorized_execute(
+        &self,
+        token: &str,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, ApiError> {
         self.check_schema()?;
         if !input.is_object() {
             return Err(ApiError::new("invalid_input", "输入必须是JSON对象"));

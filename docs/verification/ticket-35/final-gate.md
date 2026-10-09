@@ -6,7 +6,7 @@ issue 状态为 2026-10-08 经 GitHub API 核对（#14/#20/#21/#34/#35/#39 OPEN�
 图例：
 - 【已验收】= ticket 已关闭且验收评论含该 F 的真实证据；
 - 【本轮证据】= 本分支新增可复现证据（docs/verification/ticket-35/ 与 results/continue-20261007/ticket35/）；
-- 【✅ 已验收：#34 全量 GUI 110 passed/0 failed + settings-persistence/responsive-audit/键盘/触摸/字体缩放/减少动画 spec 全绿（merge 1880b9d，2026-10-08）】= 等 #34 合入后复核；
+- 【待 #34 终验】= 等 #34 合入后复核；
 - 【待用户云密钥】= 真实云图像调用验收未完成；
 - 【#35 终验】= 属本票验收动作，终验时执行。
 
@@ -34,8 +34,8 @@ issue 状态为 2026-10-08 经 GitHub API 核对（#14/#20/#21/#34/#35/#39 OPEN�
 | F20 | MCP 独立启动/越权拒绝 | #33 CLOSED | 同上 | 【已验收】+【本轮证据】unauthenticated CLI/MCP 双拒绝、MCP initialize/tools/call 通过 |
 | F21 | 三后端同步契约/冲突收敛 | #27/#28/#29/#30/#31 CLOSED | [#27](https://github.com/MingStudentSE/wardrobe-agent/issues/27#issuecomment-6040817452) [#28](https://github.com/MingStudentSE/wardrobe-agent/issues/28#issuecomment-6044635452) [#29](https://github.com/MingStudentSE/wardrobe-agent/issues/29#issuecomment-6043413369) [#30](https://github.com/MingStudentSE/wardrobe-agent/issues/30#issuecomment-6042614950) [#31](https://github.com/MingStudentSE/wardrobe-agent/issues/31#issuecomment-6046620683) | 【已验收】（真实 S3/WebDAV 后端往返在各票记录） |
 | F22 | 备份导出/恢复预览/格式版本 | #32 CLOSED | [#32 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/32#issuecomment-6027784159) | 【已验收】 |
-| F23 | 集中设置/密钥不明文 | #34 **OPEN** + #31 | — | 【✅ 已验收：#34 全量 GUI 110 passed/0 failed + settings-persistence/responsive-audit/键盘/触摸/字体缩放/减少动画 spec 全绿（merge 1880b9d，2026-10-08）】（另一分支并行收尾中）；密钥生命周期部分见 #31 |
-| F24 | macOS 发行/升级/卸载/跨平台审查 | #35 OPEN（本票） | — | 【#35 终验】本轮已完成：DMG 构建、干净安装/升级(schema20→23)/卸载数据保留、签名记录、架构审查、性能、隐私、许可清单；终验待 #34 合入后执行。【本轮证据】多平台本地构建验证基础设施：Ubuntu 24.04 ARM64 VM 端到端（构建→deb 修复→dpkg 安装→真实 HEIC 烟测）、x86_64 TCG 可行性实测、Windows ARM64 VM 管线（详见 docs/verification/ticket-35/multiplatform-infra.md；Windows 端到端待 ISO 回填后按 §7.0 收口） |
+| F23 | 集中设置/密钥不明文 | #34 **OPEN** + #31 | — | 【待 #34 终验】（另一分支并行收尾中）；密钥生命周期部分见 #31 |
+| F24 | macOS 发行/升级/卸载/跨平台审查 | #35 OPEN（本票） | — | 【#35 终验】本轮已完成：DMG 构建、干净安装/升级(schema20→23)/卸载数据保留、签名记录、架构审查、性能、隐私、许可清单；终验待 #34 合入后执行 |
 | F25 | 洗护阈值/清洗/提醒/排除 | #10 CLOSED | [#10 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/10#issuecomment-6024210500) | 【已验收】 |
 | F26 | 多图/旋转/抠图/恢复/主图 | #7 CLOSED | [#7 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/7#issuecomment-6023675746) | 【已验收】+【本轮证据】发行包 CLI 真实 U2NetP 抠图 1200×1600、SHA256 校验、缓存重启、MCP 同 hash（standalone-cutout-runtime.json） |
 | F27 | Lookbook/Studio 模板与改穿 | #9/#38 CLOSED | [#9 评论](https://github.com/MingStudentSE/wardrobe-agent/issues/9#issuecomment-6023922046) | 【已验收】 |
@@ -59,16 +59,8 @@ issue 状态为 2026-10-08 经 GitHub API 核对（#14/#20/#21/#34/#35/#39 OPEN�
 
 ## 终验前必须完成的缺口汇总
 
-1. 【✅ 已验收：#34 全量 GUI 110 passed/0 failed + settings-persistence/responsive-audit/键盘/触摸/字体缩放/减少动画 spec 全绿（merge 1880b9d，2026-10-08）】F23 与全应用 UI/设置回归——#34 合入本集成线后对本候选复核。
+1. 【待 #34 终验】F23 与全应用 UI/设置回归——#34 合入本集成线后对本候选复核。
 2. F07（#14）、F15（#20）、F16（#21）真实云图像调用成功证据——已于 2026-10-08 闭合：真实 Ark Seedream（doubao-seedream-5-0-flash-260915）调用验收完成，见 docs/verification/ticket-14|20|21/report-real-cloud.md 与 results/continue-20261007/real-ai-acceptance/；三票 issue 关闭动作仍归各票。
 3. 【#35 终验】F24 收口与 F01–F30 对照表最终勾选；F14 的安装态通知/自启动按实际现状复核并如实记录。
 4. 产品许可证决定（见 THIRD-PARTY-LICENSES.md 第 1 节）。
 5. （分发环节）签名公证、CI 云端复现构建（账户账单恢复后）。
-
-## 2026-10-08 门禁复核终态
-
-- F23（全应用 UI 与设置验收）：#34 已关闭——全量 GUI 110 passed/0 failed/9 skipped（env 门控），设置持久化/七档宽度/键盘/触摸/长名称/字体缩放/减少动画逐项 spec+截图。
-- F07/F15/F16（真实云图像）：#14/#20/#21 已用用户 ARK 凭据完成 6 次真实调用验收并关闭。
-- F21（同步三后端+运维密钥）：#27/#28/#29/#30/#31 全部关闭；Linux ARM64 deb 真实安装+HEIC 烟测通过（多平台基础设施）。
-- **Windows 桌面腿：按用户 2026-10-08 指示推迟**。管线全部就绪（xorriso 无提示引导 ISO 工程、VM 生命周期脚本、windows-provision.ps1、windows-build.ps1），恢复步骤见 multiplatform-infra.md §7.0（20 秒人工按键 + 自动安装 + SSH provision）；ISO 需重下（直链 24h 过期）。
-- 未决项（不阻塞本票关闭，如实移交）：产品 LICENSE 选择（用户）、Developer ID 公证（无证书）、GitHub Actions 账户付费阻断、Safari/Firefox 浏览器未测。

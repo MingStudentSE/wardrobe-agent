@@ -46,7 +46,10 @@ mod mini_sig {
         body: &[u8],
     ) -> Result<u16, String> {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let (datestamp, amzdate) = {
             let days = now / 86400;
             // days since 1970-01-01 -> y/m/d（civil from days 算法）
@@ -60,7 +63,15 @@ mod mini_sig {
             let d = doy - (153 * mp + 2) / 5 + 1;
             let m = if mp < 10 { mp + 3 } else { mp - 9 };
             let y = if m <= 2 { y + 1 } else { y };
-            (format!("{y:04}{m:02}{d:02}"), format!("{y:04}{m:02}{d:02}T{:02}{:02}{:02}Z", now / 3600 % 24, now / 60 % 60, now % 60))
+            (
+                format!("{y:04}{m:02}{d:02}"),
+                format!(
+                    "{y:04}{m:02}{d:02}T{:02}{:02}{:02}Z",
+                    now / 3600 % 24,
+                    now / 60 % 60,
+                    now % 60
+                ),
+            )
         };
         let payload_hash = hex(&Sha256::digest(body));
         let canonical = format!(
@@ -87,10 +98,14 @@ mod mini_sig {
             body.len()
         );
         let mut stream = std::net::TcpStream::connect(host).map_err(|e| e.to_string())?;
-        stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+        stream
+            .write_all(request.as_bytes())
+            .map_err(|e| e.to_string())?;
         stream.write_all(body).map_err(|e| e.to_string())?;
         let mut response = vec![];
-        stream.read_to_end(&mut response).map_err(|e| e.to_string())?;
+        stream
+            .read_to_end(&mut response)
+            .map_err(|e| e.to_string())?;
         let head = String::from_utf8_lossy(&response);
         head.split("\r\n")
             .next()
@@ -98,7 +113,6 @@ mod mini_sig {
             .and_then(|code| code.parse::<u16>().ok())
             .ok_or_else(|| format!("bad response: {head}"))
     }
-
 
     /// 带 query 的签名 GET（ListObjectsV2 / GET 对象共用）。
     pub fn get(
@@ -109,7 +123,10 @@ mod mini_sig {
         secret: &str,
     ) -> Result<(u16, Vec<u8>), String> {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let (datestamp, amzdate) = civil(now);
         let payload_hash = hex(&Sha256::digest(b""));
         let mut sorted: Vec<(String, String)> = query.to_vec();
@@ -128,7 +145,13 @@ mod mini_sig {
             hex(&Sha256::digest(canonical.as_bytes()))
         );
         let k = hmac(
-            hmac(hmac(hmac(format!("AWS4{secret}"), datestamp.as_bytes()), b"us-east-1"), b"s3"),
+            hmac(
+                hmac(
+                    hmac(format!("AWS4{secret}"), datestamp.as_bytes()),
+                    b"us-east-1",
+                ),
+                b"s3",
+            ),
             b"aws4_request",
         );
         let signature = hex(&hmac(&k, sts.as_bytes()));
@@ -141,9 +164,13 @@ mod mini_sig {
             "{url}host: {host}\nx-amz-content-sha256: {payload_hash}\nx-amz-date: {amzdate}\nauthorization: AWS4-HMAC-SHA256 Credential={access}/{scope}, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature={signature}\nconnection: close\r\n\r\n"
         );
         let mut stream = std::net::TcpStream::connect(host).map_err(|e| e.to_string())?;
-        stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+        stream
+            .write_all(request.as_bytes())
+            .map_err(|e| e.to_string())?;
         let mut response = vec![];
-        stream.read_to_end(&mut response).map_err(|e| e.to_string())?;
+        stream
+            .read_to_end(&mut response)
+            .map_err(|e| e.to_string())?;
         let split = response
             .windows(4)
             .position(|w| w == b"\r\n\r\n")
@@ -212,7 +239,6 @@ pub fn ensure_bucket(endpoint: &str, bucket: &str, access: &str, secret: &str) {
     }
 }
 
-
 /// 列举 bucket 中 `prefix/` 下全部对象并读取字节（独立最小签名实现，互为印证）。
 pub fn list_objects(
     endpoint: &str,
@@ -237,10 +263,14 @@ pub fn list_objects(
         if !marker.is_empty() {
             query.push(("start-after".into(), marker.clone()));
         }
-        let (status, body) =
-            mini_sig::get(&host, &format!("/{bucket}/"), &query, access, secret)
-                .expect("list objects");
-        assert_eq!(status, 200, "list failed: {}", String::from_utf8_lossy(&body));
+        let (status, body) = mini_sig::get(&host, &format!("/{bucket}/"), &query, access, secret)
+            .expect("list objects");
+        assert_eq!(
+            status,
+            200,
+            "list failed: {}",
+            String::from_utf8_lossy(&body)
+        );
         let text = String::from_utf8_lossy(&body).to_string();
         let truncated = text.contains("<IsTruncated>true</IsTruncated>");
         let mut rest = text.as_str();
@@ -263,8 +293,8 @@ pub fn list_objects(
     }
     // 读取每个对象的字节。
     for (key, bytes) in out.iter_mut() {
-        let (status, body) =
-            mini_sig::get(&host, &format!("/{bucket}/{key}"), &[], access, secret).expect("get object");
+        let (status, body) = mini_sig::get(&host, &format!("/{bucket}/{key}"), &[], access, secret)
+            .expect("get object");
         assert_eq!(status, 200, "get {key} failed");
         *bytes = body;
     }
@@ -395,10 +425,16 @@ fn handle(
     let head = String::from_utf8_lossy(&request[..header_end]).to_string();
     let mut lines = head.lines();
     let request_line = lines.next().unwrap_or_default().to_string();
-    let method = request_line.split_whitespace().next().unwrap_or_default().to_string();
+    let method = request_line
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string();
     let mut content_length = 0usize;
     for line in lines {
-        let Some((name, value)) = line.split_once(':') else { continue };
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
         if name.trim().eq_ignore_ascii_case("content-length") {
             content_length = value.trim().parse().unwrap_or(0);
         }
@@ -443,7 +479,12 @@ fn handle(
     // split 的最后一个元素是终止 CRLF 产生的空串；connection 头必须插到它之前。
     let mut lines: Vec<&str> = head_text.split("\r\n").collect();
     let trailing_empty = lines.last().map(|l| l.is_empty()).unwrap_or(false);
-    let body_part = if trailing_empty { lines.pop(); true } else { false };
+    let body_part = if trailing_empty {
+        lines.pop();
+        true
+    } else {
+        false
+    };
     lines.retain(|line| !(line.len() > 11 && line[..11].to_ascii_lowercase() == "connection:"));
     lines.push("connection: close");
     let mut rebuilt = lines.join("\r\n");
@@ -481,7 +522,9 @@ fn handle(
                     Ok(n) => response.extend_from_slice(&chunk[..n]),
                 }
             }
-            let Some(pos) = find_header_end(&response) else { return };
+            let Some(pos) = find_header_end(&response) else {
+                return;
+            };
             let head = String::from_utf8_lossy(&response[..pos + 2]).to_string();
             let body_start = pos + 4;
             let head = head
@@ -492,9 +535,7 @@ fn handle(
                 })
                 .map(|line| format!("{line}\r\n"))
                 .collect::<String>();
-            let _ = client.write_all(
-                format!("{head}connection: close\r\n\r\n").as_bytes(),
-            );
+            let _ = client.write_all(format!("{head}connection: close\r\n\r\n").as_bytes());
             let end = (body_start + keep).min(response.len());
             let _ = client.write_all(&response[body_start..end]);
             let _ = client.flush();

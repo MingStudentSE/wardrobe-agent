@@ -689,7 +689,10 @@ fn tool_loop_covers_todays_outfit_and_analysis_with_real_deterministic_queries()
     let tool_calls = job["result"]["tool_calls"].as_array().unwrap();
     assert_eq!(tool_calls.len(), 2);
     let generate_arguments = &tool_calls[0]["arguments"];
-    assert!(generate_arguments["strategy"].is_null(), "{generate_arguments}");
+    assert!(
+        generate_arguments["strategy"].is_null(),
+        "{generate_arguments}"
+    );
     assert!(
         generate_arguments["provider_id"].is_null(),
         "{generate_arguments}"
@@ -713,9 +716,9 @@ fn tool_loop_covers_todays_outfit_and_analysis_with_real_deterministic_queries()
     }
     // Grounding: the follow-up prompt must carry the actual proposal items.
     assert!(
-        model.request(1).contains(proposal_items[0]["clothing_id"]
-            .as_str()
-            .unwrap()),
+        model
+            .request(1)
+            .contains(proposal_items[0]["clothing_id"].as_str().unwrap()),
         "the second model turn must carry the real generate result"
     );
     // Deterministic analysis numbers come from the server-computed projection.
@@ -733,8 +736,7 @@ fn tool_loop_covers_todays_outfit_and_analysis_with_real_deterministic_queries()
     let facts = job["result"]["facts"].as_array().unwrap();
     assert_eq!(facts.len(), 3);
     assert_eq!(
-        facts[0]["value"],
-        proposal_items[0]["clothing_id"],
+        facts[0]["value"], proposal_items[0]["clothing_id"],
         "fact values are extracted by the server, never trusted from the model"
     );
     assert_eq!(facts[1]["value"], json!(2));
@@ -813,11 +815,8 @@ fn client_without_insights_scope_fails_deferred_tool_dispatch_scope_denied() {
         json!({"kind":"answer","facts":[],"explanation":"工具被拒后不应到达第二轮"}),
     ]);
     let provider = save_fixture_text_provider(&app, &model.endpoint);
-    let (token, _grant_id) = authorize_limited_client(
-        &app,
-        &member,
-        &["stylist.ask", "stylist.worker.run"],
-    );
+    let (token, _grant_id) =
+        authorize_limited_client(&app, &member, &["stylist.ask", "stylist.worker.run"]);
     let receipt = app
         .execute_as_client(
             &token,
@@ -859,9 +858,7 @@ fn explicit_wear_record_writes_once_replays_identical_retry_and_strips_forged_fi
     // tool frame. Forged operation_key/local_date must be stripped: the server
     // owns the idempotency key, member and calendar date. The identical repeat
     // frame (a model retry) must replay, never double-count the wear.
-    let write_frame = || {
-        json!({"kind":"tool","operation":"wear.record","arguments":{"member_id":member,"clothing_ids":[item_id],"notes":"今天穿了毛衣","operation_key":"forged-key","local_date":"1999-01-01"}})
-    };
+    let write_frame = || json!({"kind":"tool","operation":"wear.record","arguments":{"member_id":member,"clothing_ids":[item_id],"notes":"今天穿了毛衣","operation_key":"forged-key","local_date":"1999-01-01"}});
     let model = ScriptedModel::start(vec![
         write_frame(),
         write_frame(),
@@ -882,7 +879,12 @@ fn explicit_wear_record_writes_once_replays_identical_retry_and_strips_forged_fi
     assert_eq!(model.post_count(), 3, "write, identical retry, then answer");
     // The identical retry never became a second tool call: one write, one ledger entry.
     let tool_calls = job["result"]["tool_calls"].as_array().unwrap();
-    assert_eq!(tool_calls.len(), 1, "{}", serde_json::to_string(tool_calls).unwrap());
+    assert_eq!(
+        tool_calls.len(),
+        1,
+        "{}",
+        serde_json::to_string(tool_calls).unwrap()
+    );
     assert_eq!(tool_calls[0]["operation"], "wear.record");
     let arguments = &tool_calls[0]["arguments"];
     assert_eq!(arguments["clothing_ids"], json!([item_id]));
@@ -1071,15 +1073,24 @@ fn care_record_correct_revoke_chain_grounds_through_care_list() {
         .unwrap();
     let first_job = first["job_id"].as_str().unwrap().to_owned();
     let done = app
-        .execute("stylist.worker.run", json!({"member_id":member,"id":first_job}))
+        .execute(
+            "stylist.worker.run",
+            json!({"member_id":member,"id":first_job}),
+        )
         .unwrap();
     assert_eq!(done["state"], "succeeded", "{done}");
     let root = done["result"]["tool_calls"][0]["result"]["root_event_id"]
         .as_str()
         .unwrap()
         .to_owned();
-    assert_eq!(done["result"]["tool_calls"][0]["result"]["kind"], json!("record"));
-    assert_eq!(done["result"]["tool_calls"][0]["result"]["revision"], json!(1));
+    assert_eq!(
+        done["result"]["tool_calls"][0]["result"]["kind"],
+        json!("record")
+    );
+    assert_eq!(
+        done["result"]["tool_calls"][0]["result"]["revision"],
+        json!(1)
+    );
     // Correction reads the durable root from the care.list projection first.
     let correct_model = ScriptedModel::start(vec![
         json!({"kind":"tool","operation":"care.list","arguments":{"member_id":member}}),
@@ -1095,7 +1106,10 @@ fn care_record_correct_revoke_chain_grounds_through_care_list() {
         .unwrap();
     let second_job = second["job_id"].as_str().unwrap().to_owned();
     let corrected = app
-        .execute("stylist.worker.run", json!({"member_id":member,"id":second_job}))
+        .execute(
+            "stylist.worker.run",
+            json!({"member_id":member,"id":second_job}),
+        )
         .unwrap();
     assert_eq!(corrected["state"], "succeeded", "{corrected}");
     assert_eq!(correct_model.post_count(), 3);
@@ -1127,10 +1141,16 @@ fn care_record_correct_revoke_chain_grounds_through_care_list() {
         .unwrap();
     let third_job = third["job_id"].as_str().unwrap().to_owned();
     let revoked = app
-        .execute("stylist.worker.run", json!({"member_id":member,"id":third_job}))
+        .execute(
+            "stylist.worker.run",
+            json!({"member_id":member,"id":third_job}),
+        )
         .unwrap();
     assert_eq!(revoked["state"], "succeeded", "{revoked}");
-    assert_eq!(revoked["result"]["tool_calls"][0]["result"]["kind"], json!("revocation"));
+    assert_eq!(
+        revoked["result"]["tool_calls"][0]["result"]["kind"],
+        json!("revocation")
+    );
     assert_eq!(
         revoked["result"]["tool_calls"][0]["result"]["revision"],
         json!(3)
@@ -1139,7 +1159,10 @@ fn care_record_correct_revoke_chain_grounds_through_care_list() {
     // (record -> correction -> revocation); the default care.list hides a fully
     // revoked root by domain semantics. The wear ledger was never touched.
     let history = app
-        .execute("care.history", json!({"member_id":member,"root_event_id":root}))
+        .execute(
+            "care.history",
+            json!({"member_id":member,"root_event_id":root}),
+        )
         .unwrap();
     let revisions = history["items"].as_array().unwrap();
     assert_eq!(revisions.len(), 3, "{history}");
@@ -1148,7 +1171,10 @@ fn care_record_correct_revoke_chain_grounds_through_care_list() {
     assert_eq!(revisions[2]["kind"], json!("revocation"));
     assert_eq!(revisions[2]["revision"], json!(3));
     let care = app
-        .execute("care.list", json!({"member_id":member,"include_revoked":true}))
+        .execute(
+            "care.list",
+            json!({"member_id":member,"include_revoked":true}),
+        )
         .unwrap();
     let visible = care["items"].as_array().unwrap();
     assert_eq!(visible.len(), 1, "{care}");

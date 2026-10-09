@@ -46,9 +46,7 @@ impl Drop for Cleanup {
                 // 移除该安装登记过的 S3 目标凭据（target_key 从 status 读取）。
                 if let Ok(status) = app.execute("sync.status", json!({})) {
                     if let Some(key) = status["target"]["target_key"].as_str() {
-                        if let Ok(entry) =
-                            keyring::Entry::new("wardrobe-agent.sync", key)
-                        {
+                        if let Ok(entry) = keyring::Entry::new("wardrobe-agent.sync", key) {
                             let _ = entry.delete_credential();
                         }
                     }
@@ -59,13 +57,24 @@ impl Drop for Cleanup {
     }
 }
 
-fn pair(a: &std::path::Path, b: &std::path::Path, password: &str, name_a: &str, name_b: &str) -> (Application, Application) {
+fn pair(
+    a: &std::path::Path,
+    b: &std::path::Path,
+    password: &str,
+    name_a: &str,
+    name_b: &str,
+) -> (Application, Application) {
     let owner = Application::open(a).unwrap();
     let peer = Application::open(b).unwrap();
     owner
-        .execute("encryption.create", json!({"password":password,"device_name":name_a}))
+        .execute(
+            "encryption.create",
+            json!({"password":password,"device_name":name_a}),
+        )
         .unwrap();
-    let offer = owner.execute("encryption.pair.offer", json!({"device_name":name_b})).unwrap();
+    let offer = owner
+        .execute("encryption.pair.offer", json!({"device_name":name_b}))
+        .unwrap();
     let receipt = peer
         .execute(
             "encryption.pair.accept",
@@ -73,9 +82,16 @@ fn pair(a: &std::path::Path, b: &std::path::Path, password: &str, name_a: &str, 
         )
         .unwrap();
     let confirmed = owner
-        .execute("encryption.pair.confirm", json!({"receipt":receipt["receipt"]}))
+        .execute(
+            "encryption.pair.confirm",
+            json!({"receipt":receipt["receipt"]}),
+        )
         .unwrap();
-    peer.execute("encryption.device.apply", json!({"manifest":confirmed["manifest"]})).unwrap();
+    peer.execute(
+        "encryption.device.apply",
+        json!({"manifest":confirmed["manifest"]}),
+    )
+    .unwrap();
     (owner, peer)
 }
 
@@ -118,7 +134,12 @@ fn unique_png(path: &std::path::Path, size: u32, seed: u32) -> Vec<u8> {
 
 /// 同一业务场景：成员、两件单品、一张采用展示图、一件搭配、一次穿着。
 /// 返回对端的领域事实快照（用于跨后端比较）。
-fn run_scenario(owner: &Application, peer: &Application, fixture_png: &std::path::Path, seed: u32) -> Value {
+fn run_scenario(
+    owner: &Application,
+    peer: &Application,
+    fixture_png: &std::path::Path,
+    seed: u32,
+) -> Value {
     let member = owner.execute("space.default", json!({})).unwrap()["member_id"]
         .as_str()
         .unwrap()
@@ -128,17 +149,26 @@ fn run_scenario(owner: &Application, peer: &Application, fixture_png: &std::path
         .unwrap()
         .clone();
     let pants = owner
-        .execute("clothing.create", json!({"member_id":member,"name":format!("等价长裤 {seed}"),"category":"bottom"}))
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":format!("等价长裤 {seed}"),"category":"bottom"}),
+        )
         .unwrap()
         .clone();
     let png = unique_png(fixture_png, 48, 1000 + seed);
     std::fs::write(fixture_png, &png).unwrap();
     let imported = owner
-        .execute("assets.import", json!({"member_id":member,"path":fixture_png}))
+        .execute(
+            "assets.import",
+            json!({"member_id":member,"path":fixture_png}),
+        )
         .unwrap()
         .clone();
     owner
-        .execute("assets.adopt", json!({"member_id":member,"clothing_id":shirt["id"],"asset_id":imported["id"]}))
+        .execute(
+            "assets.adopt",
+            json!({"member_id":member,"clothing_id":shirt["id"],"asset_id":imported["id"]}),
+        )
         .unwrap();
     let outfit = owner
         .execute(
@@ -153,12 +183,21 @@ fn run_scenario(owner: &Application, peer: &Application, fixture_png: &std::path
     // 双向多轮同步直至收敛。
     for round in 0..3 {
         let owner_batch = owner.sync_batch().unwrap();
-        assert_eq!(owner_batch["pending"].as_u64().unwrap_or(0), 0, "{owner_batch}");
+        assert_eq!(
+            owner_batch["pending"].as_u64().unwrap_or(0),
+            0,
+            "{owner_batch}"
+        );
         let peer_batch = peer.sync_batch().unwrap();
-        assert_eq!(peer_batch["pending"].as_u64().unwrap_or(0), 0, "{peer_batch}");
+        assert_eq!(
+            peer_batch["pending"].as_u64().unwrap_or(0),
+            0,
+            "{peer_batch}"
+        );
         if round == 0 {
             assert!(
-                owner_batch["sent"].as_u64().unwrap_or(0) > 0 || peer_batch["received"].as_u64().unwrap_or(0) > 0,
+                owner_batch["sent"].as_u64().unwrap_or(0) > 0
+                    || peer_batch["received"].as_u64().unwrap_or(0) > 0,
                 "first round must transport facts: owner={owner_batch} peer={peer_batch}"
             );
         }
@@ -173,18 +212,23 @@ fn run_scenario(owner: &Application, peer: &Application, fixture_png: &std::path
         .cloned()
         .expect("shirt must reach the peer");
     let png_on_peer = peer
-        .execute("assets.get", json!({"member_id":member,"id":imported["id"]}))
+        .execute(
+            "assets.get",
+            json!({"member_id":member,"id":imported["id"]}),
+        )
         .unwrap()
         .clone();
-    peer
-        .execute("wear.record", json!({
+    peer.execute(
+        "wear.record",
+        json!({
             "member_id":member,
             "clothing_ids":[shirt_on_peer["id"]],
             "local_date":"2026-10-06",
             "timezone":"Asia/Shanghai",
             "operation_key":format!("equivalence wear {seed}")
-        }))
-        .unwrap();
+        }),
+    )
+    .unwrap();
     for _ in 0..2 {
         peer.sync_batch().unwrap();
         owner.sync_batch().unwrap();
@@ -224,13 +268,7 @@ fn s3_configure_roundtrip_dual_device_and_secret_hygiene() {
     let db_a = home_a.path().join("wardrobe.sqlite");
     let db_b = home_b.path().join("wardrobe.sqlite");
     let _cleanup = Cleanup(vec![db_a.clone(), db_b.clone()]);
-    let (owner, peer) = pair(
-        &db_a,
-        &db_b,
-        "s3 双设备口令短语",
-        "s3 owner",
-        "s3 peer",
-    );
+    let (owner, peer) = pair(&db_a, &db_b, "s3 双设备口令短语", "s3 owner", "s3 peer");
     let configure_payload = json!({
         "provider_kind":"s3",
         "endpoint":endpoint,
@@ -241,14 +279,29 @@ fn s3_configure_roundtrip_dual_device_and_secret_hygiene() {
         "access_key_id":access,
         "secret_access_key":secret,
     });
-    let configured = owner.execute("sync.configure", configure_payload.clone()).unwrap();
+    let configured = owner
+        .execute("sync.configure", configure_payload.clone())
+        .unwrap();
     assert_eq!(configured["target"]["provider_kind"], "s3", "{configured}");
-    assert_eq!(configured["target"]["endpoint"], endpoint.as_str(), "{configured}");
-    assert_eq!(configured["target"]["bucket"], bucket.as_str(), "{configured}");
-    assert_eq!(configured["target"]["prefix"], prefix.as_str(), "{configured}");
+    assert_eq!(
+        configured["target"]["endpoint"],
+        endpoint.as_str(),
+        "{configured}"
+    );
+    assert_eq!(
+        configured["target"]["bucket"],
+        bucket.as_str(),
+        "{configured}"
+    );
+    assert_eq!(
+        configured["target"]["prefix"],
+        prefix.as_str(),
+        "{configured}"
+    );
     // secret 与 access key 不出现在配置输出。
     assert!(
-        !configured.to_string().contains(secret.as_str()) && !configured.to_string().contains(access.as_str()),
+        !configured.to_string().contains(secret.as_str())
+            && !configured.to_string().contains(access.as_str()),
         "credentials must never appear in configure output: {configured}"
     );
     let status = owner.execute("sync.status", json!({})).unwrap();
@@ -297,7 +350,10 @@ fn s3_configure_roundtrip_dual_device_and_secret_hygiene() {
         .unwrap()
         .to_owned();
     owner
-        .execute("clothing.create", json!({"member_id":member,"name":"S3 往返衬衫","category":"top"}))
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"S3 往返衬衫","category":"top"}),
+        )
         .unwrap();
     let first = owner.sync_batch().unwrap();
     assert!(first["sent"].as_u64().unwrap() > 0, "{first}");
@@ -314,14 +370,21 @@ fn s3_configure_roundtrip_dual_device_and_secret_hygiene() {
     // 重复同步幂等。
     let again_owner = owner.sync_batch().unwrap();
     let again_peer = peer.sync_batch().unwrap();
-    assert_eq!(again_owner["sent"].as_u64().unwrap() + again_peer["received"].as_u64().unwrap(), 0, "{again_owner} {again_peer}");
+    assert_eq!(
+        again_owner["sent"].as_u64().unwrap() + again_peer["received"].as_u64().unwrap(),
+        0,
+        "{again_owner} {again_peer}"
+    );
     assert_eq!(again_owner["pending"].as_u64().unwrap(), 0, "{again_owner}");
     // 远端对象字节扫描：无 secret、无 access key 明文。
     let objects = s3_support::list_objects(&endpoint, &bucket, &access, &secret, &prefix);
     for (key, bytes) in &objects {
         let text = bytes.iter().map(|b| *b as char).collect::<String>();
         assert!(!text.contains(secret.as_str()), "secret leaked in {key}");
-        assert!(!text.contains(access.as_str()), "access key leaked in {key}");
+        assert!(
+            !text.contains(access.as_str()),
+            "access key leaked in {key}"
+        );
     }
 }
 
@@ -346,10 +409,19 @@ fn same_fixture_converges_identically_via_local_and_s3() {
     let db_b = home_b.path().join("wardrobe.sqlite");
     {
         let _cleanup = Cleanup(vec![db_a.clone(), db_b.clone()]);
-        let (owner, peer) = pair(&db_a, &db_b, "等价口令 本地", "eq owner local", "eq peer local");
+        let (owner, peer) = pair(
+            &db_a,
+            &db_b,
+            "等价口令 本地",
+            "eq owner local",
+            "eq peer local",
+        );
         for app in [&owner, &peer] {
-            app.execute("sync.configure", json!({"provider_kind":"local_folder","directory":local_remote.path()}))
-                .unwrap();
+            app.execute(
+                "sync.configure",
+                json!({"provider_kind":"local_folder","directory":local_remote.path()}),
+            )
+            .unwrap();
         }
         let local_result = run_scenario(&owner, &peer, &fixture_png, 7);
         std::fs::write(
@@ -379,7 +451,8 @@ fn same_fixture_converges_identically_via_local_and_s3() {
             "secret_access_key":secret,
         });
         for app in [&owner, &peer] {
-            app.execute("sync.configure", configure_payload.clone()).unwrap();
+            app.execute("sync.configure", configure_payload.clone())
+                .unwrap();
         }
         let s3_result = run_scenario(&owner, &peer, &fixture_png, 7);
         let local_result: Value = serde_json::from_str(
@@ -389,7 +462,10 @@ fn same_fixture_converges_identically_via_local_and_s3() {
         // 领域事实逐一相等；仅身份（uuid/成员 id）与时间戳允许不同——
         // 两轮是彼此独立的全新安装。展示图路径（本机文件位置）同理，
         // 因此比较展示图字节数与 pending 状态而不是本机路径。
-        assert_eq!(s3_result["member_id"].is_null(), local_result["member_id"].is_null());
+        assert_eq!(
+            s3_result["member_id"].is_null(),
+            local_result["member_id"].is_null()
+        );
         assert_eq!(
             domain_facts(&s3_result["shirt"]),
             domain_facts(&local_result["shirt"]),

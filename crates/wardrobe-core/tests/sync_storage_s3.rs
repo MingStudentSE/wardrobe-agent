@@ -138,7 +138,11 @@ fn storage_roundtrip_versions_and_delete_on_both_backends() {
             )
             .unwrap();
         assert_eq!(meta.bytes, 7, "{name}");
-        assert_eq!(bounded(storage, "space/changes/a.object"), b"payload", "{name}");
+        assert_eq!(
+            bounded(storage, "space/changes/a.object"),
+            b"payload",
+            "{name}"
+        );
         let stat = storage.stat("space/changes/a.object").unwrap();
         assert_eq!(stat.bytes, 7, "{name}");
         assert!(!stat.version.is_empty(), "{name}");
@@ -298,23 +302,27 @@ fn conditional_writes_preserve_versions_on_both_backends() {
                 WriteCondition::MatchVersion(old.version.clone()),
             )
             .unwrap_err();
-        assert_eq!(bytes_at(storage, "space/changes/r.object"), b"new", "{name}");
-        match storage
-            .delete(
-                "space/changes/r.object",
-                WriteCondition::MatchVersion(new.version.clone()),
-            ) {
+        assert_eq!(
+            bytes_at(storage, "space/changes/r.object"),
+            b"new",
+            "{name}"
+        );
+        match storage.delete(
+            "space/changes/r.object",
+            WriteCondition::MatchVersion(new.version.clone()),
+        ) {
             Ok(()) => {
                 assert_eq!(stale_delete.code, "storage_precondition", "{name}");
             }
             Err(rejected) => {
-                assert_eq!(
-                    rejected.code, "storage_unsupported",
-                    "{name}: {rejected:?}"
-                );
+                assert_eq!(rejected.code, "storage_unsupported", "{name}: {rejected:?}");
                 assert_eq!(stale_delete.code, "storage_unsupported", "{name}");
                 // 明确拒绝后对象保持新版本；无条件删除可用。
-                assert_eq!(bytes_at(storage, "space/changes/r.object"), b"new", "{name}");
+                assert_eq!(
+                    bytes_at(storage, "space/changes/r.object"),
+                    b"new",
+                    "{name}"
+                );
                 storage
                     .delete("space/changes/r.object", WriteCondition::Any)
                     .unwrap();
@@ -343,7 +351,10 @@ fn oversized_upload_is_rejected_whole_on_both_backends() {
             "storage_corrupt",
             "{name}"
         );
-        assert!(storage.stat("space/changes/too-large.object").is_err(), "{name}");
+        assert!(
+            storage.stat("space/changes/too-large.object").is_err(),
+            "{name}"
+        );
         assert!(
             storage
                 .list("space/changes", None, 20)
@@ -500,7 +511,10 @@ fn s3_slowdown_is_retried_within_budget_then_maps_to_transient() {
         )
         .unwrap();
     let stats = injector.stats();
-    assert_eq!(stats.slowdown, 2, "two injected 503s must be absorbed: {stats:?}");
+    assert_eq!(
+        stats.slowdown, 2,
+        "two injected 503s must be absorbed: {stats:?}"
+    );
     assert_eq!(bounded(&storage, "space/changes/retry.object"), b"payload");
     // 预算耗尽：持续 503 超过 2 次自动重试 → storage_transient（含能力探测本身）。
     let injector = s3_support::FaultProxy::spawn(&upstream, 50);
@@ -518,7 +532,10 @@ fn s3_slowdown_is_retried_within_budget_then_maps_to_transient() {
     .unwrap_err();
     assert_eq!(error.code, "storage_transient", "{error:?}");
     let stats = injector.stats();
-    assert_eq!(stats.slowdown, 3, "initial + 2 retries, never more: {stats:?}");
+    assert_eq!(
+        stats.slowdown, 3,
+        "initial + 2 retries, never more: {stats:?}"
+    );
 }
 
 /// S3 专属：响应体截断必须整体失败，部分字节不可见；修复后重试收敛。
@@ -585,7 +602,11 @@ fn s3_concurrent_create_only_has_single_winner() {
         })
         .collect();
     let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-    assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1, "{results:?}");
+    assert_eq!(
+        results.iter().filter(|r| r.is_ok()).count(),
+        1,
+        "{results:?}"
+    );
     let mut bytes = vec![];
     s3.get("space/changes/unique.object")
         .unwrap()

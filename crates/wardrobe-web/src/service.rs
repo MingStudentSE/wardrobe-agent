@@ -113,8 +113,9 @@ pub fn spawn(config: Config) -> std::io::Result<RunningService> {
     let bootstrap_file = config.data_dir.join("web-bootstrap-token");
     ensure_bootstrap_token(&bootstrap_file, &application);
     let server = arc_server(
-        tiny_http::Server::http(("127.0.0.1", config.port))
-            .map_err(|error| std::io::Error::new(std::io::ErrorKind::AddrInUse, format!("{error}")))?,
+        tiny_http::Server::http(("127.0.0.1", config.port)).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::AddrInUse, format!("{error}"))
+        })?,
     );
     let port = match server.server_addr() {
         tiny_http::ListenAddr::IP(address) => address.port(),
@@ -189,11 +190,7 @@ fn ensure_bootstrap_token(file: &Path, application: &Application) {
     let has_clients = application
         .execute("client.list", json!({}))
         .ok()
-        .and_then(|result| {
-            result["items"]
-                .as_array()
-                .map(|items| !items.is_empty())
-        })
+        .and_then(|result| result["items"].as_array().map(|items| !items.is_empty()))
         .unwrap_or(false);
     if has_clients {
         if file.exists() {
@@ -250,7 +247,9 @@ fn header<'a>(request: &'a tiny_http::Request, name: &str) -> Option<&'a str> {
     request
         .headers()
         .iter()
-        .find(|candidate| candidate.field.as_str().to_ascii_lowercase() == name.to_ascii_lowercase())
+        .find(|candidate| {
+            candidate.field.as_str().to_ascii_lowercase() == name.to_ascii_lowercase()
+        })
         .map(|found| found.value.as_str())
 }
 
@@ -291,10 +290,7 @@ fn query_map(url: &str) -> HashMap<String, String> {
     map
 }
 
-fn read_body(
-    request: &mut tiny_http::Request,
-    limit: usize,
-) -> Result<Vec<u8>, &'static str> {
+fn read_body(request: &mut tiny_http::Request, limit: usize) -> Result<Vec<u8>, &'static str> {
     let declared = request.body_length();
     if let Some(length) = declared {
         if length > limit {
@@ -380,20 +376,25 @@ fn origin_allowed(request: &tiny_http::Request) -> bool {
         return false;
     };
     match header(request, "Origin") {
-        Some(origin) => origin.to_ascii_lowercase() == format!("http://{}", host.to_ascii_lowercase()),
+        Some(origin) => {
+            origin.to_ascii_lowercase() == format!("http://{}", host.to_ascii_lowercase())
+        }
         None => false,
     }
 }
 
-fn handle(
-    state: &AppState,
-    mut request: tiny_http::Request,
-) -> Result<(), std::io::Error> {
+fn handle(state: &AppState, mut request: tiny_http::Request) -> Result<(), std::io::Error> {
     let method = request.method().to_string();
     let url = request.url().to_string();
-    let path = percent_decode(url.split('?').next().unwrap_or("/")).trim_end_matches('?').to_string();
+    let path = percent_decode(url.split('?').next().unwrap_or("/"))
+        .trim_end_matches('?')
+        .to_string();
     let response = if !host_allowed(state, &request) {
-        Resp::error(403, "forbidden_host", "仅允许通过 127.0.0.1 或 localhost 访问本机服务")
+        Resp::error(
+            403,
+            "forbidden_host",
+            "仅允许通过 127.0.0.1 或 localhost 访问本机服务",
+        )
     } else if method == "GET" || method == "HEAD" {
         route_get(state, &request, &path)
     } else if method == "POST" {
@@ -424,12 +425,7 @@ fn route_get(state: &AppState, request: &tiny_http::Request, path: &str) -> Resp
     }
 }
 
-fn route_post(
-    state: &AppState,
-    request: &mut tiny_http::Request,
-    path: &str,
-    url: &str,
-) -> Resp {
+fn route_post(state: &AppState, request: &mut tiny_http::Request, path: &str, url: &str) -> Resp {
     match path {
         "/health" => Resp::error(405, "method_not_allowed", "health 仅支持 GET"),
         "/auth/state" => Resp::error(405, "method_not_allowed", "auth/state 仅支持 GET"),
@@ -508,7 +504,11 @@ fn auth_bootstrap(state: &AppState, request: &mut tiny_http::Request) -> Resp {
             .unwrap_or(true);
         if has_clients {
             let _ = std::fs::remove_file(&state.bootstrap_file);
-            return Resp::error(403, "bootstrap_unavailable", "本机衣橱已有客户端授权，请直接登录");
+            return Resp::error(
+                403,
+                "bootstrap_unavailable",
+                "本机衣橱已有客户端授权，请直接登录",
+            );
         }
         let created = app.execute(
             "client.authorize",
@@ -522,7 +522,10 @@ fn auth_bootstrap(state: &AppState, request: &mut tiny_http::Request) -> Resp {
         );
         match created {
             Ok(doc) => {
-                let grant_token = doc["token"].as_str().expect("授权应返回一次性令牌").to_string();
+                let grant_token = doc["token"]
+                    .as_str()
+                    .expect("授权应返回一次性令牌")
+                    .to_string();
                 let session_id = random_hex(32);
                 let csrf = random_hex(16);
                 state.sessions.lock().unwrap().insert(
@@ -580,10 +583,16 @@ fn auth_login(state: &AppState, request: &mut tiny_http::Request) -> Resp {
                     last_seen: Instant::now(),
                 },
             );
-            Resp::json(200, json!({"schema_version":1,"result":{"authenticated":true}}))
-                .with_cookie(session_cookie_value(&session_id))
+            Resp::json(
+                200,
+                json!({"schema_version":1,"result":{"authenticated":true}}),
+            )
+            .with_cookie(session_cookie_value(&session_id))
         }
-        Err(error) => Resp::json(401, json!({"error":{"code":error.code,"message":error.message}})),
+        Err(error) => Resp::json(
+            401,
+            json!({"error":{"code":error.code,"message":error.message}}),
+        ),
     }
 }
 
@@ -601,8 +610,11 @@ fn auth_logout(state: &AppState, request: &mut tiny_http::Request) -> Resp {
             if provided != Some(csrf.as_str()) {
                 return Resp::error(403, "csrf_denied", "会话校验失败，请刷新页面重试");
             }
-            Resp::json(200, json!({"schema_version":1,"result":{"logged_out":true}}))
-                .with_cookie(cleared_cookie())
+            Resp::json(
+                200,
+                json!({"schema_version":1,"result":{"logged_out":true}}),
+            )
+            .with_cookie(cleared_cookie())
         }
         None => Resp::error(401, "unauthorized", "尚未登录").with_cookie(cleared_cookie()),
     }
@@ -612,12 +624,15 @@ fn require_session(
     state: &AppState,
     request: &tiny_http::Request,
 ) -> Result<(String, String), Resp> {
-    let (grant, csrf) = session_of(state, request).ok_or_else(|| {
-        Resp::error(401, "unauthorized", "请先登录本机衣橱服务")
-    })?;
+    let (grant, csrf) = session_of(state, request)
+        .ok_or_else(|| Resp::error(401, "unauthorized", "请先登录本机衣橱服务"))?;
     let provided = header(request, "X-Wardrobe-CSRF");
     if provided != Some(csrf.as_str()) {
-        return Err(Resp::error(403, "csrf_denied", "会话校验失败，请刷新页面重试"));
+        return Err(Resp::error(
+            403,
+            "csrf_denied",
+            "会话校验失败，请刷新页面重试",
+        ));
     }
     Ok((grant, csrf))
 }
@@ -646,7 +661,10 @@ fn api_bridge(state: &AppState, request: &mut tiny_http::Request) -> Resp {
     let app = state.app.lock().unwrap();
     match app.execute_as_client(&grant, operation, input) {
         Ok(result) => Resp::json(200, json!({"schema_version":1,"result":result})),
-        Err(error) => Resp::json(200, json!({"schema_version":1,"error":{"code":error.code,"message":error.message}})),
+        Err(error) => Resp::json(
+            200,
+            json!({"schema_version":1,"error":{"code":error.code,"message":error.message}}),
+        ),
     }
 }
 
@@ -666,9 +684,17 @@ fn api_upload(state: &AppState, request: &mut tiny_http::Request, url: &str) -> 
     let Some(member) = query.get("member").filter(|value| !value.is_empty()) else {
         return Resp::error(400, "invalid_input", "请指定成员");
     };
-    let content_type = header(request, "Content-Type").unwrap_or_default().to_string();
-    let Some(extension) = image_type_extension(content_type.split(';').next().unwrap_or_default().trim()) else {
-        return Resp::error(400, "unsupported_image_type", "请选择 JPG、PNG、WebP 或 HEIC 图片");
+    let content_type = header(request, "Content-Type")
+        .unwrap_or_default()
+        .to_string();
+    let Some(extension) =
+        image_type_extension(content_type.split(';').next().unwrap_or_default().trim())
+    else {
+        return Resp::error(
+            400,
+            "unsupported_image_type",
+            "请选择 JPG、PNG、WebP 或 HEIC 图片",
+        );
     };
     let bytes = match read_body(request, MAX_UPLOAD_BODY) {
         Ok(bytes) => bytes,
@@ -717,30 +743,41 @@ fn api_upload(state: &AppState, request: &mut tiny_http::Request, url: &str) -> 
     let _ = std::fs::remove_file(&temp_path);
     match outcome {
         Ok(result) => Resp::json(200, json!({"schema_version":1,"result":result})),
-        Err(error) => Resp::json(200, json!({"schema_version":1,"error":{"code":error.code,"message":error.message}})),
+        Err(error) => Resp::json(
+            200,
+            json!({"schema_version":1,"error":{"code":error.code,"message":error.message}}),
+        ),
     }
 }
 
 fn sanitize_key(key: &str) -> String {
     let filtered: String = key
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     filtered.chars().take(120).collect()
 }
 
 fn sanitize_file_name(name: &str, extension: &str) -> String {
-    let base = name
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or("")
-        .trim();
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("").trim();
     if base.is_empty() {
         return format!("photo.{extension}");
     }
     let safe: String = base
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || "._- ".contains(c) || !c.is_ascii() { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "._- ".contains(c) || !c.is_ascii() {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     if safe.is_empty() {
         format!("photo.{extension}")
@@ -781,7 +818,11 @@ fn api_batch_upload(state: &AppState, request: &mut tiny_http::Request) -> Resp 
         .upload_tmp
         .join(format!("batch-{}", sanitize_key(operation_key)));
     if let Err(error) = std::fs::create_dir_all(&batch_directory) {
-        return Resp::error(500, "storage_error", &format!("批量临时目录创建失败：{error}"));
+        return Resp::error(
+            500,
+            "storage_error",
+            &format!("批量临时目录创建失败：{error}"),
+        );
     }
     let mut paths = vec![];
     let mut total = 0usize;
@@ -789,7 +830,11 @@ fn api_batch_upload(state: &AppState, request: &mut tiny_http::Request) -> Resp 
     for (index, image) in images.iter().enumerate() {
         let declared_type = image["type"].as_str().unwrap_or_default();
         let Some(extension) = image_type_extension(declared_type) else {
-            failure = Some(Resp::error(400, "unsupported_image_type", "请选择 JPG、PNG、WebP 或 HEIC 图片"));
+            failure = Some(Resp::error(
+                400,
+                "unsupported_image_type",
+                "请选择 JPG、PNG、WebP 或 HEIC 图片",
+            ));
             break;
         };
         let Some(data) = image["data"].as_str() else {
@@ -806,13 +851,21 @@ fn api_batch_upload(state: &AppState, request: &mut tiny_http::Request) -> Resp 
         }
         total += bytes.len();
         if total > MAX_BATCH_BODY {
-            failure = Some(Resp::error(413, "payload_too_large", "单批图片总量最多 64 MB"));
+            failure = Some(Resp::error(
+                413,
+                "payload_too_large",
+                "单批图片总量最多 64 MB",
+            ));
             break;
         }
         let name = sanitize_file_name(image["name"].as_str().unwrap_or(""), extension);
         let path = batch_directory.join(format!("{index:03}-{name}"));
         if let Err(error) = std::fs::write(&path, &bytes) {
-            failure = Some(Resp::error(500, "storage_error", &format!("图片暂存失败：{error}")));
+            failure = Some(Resp::error(
+                500,
+                "storage_error",
+                &format!("图片暂存失败：{error}"),
+            ));
             break;
         }
         paths.push(json!(path.display().to_string()));
@@ -827,7 +880,10 @@ fn api_batch_upload(state: &AppState, request: &mut tiny_http::Request) -> Resp 
             json!({"member_id":member,"operation_key":operation_key,"paths":paths}),
         ) {
             Ok(result) => Ok(Resp::json(200, json!({"schema_version":1,"result":result}))),
-            Err(error) => Ok(Resp::json(200, json!({"schema_version":1,"error":{"code":error.code,"message":error.message}}))),
+            Err(error) => Ok(Resp::json(
+                200,
+                json!({"schema_version":1,"error":{"code":error.code,"message":error.message}}),
+            )),
         }
     };
     let _ = std::fs::remove_dir_all(&batch_directory);
@@ -880,8 +936,15 @@ fn serve_static(state: &AppState, path: &str) -> Resp {
         return notice_page();
     };
     let relative = path.trim_start_matches('/');
-    let relative = if relative.is_empty() { "index.html" } else { relative };
-    if relative.split('/').any(|component| component == ".." || component.contains('\0')) {
+    let relative = if relative.is_empty() {
+        "index.html"
+    } else {
+        relative
+    };
+    if relative
+        .split('/')
+        .any(|component| component == ".." || component.contains('\0'))
+    {
         return Resp::error(403, "forbidden_path", "非法路径");
     }
     let full = dist.join(relative);
@@ -894,7 +957,12 @@ fn serve_static(state: &AppState, path: &str) -> Resp {
             // SPA 回退：无扩展名路径交给前端路由；带扩展名但不存在 → 404
             if !relative.contains('.') {
                 match std::fs::read(dist_canonical.join("index.html")) {
-                    Ok(bytes) => return Resp::with_body(Body::Bytes(bytes, "text/html; charset=utf-8".into())),
+                    Ok(bytes) => {
+                        return Resp::with_body(Body::Bytes(
+                            bytes,
+                            "text/html; charset=utf-8".into(),
+                        ))
+                    }
                     Err(_) => return notice_page(),
                 }
             }
@@ -932,8 +1000,11 @@ impl Resp {
 fn respond(request: tiny_http::Request, response: Resp) -> Result<(), std::io::Error> {
     let mut tiny_response = match response.body {
         Body::Json(value) => tiny_http::Response::from_string(value.to_string()).with_header(
-            tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json; charset=utf-8"[..])
-                .unwrap(),
+            tiny_http::Header::from_bytes(
+                &b"Content-Type"[..],
+                &b"application/json; charset=utf-8"[..],
+            )
+            .unwrap(),
         ),
         Body::Html(page) => tiny_http::Response::from_string(page).with_header(
             tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
@@ -944,16 +1015,15 @@ fn respond(request: tiny_http::Request, response: Resp) -> Result<(), std::io::E
         ),
     }
     .with_status_code(response.status)
-    .with_header(
-        tiny_http::Header::from_bytes(&b"Cache-Control"[..], &b"no-store"[..]).unwrap(),
-    );
+    .with_header(tiny_http::Header::from_bytes(&b"Cache-Control"[..], &b"no-store"[..]).unwrap());
     if let Some(cookie) = response.set_cookie {
         tiny_response.add_header(
-            tiny_http::Header::from_bytes(&b"Set-Cookie"[..], cookie.as_bytes())
-                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "无效 Cookie"))?,
+            tiny_http::Header::from_bytes(&b"Set-Cookie"[..], cookie.as_bytes()).map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "无效 Cookie")
+            })?,
         );
     }
-    request.respond(tiny_response).map_err(|error| {
-        std::io::Error::new(std::io::ErrorKind::BrokenPipe, format!("{error}"))
-    })
+    request
+        .respond(tiny_response)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::BrokenPipe, format!("{error}")))
 }

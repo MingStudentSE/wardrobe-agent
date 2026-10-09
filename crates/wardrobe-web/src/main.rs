@@ -54,9 +54,8 @@ fn main() {
         }
         index += 1;
     }
-    let data_dir = data_dir.or_else(|| {
-        std::env::var_os("WARDROBE_DATA_DIR").map(|path| PathBuf::from(path))
-    });
+    let data_dir =
+        data_dir.or_else(|| std::env::var_os("WARDROBE_DATA_DIR").map(|path| PathBuf::from(path)));
     let data_dir = match data_dir {
         Some(directory) => directory,
         None => wardrobe_core::default_database_path()

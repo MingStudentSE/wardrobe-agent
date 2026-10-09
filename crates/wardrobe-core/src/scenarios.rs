@@ -134,7 +134,9 @@ fn parse_plan_request(app: &Application, input: &Value) -> Result<ScenarioReques
         None => return Err(invalid("单事件场合须为wedding或interview")),
     };
     if kind == "travel" && occasion != "travel" {
-        return Err(invalid("旅行计划的场合由旅行本身决定，不接收wedding/interview"));
+        return Err(invalid(
+            "旅行计划的场合由旅行本身决定，不接收wedding/interview",
+        ));
     }
     if kind == "event" && occasion == "travel" {
         return Err(invalid("单事件场合须为wedding或interview"));
@@ -307,7 +309,11 @@ impl Application {
 
     /// 同 (member, operation_key) 的 AI 计划重放：返回任务收据（含终态与计划ID）。
     /// 附带存储的 payload 供幂等重放比对。
-    fn scenario_existing_receipt(&self, member: &str, key: &str) -> Result<Option<Value>, ApiError> {
+    fn scenario_existing_receipt(
+        &self,
+        member: &str,
+        key: &str,
+    ) -> Result<Option<Value>, ApiError> {
         let stored: Option<String> = self
             .connection
             .query_row(
@@ -321,7 +327,9 @@ impl Application {
         };
         let job: Value = serde_json::from_str(&stored)
             .map_err(|_| ApiError::new("storage_error", "任务记录损坏"))?;
-        Ok(Some(json!({"payload":job["payload"],"receipt":receipt(&job)})))
+        Ok(Some(
+            json!({"payload":job["payload"],"receipt":receipt(&job)}),
+        ))
     }
 
     fn scenario_get(&self, input: Value) -> Result<Value, ApiError> {
@@ -345,9 +353,9 @@ impl Application {
             "SELECT document FROM scenario_plans WHERE member_id=?1 AND json_extract(document,'$.status')='active' ORDER BY id DESC LIMIT ?2",
         )?;
         let mut items = vec![];
-        for row in statement.query_map(params![member, PLAN_LIMIT], |row| {
-            row.get::<_, String>(0)
-        })? {
+        for row in
+            statement.query_map(params![member, PLAN_LIMIT], |row| row.get::<_, String>(0))?
+        {
             items.push(parse(Some(row?))?);
         }
         Ok(json!({"schema_version":1,"member_id":member,"items":items}))
@@ -388,7 +396,10 @@ impl Application {
             .filter(|version| *version > 0)
             .ok_or_else(|| invalid("修改计划需要明确expected_version"))?;
         if expected != plan["version"].as_u64().unwrap_or(0) {
-            return Err(ApiError::new("version_conflict", "计划已被修改，请重新读取"));
+            return Err(ApiError::new(
+                "version_conflict",
+                "计划已被修改，请重新读取",
+            ));
         }
         // 合并控制：从已存 controls 出发，仅替换显式提供的字段。
         // 显式排除优先于遗留固定：用户排除原固定单品时自动解除其固定，
@@ -400,9 +411,10 @@ impl Application {
             }
         }
         if input.get("excluded_ids").is_some() {
-            if let (Some(fixed), Some(excluded)) =
-                (merged["fixed_ids"].as_array().cloned(), merged["excluded_ids"].as_array().cloned())
-            {
+            if let (Some(fixed), Some(excluded)) = (
+                merged["fixed_ids"].as_array().cloned(),
+                merged["excluded_ids"].as_array().cloned(),
+            ) {
                 merged["fixed_ids"] = json!(fixed
                     .into_iter()
                     .filter(|id| !excluded.contains(id))
@@ -437,7 +449,10 @@ impl Application {
             )
             .map_err(|_| ApiError::new("storage_error", "计划保存失败"))?;
         if updated != 1 {
-            return Err(ApiError::new("version_conflict", "计划已被修改，请重新读取"));
+            return Err(ApiError::new(
+                "version_conflict",
+                "计划已被修改，请重新读取",
+            ));
         }
         tx.commit()?;
         Ok(recomputed)
@@ -475,7 +490,10 @@ impl Application {
             )
             .map_err(|_| ApiError::new("storage_error", "计划删除失败"))?;
         if updated != 1 {
-            return Err(ApiError::new("version_conflict", "计划已被修改，请重新读取"));
+            return Err(ApiError::new(
+                "version_conflict",
+                "计划已被修改，请重新读取",
+            ));
         }
         tx.commit()?;
         Ok(plan)
@@ -551,8 +569,8 @@ impl Application {
             let soft_pool: Vec<&Value> = pool
                 .iter()
                 .filter(|garment| {
-                    let garment_class = GARMENT_CATEGORIES
-                        .contains(&garment["category"].as_str().unwrap_or(""));
+                    let garment_class =
+                        GARMENT_CATEGORIES.contains(&garment["category"].as_str().unwrap_or(""));
                     !garment_class || !yesterday.contains(garment["id"].as_str().unwrap())
                 })
                 .collect();
@@ -589,17 +607,18 @@ impl Application {
             let complete = proposal["complete"].as_bool().unwrap_or(false);
             let missing_roles = proposal["missing_roles"].as_array().unwrap().clone();
             let mut reasons: Vec<Value> = vec![];
-            if complete && yesterday.iter().any(|id| {
-                items
-                    .iter()
-                    .any(|item| item["clothing_id"].as_str() == Some(id.as_str()))
-            }) {
+            if complete
+                && yesterday.iter().any(|id| {
+                    items
+                        .iter()
+                        .any(|item| item["clothing_id"].as_str() == Some(id.as_str()))
+                })
+            {
                 let repeated: Vec<String> = items
                     .iter()
                     .filter(|item| {
                         yesterday.contains(item["clothing_id"].as_str().unwrap_or(""))
-                            && GARMENT_CATEGORIES
-                                .contains(&item["category"].as_str().unwrap_or(""))
+                            && GARMENT_CATEGORIES.contains(&item["category"].as_str().unwrap_or(""))
                     })
                     .map(|item| item["name"].as_str().unwrap_or("").to_owned())
                     .collect();
@@ -634,7 +653,11 @@ impl Application {
                 "travel" => "场合：旅行（按日常适配；只采用已记录标签，不推断未知事实）".to_owned(),
                 _ => format!(
                     "场合：{}（按正式场合适配；只采用已记录标签，不推断未知事实）",
-                    if request.occasion == "wedding" { "婚礼" } else { "面试" }
+                    if request.occasion == "wedding" {
+                        "婚礼"
+                    } else {
+                        "面试"
+                    }
                 ),
             }));
             if cold {
@@ -644,7 +667,9 @@ impl Application {
                     "天气估计温度不高于15°C，要求外层；不承诺衣物保暖性能"
                 }));
             } else if weather_context["source"] == "unavailable" {
-                reasons.push(json!("自动天气不可用（未来日期或服务失败）：可手动输入温度或补充说明，不影响计划"));
+                reasons.push(json!(
+                    "自动天气不可用（未来日期或服务失败）：可手动输入温度或补充说明，不影响计划"
+                ));
             }
             for item in &items {
                 used_before.insert(item["clothing_id"].as_str().unwrap().to_owned());
@@ -681,13 +706,11 @@ impl Application {
             .collect();
         for id in &request.fixed {
             if !placed.contains(id.as_str()) {
-                shortage_reasons
-                    .push("固定单品无法安排进任何一天：检查库存与可用性".to_owned());
+                shortage_reasons.push("固定单品无法安排进任何一天：检查库存与可用性".to_owned());
             }
         }
         if pool.is_empty() {
-            shortage_reasons
-                .push("没有满足成员、生命周期、洗护及排除条件的真实衣物".to_owned());
+            shortage_reasons.push("没有满足成员、生命周期、洗护及排除条件的真实衣物".to_owned());
         }
         // 7. AI 采纳：runtime 已校验的模型逐天指派覆盖对应天，并按同一结构规则重评完整性。
         if let Some(model_days) = model_days {
@@ -718,7 +741,9 @@ impl Application {
                 day["reasons"]
                     .as_array_mut()
                     .expect("方案理由是数组")
-                    .push(json!("文本模型选择已通过与离线规则相同的真实库存、固定/排除与逐天轮换检查"));
+                    .push(json!(
+                        "文本模型选择已通过与离线规则相同的真实库存、固定/排除与逐天轮换检查"
+                    ));
             }
         }
         // 8. 去重打包清单：每个衣物一条，列出使用的天与重复语义。
@@ -766,7 +791,8 @@ impl Application {
             .filter(|status| status["available"] == true)
             .map(|status| status["clothing_id"].as_str().unwrap())
             .collect();
-        let excluded: std::collections::HashSet<&str> = excluded.iter().map(String::as_str).collect();
+        let excluded: std::collections::HashSet<&str> =
+            excluded.iter().map(String::as_str).collect();
         let mut statement = self
             .connection
             .prepare("SELECT document FROM clothing WHERE member_id=?1 ORDER BY id")?;
@@ -867,7 +893,9 @@ fn build_packing(days: &[Value]) -> Value {
         let used = entry["days"].as_array().unwrap().clone();
         entry["reused"] = json!(used.len() > 1);
         let consecutive = used.windows(2).any(|pair| {
-            pair[1].as_u64().is_some_and(|later| later == pair[0].as_u64().unwrap_or(0) + 1)
+            pair[1]
+                .as_u64()
+                .is_some_and(|later| later == pair[0].as_u64().unwrap_or(0) + 1)
         });
         entry["consecutive_repeat"] = json!(consecutive);
         items.push(entry);
@@ -963,7 +991,8 @@ pub(super) fn descriptors() -> Vec<Value> {
         "additionalProperties":false,
     });
     let weather_property = json!({"type":"object","required":["mode"],"additionalProperties":false,"properties":{"mode":{"enum":["off","manual","automatic"]},"temperature_c":{"type":"number","minimum":-80,"maximum":60},"location":{"type":"string","maxLength":120},"obtained_at":{"type":"string","format":"date-time"}}});
-    let ids_property = json!({"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true});
+    let ids_property =
+        json!({"type":"array","items":{"type":"string"},"maxItems":100,"uniqueItems":true});
     let plan_input = json!({
         "type":"object",
         "required":["member_id","operation_key","timezone","kind"],

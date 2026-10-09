@@ -8,28 +8,6 @@ pub(crate) use text_transport::read_chat_response;
 use uuid::Uuid;
 const CAPABILITIES: &[&str] = &["text", "vision", "image_generation", "virtual_tryon"];
 impl Application {
-    /// 供应商请求事件：端点类别、模型名、结果类别与耗时；绝不记录密钥与请求头。
-    pub(crate) fn log_provider_request(
-        &self,
-        op: &str,
-        category: &str,
-        model: &str,
-        outcome: &str,
-        status: Option<u16>,
-        started: std::time::Instant,
-    ) {
-        self.logger().emit(
-            "info",
-            "provider",
-            op,
-            crate::logging::current_trace().as_deref(),
-            outcome,
-            Some(started.elapsed().as_millis()),
-            json!({"endpoint_category": category, "model": model, "http_status": status}),
-        );
-    }
-}
-impl Application {
     pub(crate) fn provider_credential(
         &self,
         operation: &str,
@@ -120,28 +98,15 @@ impl Application {
             };
             request = request.bearer_auth(key);
         }
-        let validate_started = std::time::Instant::now();
+        // 供应商请求事件（#44）：同步验证走当前调用链路（线程局部 trace 上下文）
+        let provider_request = crate::diagnostics::ProviderRequestLog::from_current_call(
+            p["model"].as_str().unwrap_or(""),
+        );
+        provider_request.begin_send();
         let response = match request.send() {
-            Ok(response) => {
-                self.log_provider_request(
-                    "provider.validate",
-                    "chat_completions",
-                    p["model"].as_str().unwrap_or(""),
-                    if response.status().is_success() { "ok" } else { "http_error" },
-                    Some(response.status().as_u16()),
-                    validate_started,
-                );
-                response
-            }
+            Ok(response) => response,
             Err(error) => {
-                self.log_provider_request(
-                    "provider.validate",
-                    "chat_completions",
-                    p["model"].as_str().unwrap_or(""),
-                    if error.is_timeout() { "timeout" } else { "send_failed" },
-                    None,
-                    validate_started,
-                );
+                provider_request.record(self, "chat_completions", "error", None);
                 return Err(if error.is_timeout() {
                     ApiError::new("connection_timeout", "连接超时，请检查端点或网络")
                 } else {
@@ -151,6 +116,12 @@ impl Application {
         };
         let status = response.status();
         if !status.is_success() {
+            provider_request.record(
+                self,
+                "chat_completions",
+                "http_error",
+                Some(status.as_u16()),
+            );
             return Err(match status.as_u16() {
                 401 | 403 => ApiError::new(
                     "provider_authentication",
@@ -188,8 +159,15 @@ impl Application {
             .as_str()
             .is_none_or(|s| s.trim().is_empty())
         {
+            provider_request.record(
+                self,
+                "chat_completions",
+                "outcome_unknown",
+                Some(status.as_u16()),
+            );
             return Err(ApiError::new("provider_response", "供应商响应缺少文本结果"));
         }
+        provider_request.record(self, "chat_completions", "ok", None);
         let mut usage = json!({});
         for field in ["prompt_tokens", "completion_tokens", "total_tokens"] {
             if let Some(count) = result["usage"][field].as_u64() {
@@ -338,6 +316,34 @@ impl Application {
             );
         }
         Ok(json!({"schema_version":1,"items":items}))
+    }
+    /// #48 基础检查的凭据口径（provider.credential.status 同一 keyring 查询）：
+    /// 返回（模型总数、缺密钥的模型数、本地免密模型数、安全存储不可用）。
+    /// 只计数，绝不读取或返回密钥内容。
+    pub(crate) fn credential_check_summary(&self) -> Result<(usize, usize, usize, bool), ApiError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT document FROM providers ORDER BY id")?;
+        let rows = statement.query_map([], |r| r.get::<_, String>(0))?;
+        let mut total = 0usize;
+        let mut missing = 0usize;
+        let mut local = 0usize;
+        let mut store_unavailable = false;
+        for row in rows {
+            let p: Value = serde_json::from_str(&row?)
+                .map_err(|_| ApiError::new("storage_error", "模型配置损坏"))?;
+            total += 1;
+            if p["authentication"] == "none" {
+                local += 1;
+                continue;
+            }
+            match credential_entry_for(&p)?.get_password() {
+                Ok(_) => {}
+                Err(keyring::Error::NoEntry) => missing += 1,
+                Err(_) => store_unavailable = true,
+            }
+        }
+        Ok((total, missing, local, store_unavailable))
     }
 }
 pub(super) fn credential_entry_for(p: &Value) -> Result<keyring::Entry, ApiError> {

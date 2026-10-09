@@ -157,7 +157,7 @@ impl Application {
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .map_err(|_| ApiError::new("weather_network", "无法建立天气连接"))?;
-            let weather_started = std::time::Instant::now();
+            let weather_request = crate::diagnostics::ProviderRequestLog::from_current_call("");
             let send = client
                 .get(config["endpoint"].as_str().unwrap())
                 .query(&[
@@ -169,32 +169,36 @@ impl Application {
                 ])
                 .try_clone();
             let response = match send {
-                Some(request) => match request.send() {
-                    Ok(response) => {
-                        self.log_provider_request(
-                            "weather.refresh",
-                            "weather_forecast",
-                            "",
-                            if response.status().is_success() { "ok" } else { "http_error" },
-                            Some(response.status().as_u16()),
-                            weather_started,
-                        );
-                        response
+                Some(request) => {
+                    weather_request.begin_send();
+                    match request.send() {
+                        Ok(response) => {
+                            weather_request.record(
+                                self,
+                                "weather_forecast",
+                                if response.status().is_success() {
+                                    "ok"
+                                } else {
+                                    "http_error"
+                                },
+                                Some(response.status().as_u16()),
+                            );
+                            response
+                        }
+                        Err(_) => {
+                            weather_request.record(self, "weather_forecast", "error", None);
+                            return Err(ApiError::new(
+                                "weather_network",
+                                "天气连接失败，可使用缓存或手动温度",
+                            ));
+                        }
                     }
-                    Err(_) => {
-                        self.log_provider_request(
-                            "weather.refresh",
-                            "weather_forecast",
-                            "",
-                            "send_failed",
-                            None,
-                            weather_started,
-                        );
-                        return Err(ApiError::new("weather_network", "天气连接失败，可使用缓存或手动温度"));
-                    }
-                },
+                }
                 None => {
-                    return Err(ApiError::new("weather_network", "天气连接失败，可使用缓存或手动温度"))
+                    return Err(ApiError::new(
+                        "weather_network",
+                        "天气连接失败，可使用缓存或手动温度",
+                    ))
                 }
             };
             if !response.status().is_success() {

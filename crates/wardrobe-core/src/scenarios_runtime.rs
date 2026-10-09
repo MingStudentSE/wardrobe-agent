@@ -12,10 +12,11 @@ const MODEL_ATTEMPTS: u64 = 3;
 
 impl Application {
     pub(super) fn scenario_worker(&self, input: Value) -> Result<Value, ApiError> {
-        if input
-            .as_object()
-            .is_none_or(|object| object.keys().any(|key| !["member_id", "id"].contains(&key.as_str())))
-        {
+        if input.as_object().is_none_or(|object| {
+            object
+                .keys()
+                .any(|key| !["member_id", "id"].contains(&key.as_str()))
+        }) {
             return Err(ApiError::new("invalid_input", "worker只接受成员与任务ID"));
         }
         let member = self.member(&input)?;
@@ -177,7 +178,9 @@ impl Application {
                     .iter()
                     .any(|entry| entry["clothing_id"] == json!(garment_id))
                 {
-                    if let Ok(garment) = self.clothing_get(json!({"member_id":member,"id":garment_id})) {
+                    if let Ok(garment) =
+                        self.clothing_get(json!({"member_id":member,"id":garment_id}))
+                    {
                         catalog.push(json!({
                             "clothing_id":garment["id"],
                             "name":garment["name"],
@@ -277,7 +280,9 @@ impl Application {
                 .try_clone()
                 .ok_or_else(|| ApiError::new("provider_error", "无法建立模型请求"))?
                 .send()
-                .map_err(|_| ApiError::new("provider_network", "模型连接失败，结果未知，不盲重发"))?;
+                .map_err(|_| {
+                    ApiError::new("provider_network", "模型连接失败，结果未知，不盲重发")
+                })?;
             if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS {
                 break response;
             }
@@ -397,7 +402,9 @@ impl Application {
             for garment_id in &ids {
                 let category = allowed.get(garment_id).ok_or_else(fail)?;
                 if GARMENT_CATEGORIES.contains(&category.as_str())
-                    && previous_garments.iter().any(|previous| previous == garment_id)
+                    && previous_garments
+                        .iter()
+                        .any(|previous| previous == garment_id)
                 {
                     return Err(fail());
                 }
@@ -546,19 +553,22 @@ impl Application {
         let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
         crate::ai_recommendations::text_lease(&job, lease)?;
         job["last_outcome"] = json!("rate_limited");
-        job["error"] =
-            json!({"code":"provider_rate_limit","message":"供应商限流，遵守Retry-After后重试","retryable":true});
+        job["error"] = json!({"code":"provider_rate_limit","message":"供应商限流，遵守Retry-After后重试","retryable":true});
         let retry = job["rate_retries"].as_u64().unwrap_or(0) < 2;
         if retry {
-            job["next_due"] =
-                json!(chrono::Utc::now().timestamp_millis().saturating_add(delay));
+            job["next_due"] = json!(chrono::Utc::now().timestamp_millis().saturating_add(delay));
         }
         crate::jobs::save(&tx, &job)?;
         tx.commit()?;
         Ok(retry)
     }
 
-    fn scenario_defer_rate_limit(&self, member: &str, id: &str, lease: &str) -> Result<(), ApiError> {
+    fn scenario_defer_rate_limit(
+        &self,
+        member: &str,
+        id: &str,
+        lease: &str,
+    ) -> Result<(), ApiError> {
         let tx = self.begin_write()?;
         let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
         crate::ai_recommendations::text_lease(&job, lease)?;

@@ -191,6 +191,24 @@ fn status(mut s: Option<Value>) -> Value {
     }
     json!({"schema_version":1,"enabled":s.is_some(),"state":s})
 }
+
+/// #48 基础检查的加密钱包口径：只报三态，绝不返回或记录任何密钥材料。
+/// 已配置时按既有解锁路径尝试打开钱包（Secret 丢弃时擦除），失败即「已锁定/不可用」。
+pub(crate) enum WalletStatus {
+    NotConfigured,
+    Unlocked,
+    Locked,
+}
+pub(crate) fn wallet_status(app: &Application) -> WalletStatus {
+    match state(app) {
+        Ok(None) => WalletStatus::NotConfigured,
+        Ok(Some(s)) => match wallet(&s) {
+            Ok(_) => WalletStatus::Unlocked,
+            Err(_) => WalletStatus::Locked,
+        },
+        Err(_) => WalletStatus::Locked,
+    }
+}
 fn device_name(v: &Value) -> Result<&str, ApiError> {
     let name = string(v, "device_name")?.trim();
     if name.is_empty() || name.chars().count() > 80 {

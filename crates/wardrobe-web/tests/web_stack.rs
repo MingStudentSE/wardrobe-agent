@@ -75,9 +75,10 @@ pub fn call(
         .expect("响应应含头部结束标记");
     let head = String::from_utf8_lossy(&raw[..split]).into_owned();
     let raw_body = &raw[split + 4..];
-    let chunked = head
-        .lines()
-        .any(|line| line.to_ascii_lowercase().starts_with("transfer-encoding: chunked"));
+    let chunked = head.lines().any(|line| {
+        line.to_ascii_lowercase()
+            .starts_with("transfer-encoding: chunked")
+    });
     let body = if chunked {
         decode_chunked(raw_body)
     } else {
@@ -139,12 +140,7 @@ pub fn bootstrap_and_login(port: u16, data: &Path) -> (String, String, String) {
         ],
         Some(body.as_bytes()),
     );
-    assert_eq!(
-        response.status,
-        200,
-        "引导应成功：{}",
-        response.text()
-    );
+    assert_eq!(response.status, 200, "引导应成功：{}", response.text());
     let cookie = response
         .headers
         .get("set-cookie")
@@ -163,10 +159,7 @@ pub fn bootstrap_and_login(port: u16, data: &Path) -> (String, String, String) {
         &[("Cookie", &cookie)],
         None,
     );
-    let csrf = state.json()["result"]["csrf"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let csrf = state.json()["result"]["csrf"].as_str().unwrap().to_string();
     (cookie, csrf, connection_token)
 }
 
@@ -209,11 +202,11 @@ pub fn trusted_member(data: &Path, name: &str) -> String {
 
 /// 标准 1×1 PNG（真实可解码图片，走核心真实压缩链路）。
 pub const PNG_1X1: &[u8] = &[
-    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-    0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-    0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0xDA, 0x63, 0x64,
-    0xF8, 0xCF, 0x50, 0x0F, 0x00, 0x03, 0x86, 0x01, 0x80, 0x5A, 0x34, 0x7D, 0x6B, 0x00, 0x00,
-    0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+    0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0xDA, 0x63, 0x64, 0xF8, 0xCF, 0x50,
+    0x0F, 0x00, 0x03, 0x86, 0x01, 0x80, 0x5A, 0x34, 0x7D, 0x6B, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
 ];
 
 // ---------- S0：服务启动、静态、健康、未鉴权拒绝 ----------
@@ -255,14 +248,21 @@ fn s0_unauthenticated_api_returns_structured_401() {
         Some(br#"{"operation":"capabilities","input":{}}"#),
     );
     assert_eq!(response.status, 401);
-    assert_eq!(response.json()["error"]["code"], serde_json::json!("unauthorized"));
+    assert_eq!(
+        response.json()["error"]["code"],
+        serde_json::json!("unauthorized")
+    );
 }
 
 #[test]
 fn s0_static_dist_is_served_with_spa_fallback_and_404() {
     let data = tempfile::tempdir().unwrap();
     let dist = tempfile::tempdir().unwrap();
-    std::fs::write(dist.path().join("index.html"), "<html><body>衣间 WEB</body></html>").unwrap();
+    std::fs::write(
+        dist.path().join("index.html"),
+        "<html><body>衣间 WEB</body></html>",
+    )
+    .unwrap();
     std::fs::create_dir_all(dist.path().join("assets")).unwrap();
     std::fs::write(dist.path().join("assets/app.js"), "console.log('衣间');").unwrap();
     let port = start(0, data.path(), Some(dist.path()));
@@ -300,7 +300,10 @@ fn s0_missing_dist_serves_notice_page_instead_of_ui() {
 fn s1_bootstrap_requires_matching_one_time_token() {
     let data = tempfile::tempdir().unwrap();
     let port = start(0, data.path(), None);
-    assert!(bootstrap_file(data.path()).is_file(), "首启应生成引导令牌文件");
+    assert!(
+        bootstrap_file(data.path()).is_file(),
+        "首启应生成引导令牌文件"
+    );
     // 错误令牌：拒绝且不消费文件
     let wrong = call(
         port,
@@ -314,12 +317,18 @@ fn s1_bootstrap_requires_matching_one_time_token() {
         Some(br#"{"token":"0000000000000000000000000000000000000000000000000000000000000000"}"#),
     );
     assert_eq!(wrong.status, 403);
-    assert!(bootstrap_file(data.path()).is_file(), "错误令牌不得消费引导文件");
+    assert!(
+        bootstrap_file(data.path()).is_file(),
+        "错误令牌不得消费引导文件"
+    );
     // 正确令牌：成功、消费文件、发会话 Cookie 与一次性连接令牌
     let (cookie, _csrf, connection_token) = bootstrap_and_login(port, data.path());
     assert_eq!(connection_token.len(), 64);
     assert!(cookie.starts_with("wardrobe_session="));
-    assert!(!bootstrap_file(data.path()).is_file(), "引导令牌用后必须作废");
+    assert!(
+        !bootstrap_file(data.path()).is_file(),
+        "引导令牌用后必须作废"
+    );
     assert!(
         !cookie.contains(&connection_token),
         "连接令牌不得进入 Cookie"
@@ -362,7 +371,10 @@ fn s1_login_exchanges_connection_token_for_session_cookie() {
     assert_eq!(response.status, 200);
     let cookie = response.headers.get("set-cookie").unwrap();
     assert!(cookie.contains("HttpOnly"), "会话 Cookie 必须 HttpOnly");
-    assert!(cookie.contains("SameSite=Strict"), "会话 Cookie 必须 SameSite=Strict");
+    assert!(
+        cookie.contains("SameSite=Strict"),
+        "会话 Cookie 必须 SameSite=Strict"
+    );
     let bad = call(
         port,
         &host(port),
@@ -382,8 +394,14 @@ fn s1_state_and_logout_reflect_session_lifecycle() {
     let data = tempfile::tempdir().unwrap();
     let port = start(0, data.path(), None);
     let anonymous = call(port, &host(port), "GET", "/auth/state", &[], None);
-    assert_eq!(anonymous.json()["result"]["authenticated"], serde_json::json!(false));
-    assert_eq!(anonymous.json()["result"]["bootstrap_required"], serde_json::json!(true));
+    assert_eq!(
+        anonymous.json()["result"]["authenticated"],
+        serde_json::json!(false)
+    );
+    assert_eq!(
+        anonymous.json()["result"]["bootstrap_required"],
+        serde_json::json!(true)
+    );
     let (cookie, csrf, connection_token) = bootstrap_and_login(port, data.path());
     let authenticated = call(
         port,
@@ -393,20 +411,17 @@ fn s1_state_and_logout_reflect_session_lifecycle() {
         &[("Cookie", &cookie)],
         None,
     );
-    assert_eq!(authenticated.json()["result"]["authenticated"], serde_json::json!(true));
+    assert_eq!(
+        authenticated.json()["result"]["authenticated"],
+        serde_json::json!(true)
+    );
     assert_eq!(
         authenticated.json()["result"]["csrf"].as_str().unwrap(),
         csrf,
         "csrf 应与会话绑定"
     );
     // 登出后再调用 API：401
-    let logout = session_post(
-        port,
-        &cookie,
-        Some(&csrf),
-        "/auth/logout",
-        "{}".to_string(),
-    );
+    let logout = session_post(port, &cookie, Some(&csrf), "/auth/logout", "{}".to_string());
     assert_eq!(logout.status, 200);
     let after = session_post(
         port,
@@ -445,7 +460,10 @@ fn s2_api_executes_as_client_and_trusted_reads_back_same_data() {
             .to_string(),
     );
     assert_eq!(created.status, 200, "{}", created.text());
-    assert!(created.json()["result"]["id"].is_string(), "应返回真实持久 ID");
+    assert!(
+        created.json()["result"]["id"].is_string(),
+        "应返回真实持久 ID"
+    );
     let id = created.json()["result"]["id"].as_str().unwrap().to_string();
     // 另一个进程视角（等价 CLI）读同一数据库：一致
     let app = wardrobe_core::Application::open(&data.path().join("wardrobe.sqlite")).unwrap();
@@ -489,8 +507,22 @@ fn s2_limited_grant_member_isolation_over_http() {
         Some(&body_token(&token)),
     );
     assert_eq!(login.status, 200);
-    let cookie = login.headers.get("set-cookie").unwrap().split(';').next().unwrap().to_string();
-    let state = call(port, &host(port), "GET", "/auth/state", &[("Cookie", &cookie)], None);
+    let cookie = login
+        .headers
+        .get("set-cookie")
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let state = call(
+        port,
+        &host(port),
+        "GET",
+        "/auth/state",
+        &[("Cookie", &cookie)],
+        None,
+    );
     let csrf = state.json()["result"]["csrf"].as_str().unwrap().to_string();
     // 授权内成员：可见且只有自己的数据
     let listed = session_post(
@@ -514,7 +546,10 @@ fn s2_limited_grant_member_isolation_over_http() {
         serde_json::json!({"operation":"clothing.list","input":{"member_id":member_b}}).to_string(),
     );
     assert_eq!(denied.status, 200, "业务错误按 CLI 语义返回信封");
-    assert_eq!(denied.json()["error"]["code"], serde_json::json!("member_denied"));
+    assert_eq!(
+        denied.json()["error"]["code"],
+        serde_json::json!("member_denied")
+    );
 }
 
 #[test]
@@ -612,7 +647,8 @@ fn s3_privileged_operations_never_enter_session_api() {
         );
         let code = response.json()["error"]["code"].clone();
         assert!(
-            code == serde_json::json!("scope_denied") || code == serde_json::json!("unsupported_operation"),
+            code == serde_json::json!("scope_denied")
+                || code == serde_json::json!("unsupported_operation"),
             "{operation} 必须被核心拒绝（scope_denied/unsupported_operation），实际 {code}"
         );
     }
@@ -640,7 +676,10 @@ fn s4_upload_imports_real_photo_and_preview_serves_authorized_bytes() {
     );
     assert_eq!(uploaded.status, 200, "{}", uploaded.text());
     let uploaded_json = uploaded.json();
-    let asset_id = uploaded_json["result"]["id"].as_str().unwrap_or_else(|| panic!("上传应返回资产：{}", uploaded.text())).to_string();
+    let asset_id = uploaded_json["result"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("上传应返回资产：{}", uploaded.text()))
+        .to_string();
     assert!(uploaded.json()["result"]["display"]["width"].is_number());
     // 预览：走 assets.preview 成员授权，返回 data_url
     let preview = session_post(
@@ -717,7 +756,10 @@ fn s4_upload_rejects_oversize_bad_type_and_unknown_member() {
         "未知成员按核心语义拒绝"
     );
     let tmp = data.path().join("web-uploads-tmp");
-    assert!(std::fs::read_dir(&tmp).unwrap().next().is_none(), "拒绝的上传不得落残留");
+    assert!(
+        std::fs::read_dir(&tmp).unwrap().next().is_none(),
+        "拒绝的上传不得落残留"
+    );
 }
 
 #[test]
@@ -760,7 +802,10 @@ fn s4_batch_upload_drives_real_job_receipts_to_commit() {
     // 逐项处理（真实压缩链路），任务收据可见
     let mut item_ids = vec![];
     let created_json = created.json();
-    for draft in created_json["result"]["drafts"].as_array().unwrap_or_else(|| panic!("批量应返回草稿：{}", created.text())) {
+    for draft in created_json["result"]["drafts"]
+        .as_array()
+        .unwrap_or_else(|| panic!("批量应返回草稿：{}", created.text()))
+    {
         for item in draft["item_ids"].as_array().unwrap() {
             item_ids.push(item.as_str().unwrap().to_string());
         }
@@ -786,7 +831,11 @@ fn s4_batch_upload_drives_real_job_receipts_to_commit() {
             .to_string(),
     );
     for job in after.json()["result"]["items"].as_array().unwrap() {
-        assert_eq!(job["state"], serde_json::json!("waiting_input"), "处理完成应待确认入库");
+        assert_eq!(
+            job["state"],
+            serde_json::json!("waiting_input"),
+            "处理完成应待确认入库"
+        );
         assert!(job["asset_id"].is_string(), "任务收据应包含资产");
     }
     // 逐任务查询：jobs.list 可见收据
@@ -797,9 +846,16 @@ fn s4_batch_upload_drives_real_job_receipts_to_commit() {
         "/api",
         serde_json::json!({"operation":"jobs.list","input":{"member_id":"default"}}).to_string(),
     );
-    assert!(jobs.json()["result"]["items"].as_array().unwrap().iter().any(|job| job["kind"] == serde_json::json!("import")));
+    assert!(jobs.json()["result"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|job| job["kind"] == serde_json::json!("import")));
     // 提交第一个草稿入库
-    let draft_id = created.json()["result"]["drafts"][0]["id"].as_str().unwrap().to_string();
+    let draft_id = created.json()["result"]["drafts"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let committed = session_post(
         port,
         &cookie,
@@ -814,9 +870,13 @@ fn s4_batch_upload_drives_real_job_receipts_to_commit() {
         &cookie,
         Some(&csrf),
         "/api",
-        serde_json::json!({"operation":"clothing.list","input":{"member_id":"default"}}).to_string(),
+        serde_json::json!({"operation":"clothing.list","input":{"member_id":"default"}})
+            .to_string(),
     );
-    assert_eq!(clothes.json()["result"]["items"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        clothes.json()["result"]["items"].as_array().unwrap().len(),
+        1
+    );
 }
 
 #[test]
@@ -860,7 +920,11 @@ fn s5_backup_and_preview_drive_through_web_session() {
         serde_json::json!({"operation":"clothing.create","input":{"member_id":"default","name":"备份前的大衣","category":"outerwear"}})
             .to_string(),
     );
-    assert!(clothing.json()["result"]["id"].is_string(), "{}", clothing.text());
+    assert!(
+        clothing.json()["result"]["id"].is_string(),
+        "{}",
+        clothing.text()
+    );
     let queued = session_post(
         port,
         &cookie,
@@ -878,7 +942,12 @@ fn s5_backup_and_preview_drive_through_web_session() {
         "/api",
         serde_json::json!({"operation":"maintenance.worker.run","input":{"id":job}}).to_string(),
     );
-    assert_eq!(driven.json()["result"]["state"], serde_json::json!("succeeded"), "{}", driven.text());
+    assert_eq!(
+        driven.json()["result"]["state"],
+        serde_json::json!("succeeded"),
+        "{}",
+        driven.text()
+    );
     let preview_queued = session_post(
         port,
         &cookie,
@@ -888,15 +957,24 @@ fn s5_backup_and_preview_drive_through_web_session() {
             .to_string(),
     );
     assert_eq!(preview_queued.status, 200, "{}", preview_queued.text());
-    let preview_job = preview_queued.json()["result"]["id"].as_str().unwrap().to_string();
+    let preview_job = preview_queued.json()["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let preview_done = session_post(
         port,
         &cookie,
         Some(&csrf),
         "/api",
-        serde_json::json!({"operation":"maintenance.worker.run","input":{"id":preview_job}}).to_string(),
+        serde_json::json!({"operation":"maintenance.worker.run","input":{"id":preview_job}})
+            .to_string(),
     );
-    assert_eq!(preview_done.json()["result"]["state"], serde_json::json!("succeeded"), "{}", preview_done.text());
+    assert_eq!(
+        preview_done.json()["result"]["state"],
+        serde_json::json!("succeeded"),
+        "{}",
+        preview_done.text()
+    );
     let incoming = preview_done.json()["result"]["result"]["incoming"]["clothing"]
         .as_u64()
         .unwrap_or_else(|| panic!("备份清单应含衣物计数：{}", preview_done.text()));

@@ -32,44 +32,46 @@ pub struct ProfileCommand {
     pub force: bool,
 }
 
-pub struct LogFilterArgs {
+pub struct LogsCommand {
+    pub db: Option<PathBuf>,
+    pub profile: Option<String>,
     pub level: Option<String>,
     pub since: Option<String>,
     pub until: Option<String>,
-    pub trace: Option<String>,
-    pub run: Option<String>,
-    pub op_prefix: Option<String>,
-    pub contains: Option<String>,
+    pub trace_id: Option<String>,
+    pub run_id: Option<String>,
+    pub operation: Option<String>,
+    pub keyword: Option<String>,
     pub limit: Option<u64>,
+    pub cursor: Option<String>,
+}
+
+/// doctor 子命令（#48）：体检报告不接受输入参数，连接方式与 logs 一致（--db/--profile）。
+pub struct DoctorCommand {
+    pub db: Option<PathBuf>,
+    pub profile: Option<String>,
 }
 
 pub enum Parsed {
     Help(Option<String>),
     Schema(String),
     Version,
-    Logs {
+    Scheduler {
         db: Option<PathBuf>,
-        profile: Option<String>,
-        filter: LogFilterArgs,
-    },
-    Doctor {
-        db: Option<PathBuf>,
-        profile: Option<String>,
+        once: bool,
     },
     Mcp {
         db: Option<PathBuf>,
         profile: Option<String>,
     },
-    Scheduler {
-        db: Option<PathBuf>,
-        once: bool,
-    },
     Execute(Execution),
     Profile(ProfileCommand),
+    Logs(LogsCommand),
+    Doctor(DoctorCommand),
 }
 
 fn invalid_arguments(message: &str) -> ApiError {
-    ApiError::of("invalid_arguments", message)
+    ApiError::custom("invalid_arguments", message)
 }
 
 /// `--db` 无条件消耗其后恰好一个参数作为值；`--` 之后全部按字面量处理；
@@ -168,15 +170,9 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                 other if other.starts_with('-') && other != "-" => {
                     if positionals
                         .first()
-                        .is_some_and(|c| c.starts_with("profile."))
+                        .is_some_and(|c| *c == "logs" || c.starts_with("profile."))
                     {
-                        // profile 子命令自带旗标（--data-dir/--force），由其分支解析
-                        positionals.push(arg);
-                        i += 1;
-                        continue;
-                    }
-                    if matches!(positionals.first().copied(), Some("logs") | Some("doctor")) {
-                        // logs 过滤旗标（--level/--since/--until/--trace/--run/--op/--contains/--limit）由 logs 分支解析
+                        // logs/profile 子命令自带旗标（--level 等 / --data-dir/--force），由其分支解析
                         positionals.push(arg);
                         i += 1;
                         continue;
@@ -205,68 +201,6 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
             Parsed::Version
         });
     }
-    if matches!(positionals.first().copied(), Some("logs") | Some("doctor")) {
-        let is_logs = positionals.first().copied() == Some("logs");
-        if input.is_some() {
-            return Err(invalid_arguments("logs/doctor 不接受标准输入方式"));
-        }
-        let mut filter = LogFilterArgs {
-            level: None,
-            since: None,
-            until: None,
-            trace: None,
-            run: None,
-            op_prefix: None,
-            contains: None,
-            limit: None,
-        };
-        let mut seen: Vec<String> = Vec::new();
-        let mut i = 1;
-        while i < positionals.len() {
-            let flag = positionals[i];
-            let value = match positionals.get(i + 1) {
-                Some(value) => value.to_string(),
-                None => return Err(invalid_arguments(&format!("{flag} 缺少参数值"))),
-            };
-            if !is_logs {
-                return Err(invalid_arguments("doctor 不接受过滤旗标"));
-            }
-            if seen.iter().any(|seen| seen == flag) {
-                return Err(invalid_arguments(&format!("{flag} 只能出现一次")));
-            }
-            match flag {
-                "--level" => {
-                    if !["trace", "debug", "info", "warn", "error"].contains(&value.as_str()) {
-                        return Err(invalid_arguments("level 须为 trace/debug/info/warn/error"));
-                    }
-                    filter.level = Some(value);
-                }
-                "--since" => filter.since = Some(value),
-                "--until" => filter.until = Some(value),
-                "--trace" => filter.trace = Some(value),
-                "--run" => filter.run = Some(value),
-                "--op" => filter.op_prefix = Some(value),
-                "--contains" => filter.contains = Some(value),
-                "--limit" => {
-                    let parsed = value.parse::<u64>().map_err(|_| {
-                        invalid_arguments("limit 须为 1–500 之间的整数")
-                    })?;
-                    if !(1..=500).contains(&parsed) {
-                        return Err(invalid_arguments("limit 须为 1–500 之间的整数"));
-                    }
-                    filter.limit = Some(parsed);
-                }
-                other => return Err(invalid_arguments(&format!("未知参数 {other}"))),
-            }
-            seen.push(flag.to_string());
-            i += 2;
-        }
-        return Ok(if is_logs {
-            Parsed::Logs { db, profile, filter }
-        } else {
-            Parsed::Doctor { db, profile }
-        });
-    }
     match positionals.first().copied() {
         Some("help") => {
             if input.is_some() {
@@ -292,7 +226,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
         }
         Some("scheduler") => {
             if !trusted_local {
-                return Err(ApiError::of(
+                return Err(ApiError::custom(
                     "scope_denied",
                     "本机调度服务须显式--trusted-local；外部客户端使用成员限定schedule API",
                 ));
@@ -317,6 +251,73 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                 ));
             }
             Ok(Parsed::Mcp { db, profile })
+        }
+        Some("logs") => {
+            if input.is_some() {
+                return Err(invalid_arguments("logs 子命令不接受标准输入方式"));
+            }
+            // 过滤参数命名与 diagnostics.logs.query 输入字段对齐（trace-id/run-id 为 kebab 形式）
+            const FILTERS: &[&str] = &[
+                "--level",
+                "--since",
+                "--until",
+                "--trace-id",
+                "--run-id",
+                "--operation",
+                "--keyword",
+                "--limit",
+                "--cursor",
+            ];
+            let mut filters: Vec<(&str, String)> = Vec::new();
+            let mut rest: Vec<&str> = positionals[1..].to_vec();
+            while let Some(arg) = rest.first().copied() {
+                let Some(flag) = FILTERS.iter().copied().find(|flag| *flag == arg) else {
+                    return Err(invalid_arguments(&format!("logs 子命令不支持参数 {arg}")));
+                };
+                if filters.iter().any(|(seen, _)| *seen == &flag[2..]) {
+                    return Err(invalid_arguments(&format!("{flag} 只能出现一次")));
+                }
+                match rest.get(1) {
+                    Some(value) => filters.push((&flag[2..], value.to_string())),
+                    None => return Err(invalid_arguments(&format!("{flag} 缺少值"))),
+                }
+                rest.drain(..2);
+            }
+            let value = |name: &str| {
+                filters
+                    .iter()
+                    .find(|(seen, _)| *seen == name)
+                    .map(|(_, value)| value.clone())
+            };
+            let limit = match value("limit") {
+                None => None,
+                Some(text) => match text.parse::<u64>() {
+                    Ok(limit) => Some(limit),
+                    Err(_) => return Err(invalid_arguments("--limit 必须为整数")),
+                },
+            };
+            Ok(Parsed::Logs(LogsCommand {
+                db,
+                profile,
+                level: value("level"),
+                since: value("since"),
+                until: value("until"),
+                trace_id: value("trace-id"),
+                run_id: value("run-id"),
+                operation: value("operation"),
+                keyword: value("keyword"),
+                limit,
+                cursor: value("cursor"),
+            }))
+        }
+        Some("doctor") => {
+            if positionals.len() > 1 {
+                return Err(invalid_arguments("doctor 不接受输入参数"));
+            }
+            if input.is_some() {
+                return Err(invalid_arguments("doctor 子命令不接受标准输入方式"));
+            }
+            Ok(Parsed::Doctor(DoctorCommand { db, profile }))
         }
         Some(command) if command.starts_with("profile.") => {
             let action = match command {

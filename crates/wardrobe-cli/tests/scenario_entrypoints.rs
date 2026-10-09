@@ -25,11 +25,7 @@ fn cli_raw(path: &std::path::Path, args: &[&str]) -> (Option<i32>, Value) {
 
 fn cli_ok(path: &std::path::Path, operation: &str, input: Value) -> Value {
     let (code, envelope) = cli(path, operation, input);
-    assert_eq!(
-        code,
-        Some(0),
-        "{operation} 应成功：{envelope}"
-    );
+    assert_eq!(code, Some(0), "{operation} 应成功：{envelope}");
     assert!(envelope.get("error").is_none(), "{operation}: {envelope}");
     envelope["result"].clone()
 }
@@ -46,10 +42,7 @@ fn scenario_operations_are_discoverable_and_plan_travel_through_cli() {
     // 发现：help/schema 暴露新操作，capabilities 列出全部 scenario.*
     let (bare_code, bare) = cli_raw(&path, &["help"]);
     assert_eq!(bare_code, Some(0), "{bare}");
-    assert!(
-        bare.get("error").is_none(),
-        "bare help 必须成功：{bare}"
-    );
+    assert!(bare.get("error").is_none(), "bare help 必须成功：{bare}");
     let (help_code, plan_help) = cli_raw(&path, &["help", "scenario.plan"]);
     assert_eq!(help_code, Some(0), "{plan_help}");
     let plan_help = plan_help["result"].clone();
@@ -136,10 +129,7 @@ fn scenario_operations_are_discoverable_and_plan_travel_through_cli() {
             .iter()
             .filter_map(|item| item["clothing_id"].as_str())
             .collect();
-        assert!(
-            !ids.contains(&excluded_top),
-            "被排除单品不出现在任何一天"
-        );
+        assert!(!ids.contains(&excluded_top), "被排除单品不出现在任何一天");
         assert_eq!(day["complete"], json!(true), "低温完整方案含外层：{day}");
     }
     let packing = plan["packing"]["items"].as_array().unwrap();
@@ -163,7 +153,11 @@ fn scenario_operations_are_discoverable_and_plan_travel_through_cli() {
         .unwrap()
         .iter()
         .any(|item| item["id"] == json!(plan_id)));
-    let got = cli_ok(&path, "scenario.get", json!({"member_id":member,"id":plan_id}));
+    let got = cli_ok(
+        &path,
+        "scenario.get",
+        json!({"member_id":member,"id":plan_id}),
+    );
     assert_eq!(got["version"], json!(1));
     let updated = cli_ok(
         &path,
@@ -192,7 +186,11 @@ fn scenario_operations_are_discoverable_and_plan_travel_through_cli() {
     assert_eq!(wears["items"], json!([]), "场景计划不记录实际穿着");
 
     // 未知计划与不支持字段：类型化错误
-    let (_missing_code, missing) = cli(&path, "scenario.get", json!({"member_id":member,"id":"none"}));
+    let (_missing_code, missing) = cli(
+        &path,
+        "scenario.get",
+        json!({"member_id":member,"id":"none"}),
+    );
     assert_eq!(missing["error"]["code"], "not_found", "{missing}");
     let (_bogus_code, bogus) = cli(
         &path,
@@ -244,7 +242,10 @@ fn cli_reports_shortage_and_constraint_conflicts_with_typed_errors() {
             "occasion":"interview","fixed_ids":[dress["id"]],"excluded_ids":[dress["id"]]
         }),
     );
-    assert_eq!(conflict["error"]["code"], "constraint_conflict", "{conflict}");
+    assert_eq!(
+        conflict["error"]["code"], "constraint_conflict",
+        "{conflict}"
+    );
     // 待洗固定单品被可用性校验拒绝
     cli_ok(
         &path,

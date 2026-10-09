@@ -29,7 +29,10 @@ impl CompletionClient for Application {
                 json!({"member_id":member,"id":job["result"]["intent_id"]}),
             );
         }
-        Err(wardrobe_core::ApiError::of("generation_waiting_input".to_owned(), job.to_string()))
+        Err(wardrobe_core::ApiError::custom(
+            "generation_waiting_input",
+            &job.to_string(),
+        ))
     }
 }
 fn seed(a: &Application) -> Vec<Value> {

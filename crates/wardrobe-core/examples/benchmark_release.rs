@@ -31,19 +31,17 @@ fn stats(values: &[f64]) -> serde_json::Value {
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let path = args.next().expect("provide a dedicated benchmark database path");
-    let samples: usize = args
+    let path = args
         .next()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(30);
+        .expect("provide a dedicated benchmark database path");
+    let samples: usize = args.next().and_then(|v| v.parse().ok()).unwrap_or(30);
     assert!(
         !std::path::Path::new(&path).exists(),
         "benchmark must use a new database"
     );
     let seeding = Instant::now();
     let app = Application::open(std::path::Path::new(&path)).unwrap();
-    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
-        .clone();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"].clone();
     // One real seed document per entity kind through the public API.
     let seed = app
         .execute(
@@ -63,9 +61,7 @@ fn main() {
     let mut db = rusqlite::Connection::open(&path).unwrap();
     let tx = db.transaction().unwrap();
     {
-        let mut clothing = tx
-            .prepare("INSERT INTO clothing VALUES(?1,?2,?3)")
-            .unwrap();
+        let mut clothing = tx.prepare("INSERT INTO clothing VALUES(?1,?2,?3)").unwrap();
         for i in 0..9999 {
             let mut c = seed.clone();
             c["id"] = json!(format!("bench-clothing-{i:05}"));
@@ -106,10 +102,7 @@ fn main() {
         let started = Instant::now();
         let app = Application::open(std::path::Path::new(&path)).unwrap();
         let page = app
-            .execute(
-                "clothing.list",
-                json!({"member_id":member,"limit":24}),
-            )
+            .execute("clothing.list", json!({"member_id":member,"limit":24}))
             .unwrap();
         assert_eq!(page["items"].as_array().unwrap().len(), 24);
         cold.push(started.elapsed().as_secs_f64() * 1000.0);

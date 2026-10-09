@@ -1,13 +1,14 @@
 mod args;
 use serde_json::{json, Value};
 use std::{
-    io::{self, BufRead, Read},
+    fmt,
+    io::{self, BufRead, Read, Write},
     path::PathBuf,
 };
 use wardrobe_core::{ApiError, Application};
 fn main() {
-    wardrobe_core::logging::install_panic_hook();
-    wardrobe_core::logging::begin_run();
+    // 日志核心：进程级 panic 钩子（幂等），崩溃现场写入数据目录 logs/
+    wardrobe_core::diagnostics::install_panic_hook();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let parsed = match args::parse(&args) {
         Err(error) => fail(error),
@@ -15,100 +16,148 @@ fn main() {
     };
     match parsed {
         args::Parsed::Version => {
-            println!(
-                "{}",
-                json!({"schema_version":1,"result":{"name":"wardrobe-cli","version":env!("CARGO_PKG_VERSION")}})
+            print_line(
+                json!({"schema_version":1,"result":{"name":"wardrobe-cli","version":env!("CARGO_PKG_VERSION")}}),
             );
         }
         args::Parsed::Help(None) => {
-            println!("{}", json!({"schema_version":1,"result":help()}));
+            print_line(json!({"schema_version":1,"result":help()}));
         }
         args::Parsed::Help(Some(operation)) => print_operation(operation),
         args::Parsed::Schema(operation) => print_operation(operation),
         args::Parsed::Mcp { db, profile } => {
-            let db = match resolve_db(db, profile) {
-                Ok(db) => db,
-                Err(error) => {
-                    if error.code == "storage_error" {
-                        println!("{}", json!({"schema_version":1,"error":error}));
-                        std::process::exit(1);
-                    }
-                    fail(error);
-                }
-            };
+            let db = resolve_db_or_exit(db, profile);
             run_mcp(db)
         }
-        args::Parsed::Logs { db, profile, filter } => {
-            let db = match resolve_db(db, profile) {
-                Ok(db) => db,
-                Err(error) => fail(error),
-            };
-            run_logs(db, filter)
-        }
-        args::Parsed::Doctor { db, profile } => {
-            let db = match resolve_db(db, profile) {
-                Ok(db) => db,
-                Err(error) => fail(error),
-            };
-            run_doctor(db)
-        }
-        args::Parsed::Scheduler { db, once } => run_scheduler(db, once),
         args::Parsed::Profile(command) => run_profile(command),
+        args::Parsed::Logs(command) => run_logs(command),
+        args::Parsed::Doctor(command) => run_doctor(command),
+        args::Parsed::Scheduler { db, once } => run_scheduler(db, once),
         args::Parsed::Execute(execution) => execute(execution),
     }
 }
-/// `wardrobe-cli logs`：直接读数据目录 logs/ 下的 JSONL（不依赖数据库可用）。
-fn run_logs(db: PathBuf, filter: args::LogFilterArgs) {
-    let data_dir = db
-        .parent()
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_default();
-    let mut input = serde_json::json!({});
-    if let Some(level) = filter.level {
-        input["level"] = serde_json::json!(level);
+/// stdout 统一出口（#63）：CLI 的所有 stdout JSON 输出都经这里写入。
+/// 消费者提前关闭管道（如 `wardrobe-cli capabilities | head`）时写入得到
+/// `ErrorKind::BrokenPipe`——按 CLI 惯例静默干净退出 0，不触发 panic 钩子、
+/// 不在数据目录日志留下 process.panic 现场，也不改变 stdout 的 JSON 输出契约；
+/// 其余写入失败经 stderr 报告并以 1 退出。
+/// 契约分工：普通输出路径的 BrokenPipe 视为传输中断（exit 0）；
+/// 错误出口 fail() 不走本函数的 BrokenPipe 分支，错误必须以非零退出可见。
+fn print_line(line: impl fmt::Display) {
+    if let Err(error) = write_line(line) {
+        if error.kind() == io::ErrorKind::BrokenPipe {
+            // 消费者已离开：传输中断不是程序错误，静默退出
+            std::process::exit(0);
+        }
+        let _ = writeln!(io::stderr(), "wardrobe-cli 写入标准输出失败: {error}");
+        std::process::exit(1);
     }
-    if let Some(since) = filter.since {
-        input["since"] = serde_json::json!(since);
+}
+/// 单行写入的公共底层：只负责写与 flush，把错误交还调用方决定退出语义
+/// （print_line 与 fail() 对 BrokenPipe 的契约不同，见各自注释）。
+fn write_line(line: impl fmt::Display) -> io::Result<()> {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    writeln!(out, "{line}").and_then(|()| out.flush())
+}
+fn resolve_db(db: Option<PathBuf>, profile: Option<String>) -> Result<PathBuf, ApiError> {
+    if let Some(db) = db {
+        return Ok(db);
     }
-    if let Some(until) = filter.until {
-        input["until"] = serde_json::json!(until);
+    if let Some(resolved) = wardrobe_core::profiles::resolve(profile.as_deref())? {
+        return Ok(resolved);
     }
-    if let Some(trace) = filter.trace {
-        input["trace_id"] = serde_json::json!(trace);
+    wardrobe_core::default_database_path_checked()
+}
+/// resolve 数据库路径的统一出口：存储配置失败（storage_error）打印错误并 exit 1，
+/// 其余业务/校验拒绝走 fail() exit 2（mcp、logs、doctor、execute 同一形状）。
+fn resolve_db_or_exit(db: Option<PathBuf>, profile: Option<String>) -> PathBuf {
+    match resolve_db(db, profile) {
+        Ok(db) => db,
+        Err(error) if error.code == "storage_error" => {
+            print_line(json!({"schema_version":1,"error":error}));
+            std::process::exit(1)
+        }
+        Err(error) => fail(error),
     }
-    if let Some(run) = filter.run {
-        input["run_id"] = serde_json::json!(run);
-    }
-    if let Some(op) = filter.op_prefix {
-        input["op_prefix"] = serde_json::json!(op);
-    }
-    if let Some(contains) = filter.contains {
-        input["contains"] = serde_json::json!(contains);
-    }
-    if let Some(limit) = filter.limit {
-        input["limit"] = serde_json::json!(limit);
-    }
-    match wardrobe_core::cli_logs_query(&data_dir, input) {
-        Ok(result) => println!("{}", json!({"schema_version":1,"result":result})),
+}
+
+fn run_profile(command: args::ProfileCommand) {
+    use args::ProfileAction;
+    let result = match (
+        command.action,
+        command.name.as_deref(),
+        command.data_dir.as_deref(),
+        command.force,
+    ) {
+        (ProfileAction::Add, Some(name), Some(dir), force) => {
+            wardrobe_core::profiles::upsert(name, dir, force)
+        }
+        (ProfileAction::Remove, Some(name), _, _) => wardrobe_core::profiles::remove(name),
+        (ProfileAction::List, _, _, _) => wardrobe_core::profiles::list(),
+        (ProfileAction::Use, Some(name), _, _) => wardrobe_core::profiles::set_default(name),
+        _ => unreachable!("args已校验参数组合"),
+    };
+    match result {
+        Ok(result) => print_line(json!({"schema_version":1,"result":result})),
+        Err(e) if e.code == "storage_error" => {
+            print_line(json!({"schema_version":1,"error":e}));
+            std::process::exit(1);
+        }
         Err(e) => fail(e),
     }
 }
 
-/// `wardrobe-cli doctor`：与 GUI diagnostics.checks 同源的体检报告。
-fn run_doctor(db: PathBuf) {
-    let data_dir = db
-        .parent()
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_default();
-    println!(
-        "{}",
-        json!({"schema_version":1,"result":wardrobe_core::diagnostics_doctor(&data_dir, &db)})
-    );
+fn run_logs(command: args::LogsCommand) {
+    let db = resolve_db_or_exit(command.db, command.profile);
+    let app = match Application::open(&db) {
+        Ok(app) => app,
+        Err(e) => {
+            print_line(json!({"schema_version":1,"error":e}));
+            std::process::exit(1);
+        }
+    };
+    // CLI 是可信本机入口：logs 直接执行 diagnostics.logs.query（外部客户端无法获得该 scope）
+    let mut input = serde_json::Map::new();
+    let text = |value: Option<String>| value.map(|value| json!(value));
+    for (field, value) in [
+        ("level", text(command.level)),
+        ("since", text(command.since)),
+        ("until", text(command.until)),
+        ("trace_id", text(command.trace_id)),
+        ("run_id", text(command.run_id)),
+        ("operation", text(command.operation)),
+        ("keyword", text(command.keyword)),
+        ("limit", command.limit.map(|value| json!(value))),
+        ("cursor", text(command.cursor)),
+    ] {
+        if let Some(value) = value {
+            input.insert(field.to_string(), value);
+        }
+    }
+    match app.execute("diagnostics.logs.query", Value::Object(input)) {
+        Ok(result) => print_line(json!({"schema_version":1,"result":result})),
+        Err(e) if e.code == "storage_error" => {
+            print_line(json!({"schema_version":1,"error":e}));
+            std::process::exit(1)
+        }
+        Err(e) => fail(e),
+    }
 }
 
+fn run_doctor(command: args::DoctorCommand) {
+    let db = resolve_db_or_exit(command.db, command.profile);
+    // doctor 与 GUI 诊断页完全同源：core 侧直接执行 diagnostics.summary + diagnostics.checks；
+    // 数据库无法打开时降级为文件系统级体检与失败原因（见 wardrobe_core::diagnostics::doctor_report）。
+    // 产出报告即成功（exit 0）：检查项的 warn/fail 经 checks/counts 字段表达，供脚本解析。
+    print_line(json!({"schema_version":1,"result":wardrobe_core::diagnostics::doctor_report(&db)}));
+}
+
+/// `wardrobe-cli scheduler`（定时计划执行器，development 线功能）：
+/// 周期推进本机到期计划；--once 单次推进后退出。
+/// 输出为增量进度行（非单 JSON 信封），管道语义与 print_line 不同，独立处理。
 fn run_scheduler(db: Option<PathBuf>, once: bool) {
     let db = db.unwrap_or_else(wardrobe_core::default_database_path);
-    use std::io::Write;
     println!(
         "{}",
         json!({"service":"scheduler","state":"running","notifications":"native_host_required","pid":std::process::id()})
@@ -150,42 +199,6 @@ fn run_scheduler(db: Option<PathBuf>, once: bool) {
         std::thread::sleep(std::time::Duration::from_secs(5));
     }
 }
-fn resolve_db(db: Option<PathBuf>, profile: Option<String>) -> Result<PathBuf, ApiError> {
-    if let Some(db) = db {
-        return Ok(db);
-    }
-    if let Some(resolved) = wardrobe_core::profiles::resolve(profile.as_deref())? {
-        return Ok(resolved);
-    }
-    Ok(wardrobe_core::default_database_path())
-}
-
-fn run_profile(command: args::ProfileCommand) {
-    use args::ProfileAction;
-    let result = match (
-        command.action,
-        command.name.as_deref(),
-        command.data_dir.as_deref(),
-        command.force,
-    ) {
-        (ProfileAction::Add, Some(name), Some(dir), force) => {
-            wardrobe_core::profiles::upsert(name, dir, force)
-        }
-        (ProfileAction::Remove, Some(name), _, _) => wardrobe_core::profiles::remove(name),
-        (ProfileAction::List, _, _, _) => wardrobe_core::profiles::list(),
-        (ProfileAction::Use, Some(name), _, _) => wardrobe_core::profiles::set_default(name),
-        _ => unreachable!("args已校验参数组合"),
-    };
-    match result {
-        Ok(result) => println!("{}", json!({"schema_version":1,"result":result})),
-        Err(e) if e.code == "storage_error" => {
-            println!("{}", json!({"schema_version":1,"error":e}));
-            std::process::exit(1);
-        }
-        Err(e) => fail(e),
-    }
-}
-
 fn run_mcp(db: PathBuf) {
     let app = match Application::open(&db) {
         Ok(app) => app,
@@ -198,13 +211,13 @@ fn run_mcp(db: PathBuf) {
             std::process::exit(1);
         }
     };
-
     let mut client_token = None;
     for line in io::stdin().lock().lines() {
         match line {
             Ok(line) => {
                 if let Some(response) = mcp(&app, &line, &mut client_token) {
-                    println!("{response}");
+                    // MCP 传输断开（客户端关闭 stdout）同样经 print_line 干净退出
+                    print_line(response);
                 }
             }
             Err(_) => break,
@@ -219,25 +232,16 @@ fn execute(execution: args::Execution) {
             Some(args::Input::InputStdin | args::Input::ClientStdin)
         )
     {
-        fail(ApiError::of(
+        fail(ApiError::custom(
             "secret_requires_stdin",
             "凭据命令使用--input-stdin，从标准输入读取密钥，避免放入命令历史和进程参数",
         ));
     }
-    let db = match resolve_db(execution.db, execution.profile) {
-        Ok(db) => db,
-        Err(error) => {
-            if error.code == "storage_error" {
-                println!("{}", json!({"schema_version":1,"error":error}));
-                std::process::exit(1);
-            }
-            fail(error);
-        }
-    };
+    let db = resolve_db_or_exit(execution.db, execution.profile);
     let app = match Application::open(&db) {
         Ok(app) => app,
         Err(e) => {
-            println!("{}", json!({"schema_version":1,"error":e}));
+            print_line(json!({"schema_version":1,"error":e}));
             std::process::exit(1);
         }
     };
@@ -252,7 +256,10 @@ fn execute(execution: args::Execution) {
                 .is_err()
                 || body.len() > 1_048_576
             {
-                fail(ApiError::of("invalid_input", "无法读取标准输入或输入过大"));
+                fail(ApiError::custom(
+                    "invalid_input",
+                    "无法读取标准输入或输入过大",
+                ));
             }
             Some(body)
         }
@@ -261,7 +268,7 @@ fn execute(execution: args::Execution) {
     let input = match stdin_body.as_deref() {
         Some(text) => match serde_json::from_str(text) {
             Ok(value) => value,
-            Err(_) => fail(ApiError::of("invalid_json", "输入不是有效 JSON")),
+            Err(_) => fail(ApiError::custom("invalid_json", "输入不是有效 JSON")),
         },
         None => json!({}),
     };
@@ -279,22 +286,30 @@ fn execute(execution: args::Execution) {
         app.execute_as_client("", &execution.command, input)
     };
     match result {
-        Ok(result) => println!("{}", json!({"schema_version":1,"result":result})),
+        Ok(result) => print_line(json!({"schema_version":1,"result":result})),
         // 存储失败 exit 1；业务/校验拒绝走 fail() exit 2。MCP 传输语义不变。
         Err(e) if e.code == "storage_error" => {
-            println!("{}", json!({"schema_version":1,"error":e}));
+            print_line(json!({"schema_version":1,"error":e}));
             std::process::exit(1)
         }
         Err(e) => fail(e),
     }
 }
+/// 错误出口（业务/校验拒绝，exit 2）：错误 JSON 经 stdout 输出，但这里
+/// 不能复用 print_line 的 BrokenPipe→exit 0 分支——否则原 exit 2 契约会在
+/// 管道关闭时退化为 0，错误对外不可见。因此本路径独立处理写入失败：
+/// 无论 BrokenPipe 还是其他 IO 错误都经 stderr 报告并以 1 退出（非零可见），
+/// 写入成功才落到 exit 2；JSON 输出内容与正常路径退出语义不变。
 fn fail(error: ApiError) -> ! {
-    println!("{}", json!({"schema_version":1,"error":error}));
+    if let Err(write_error) = write_line(json!({"schema_version":1,"error":error})) {
+        let _ = writeln!(io::stderr(), "wardrobe-cli 写入错误输出失败: {write_error}");
+        std::process::exit(1);
+    }
     std::process::exit(2)
 }
 fn print_operation(operation: String) {
     match operation_metadata(&operation) {
-        Ok(descriptor) => println!("{}", json!({"schema_version":1,"result":descriptor})),
+        Ok(descriptor) => print_line(json!({"schema_version":1,"result":descriptor})),
         Err(error) => fail(error),
     }
 }
@@ -307,10 +322,7 @@ fn operation_metadata(operation: &str) -> Result<Value, ApiError> {
                 .find(|descriptor| descriptor["name"].as_str() == Some(operation))
                 .cloned()
         })
-        .ok_or(ApiError::of(
-            "unsupported_operation",
-            format!("未知操作 {operation}"),
-        ))
+        .ok_or_else(|| ApiError::custom("unsupported_operation", &format!("未知操作 {operation}")))
 }
 fn help() -> Value {
     json!({
@@ -321,9 +333,10 @@ fn help() -> Value {
             "wardrobe-cli help <operation>",
             "wardrobe-cli schema <operation>",
             "wardrobe-cli [--db <数据库路径>] [--trusted-local] <operation> ['<JSON>' | --input-stdin | --client-stdin]",
-            "wardrobe-cli [--db <数据库路径>] mcp",
-            "wardrobe-cli logs [--level 级别] [--since RFC3339] [--until RFC3339] [--trace 链路ID] [--run 运行ID] [--op 操作前缀] [--contains 关键词] [--limit 1-500]",
-            "wardrobe-cli doctor"
+            "wardrobe-cli [--db <数据库路径>] logs [过滤参数]",
+            "wardrobe-cli [--db <数据库路径>] doctor",
+            "wardrobe-cli [--db <数据库路径>] scheduler [--once]",
+            "wardrobe-cli [--db <数据库路径>] mcp"
         ],
         "flags": {
             "--db": "指定数据库文件路径；缺省使用 WARDROBE_DATA_DIR/wardrobe.sqlite，其次系统应用数据目录",
@@ -333,6 +346,26 @@ fn help() -> Value {
             "--": "其后所有参数按字面量处理"
         },
         "authorization": "外部 AI 客户端通过 --client-stdin 提供连接令牌，令牌不得放入命令行参数；授权在到期、撤销与 scope 范围内可重复使用；凭据与加密命令仅接受标准输入",
+        "logs": {
+            "usage": "wardrobe-cli [--db <数据库路径>] logs [过滤参数]",
+            "description": "查询全链路日志（diagnostics.logs.query）：仅本机可信入口，事件按构造脱敏；过滤参数命名与该操作输入字段对齐",
+            "filters": {
+                "--level": "精确级别过滤：info|debug|trace|error",
+                "--since": "RFC3339 起始时间（含）",
+                "--until": "RFC3339 结束时间（含）",
+                "--trace-id": "链路标识（trace_id）；错误输出携带同一编号",
+                "--run-id": "运行会话标识",
+                "--operation": "操作名前缀",
+                "--keyword": "事件文本子串（大小写不敏感，最多 200 字符）",
+                "--limit": "每页数量 1–100，默认 50",
+                "--cursor": "上一页返回的 next_cursor；续页须保留查询条件，null 表示末页"
+            }
+        },
+        "doctor": {
+            "usage": "wardrobe-cli [--db <数据库路径>] doctor",
+            "description": "一条命令完成体检：健康摘要（diagnostics.summary）+ 基础检查清单（diagnostics.checks），与桌面诊断页完全同源；只读体检不自动修复。数据库无法打开时降级输出文件系统级检查与失败原因（error 字段非 null、summary 为 null）",
+            "output": "result.error 为 null 表示正常打开；result.checks.checks 为固定十项检查（id/status/message/setting/detail），counts 汇总 pass/warn/fail；产出报告即 exit 0"
+        },
         "data": "数据目录可用 --db 或环境变量 WARDROBE_DATA_DIR 指定；未指定时使用系统应用数据目录，数据库随应用迁移机制移动"
     })
 }

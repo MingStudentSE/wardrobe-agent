@@ -1,116 +1,103 @@
 import {test,expect} from '@playwright/test';
 import {existsSync,readFileSync} from 'node:fs';
-import {join} from 'node:path';
-
-// #41 诊断系统端到端验收：诊断页、错误反馈条一键导出、复现记录窗口导出。
-// dev 桥经真实 CLI 落盘；导出文件断言用 node fs 读取 WARDROBE_DATA_DIR。
-const dataDir=process.env.WARDROBE_TEST_DATA_DIR??'';
-const nav=(page:import('@playwright/test').Page,name:string)=>page.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name,exact:true});
-const openDiagnostics=async(page:import('@playwright/test').Page)=>{
- await page.goto('/');
- await nav(page,'设置').click();
+const nav=(page:any,name:string)=>page.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name,exact:true});
+const openDiagnostics=async(page:any)=>{
+ await page.goto('/');await nav(page,'设置').click();
  const hub=page.getByRole('region',{name:'设置目录'});
  await expect(hub.locator('.settings-card')).toHaveCount(9);
  await hub.getByRole('button',{name:/诊断/}).click();
  const panel=page.locator('#diagnostics-settings');
  await expect(panel).toBeVisible();
+ await expect(panel.locator('.diagnostics-metrics')).toBeVisible();
  return panel;
 };
-
-test('diagnostics page shows health summary, passing checks and exports a single JSONL file',async({page})=>{
- const panel=await openDiagnostics(page);
- // 健康摘要与基础检查（正常环境无 fail；未配置模型允许 warn）
- await expect(panel.getByText(/本次启动编号/)).toBeVisible();
- const checks=panel.locator('.diag-check');
- await expect(checks.first()).toBeVisible();
- await expect(panel.locator('.diag-check-fail')).toHaveCount(0);
- await expect(panel.locator('.diag-check-pass').first()).toBeVisible();
- // 范围选择与导出（dev 回退：写入数据目录 exports/）
- await panel.getByLabel(/导出范围/).selectOption('recent');
- await panel.getByRole('button',{name:'导出诊断文件'}).click();
- const status=panel.locator('.diag-export-result');
- await expect(status).toContainText('已保存');
- const path=await status.locator('code').innerText();
- expect(existsSync(path)).toBe(true);
- const firstLine=readFileSync(path,'utf8').split('\n')[0];
- const meta=JSON.parse(firstLine);
- expect(meta.kind).toBe('diagnostics');
- expect(meta.event_count).toBeGreaterThan(0);
- expect(Object.keys(meta.counts_by_level).length).toBeGreaterThan(0);
- // 错误注入后最近错误可展开同 trace 事件序列
- const failed=await page.request.post('/__wardrobe_dev_api',{data:{operation:'clothing.create',input:{member_id:'default',name:' ',category:'top'}}});
- expect(failed.status()).toBe(200);
- await panel.getByRole('button',{name:'刷新诊断信息'}).click();
- await expect(panel.locator('.diag-error').first()).toBeVisible();
- await panel.getByRole('button',{name:'查看完整链路'}).first().click();
- await expect(panel.locator('.diag-trace-step').first()).toBeVisible();
+const noHorizontalScroll=async(page:any)=>{
  for(const width of [375,768,1440]){await page.setViewportSize({width,height:900});await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
-});
-
-test('error feedback bar offers one-click log export that writes a meta-first JSONL file',async({page})=>{
- await page.goto('/');
- // 拦截一次 clothing.list 使全局错误反馈条出现（其余调用照常透传）
- await page.route('**/__wardrobe_dev_api',async route=>{
-  const body=route.request().postDataJSON() as {operation:string};
-  if(body.operation==='clothing.list'){
-   await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({error:{code:'service_unavailable',message:'诊断验收：列表读取失败'}})});
-   return;
-  }
-  await route.continue();
- });
- const alert=page.locator('div.feedback.error[role="alert"]');
- await expect(alert).toBeVisible();
- await alert.getByRole('button',{name:'导出日志'}).click();
- await expect(alert.locator('code')).toBeVisible({timeout:20000});
- const path=await alert.locator('code').innerText();
- expect(existsSync(path)).toBe(true);
- const lines=readFileSync(path,'utf8').trim().split('\n');
- const meta=JSON.parse(lines[0]);
- expect(meta.kind).toBe('diagnostics');
- expect(lines.length-1).toBeGreaterThan(0);
- // 产物是单文件 JSONL：每行都是合法 JSON 事件
- for(const line of lines.slice(1,5)){expect(()=>JSON.parse(line)).not.toThrow();}
- // 产物不含数据库、图片或凭据文件，只有日志事件
- expect(path.endsWith('.jsonl')).toBe(true);
-});
-
-test('reproduction recording captures ui timeline and exports a windowed file',async({page})=>{
+};
+test('diagnostics card opens health summary, export scopes and log directory fallback',async({page})=>{
  const panel=await openDiagnostics(page);
- await panel.getByRole('button',{name:'开始记录复现'}).click();
- await expect(panel.locator('.diag-recording')).toBeVisible();
- // 正常使用：切换视图（记录页面切换事件），再做一个真实操作
- await nav(page,'衣橱').click();
- await nav(page,'记录').click();
- await nav(page,'设置').click();
- await panel.getByRole('button',{name:'停止并导出'}).click();
- await expect(panel.locator('.diag-export-result')).toContainText('已保存');
- const path=await panel.locator('.diag-export-result code').innerText();
- expect(existsSync(path)).toBe(true);
- const lines=readFileSync(path,'utf8').trim().split('\n');
- const meta=JSON.parse(lines[0]);
- expect(meta.kind).toBe('reproduction');
- expect(meta.checks).toBeTruthy();
- const events=lines.slice(1).map(line=>JSON.parse(line));
- // 窗口含操作时间线（页面切换）与复现起止标记
- expect(events.some((event:Record<string,unknown>)=>event.op==='ui.view')).toBe(true);
- expect(events.some((event:Record<string,unknown>)=>event.op==='diagnostics.reproduction.start')).toBe(true);
- expect(events.some((event:Record<string,unknown>)=>event.op==='diagnostics.reproduction.stop')).toBe(true);
- // 白名单外类型被核心拒绝
- const rejected=await page.request.post('/__wardrobe_dev_api',{data:{operation:'diagnostics.ui_event',input:{type:'freeform',label:'x'}}});
- expect((await rejected.json()).error.code).toBe('invalid_input');
+ const metrics=panel.locator('.diagnostics-metrics');
+ await expect(metrics).toContainText('数据库模式');
+ await expect(metrics).toContainText('运行会话');
+ await expect(metrics).toContainText('失败任务');
+ await expect(metrics).toContainText('结果未知');
+ await expect(metrics).toContainText('日志占用');
+ await expect(metrics.locator('.diagnostics-metric')).toHaveCount(5);
+ // 打开日志目录：dev 回退显示数据目录下的 logs 路径（目录状态异步加载，先等就绪）
+ await expect(panel.locator('.diagnostics-logs-row code')).toContainText('/logs');
+ await panel.getByRole('button',{name:'打开日志目录'}).click();
+ await expect(panel.locator('.diagnostics-logs-path')).toContainText('/logs');
+ // 导出范围四选一：session / recent / all / 显式时间窗
+ const scopes=panel.getByRole('group',{name:'导出范围'});
+ await expect(scopes.getByRole('radio')).toHaveCount(4);
+ await expect(scopes.getByRole('radio',{name:'最近 24 小时'})).toBeChecked();
+ await scopes.getByRole('radio',{name:'指定时间窗'}).check();
+ await expect(panel.getByLabel('开始时间')).toBeVisible();
+ await expect(panel.getByLabel('结束时间')).toBeVisible();
+ await scopes.getByRole('radio',{name:'最近 24 小时'}).check();
+ // dev 回退导出：写入数据目录 exports/，界面显示路径
+ await panel.getByRole('button',{name:'导出日志文件'}).click();
+ const result=panel.locator('.diagnostics-export-result');
+ await expect(result).toBeVisible({timeout:15000});
+ const text=await result.textContent();
+ const token=text?.split(/\s+/).find(part=>part.includes('/exports/')&&part.endsWith('.jsonl'));
+ const file=token&&token.slice(token.indexOf('/'));
+ expect(file,'导出结果应显示 exports/ 下的文件路径').toBeTruthy();
+ expect(file?.startsWith(process.env.WARDROBE_TEST_DATA_DIR??''),'路径应位于测试数据目录内').toBe(true);
+ expect(existsSync(file),'导出文件应真实存在').toBe(true);
+ const firstLine=readFileSync(file,'utf8').split('\n')[0];
+ expect(JSON.parse(firstLine).kind).toBe('diagnostics');
+ await expect(panel.getByRole('button',{name:'打开所在文件夹'})).toHaveCount(0);
+ await noHorizontalScroll(page);
 });
-
-test('cli doctor shares check definitions with the diagnostics page',async({page})=>{
+test('failed operation shows in recent errors grouped by run and expands trace events',async({page})=>{
  const panel=await openDiagnostics(page);
- await expect(panel.locator('.diag-check')).not.toHaveCount(0);
- const pageIds=await panel.locator('.diag-check').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('data-check-id')));
- const {execFileSync}=await import('node:child_process');
- const {fileURLToPath}=await import('node:url');
- const cli=process.env.WARDROBE_CLI_BIN??fileURLToPath(new URL('../../../target/debug/wardrobe-cli',import.meta.url));
- const stdout=execFileSync(cli,['--db',join(dataDir,'wardrobe.sqlite'),'doctor'],{env:{...process.env,WARDROBE_DATA_DIR:dataDir}}).toString();
- const report=JSON.parse(stdout).result;
- expect(report.checks.items.map((item:{id:string})=>item.id)).toEqual(pageIds);
- const database=report.checks.items.find((item:{id:string})=>item.id==='database');
- expect(database.status).toBe('pass');
- expect(report.summary.database.matches_application).toBe(true);
+ const failed=await page.request.post('/__wardrobe_dev_api',{data:{operation:'clothing.get',input:{member_id:'default',id:'diagnostics-missing-item'}}});
+ expect((await failed.json()).error.code).toBe('not_found');
+ await panel.getByRole('button',{name:'刷新诊断'}).click();
+ // 分组渲染：每次 dev bridge 请求都是独立运行会话，失败操作必然落在「更早会话」组；
+ // 组头存在会话标识与时间范围（条目数），条目归属其 run_id 组。
+ const groups=panel.locator('.diagnostics-error-group');
+ const olderGroup=groups.filter({hasText:'更早会话'});
+ await expect(olderGroup.first()).toBeVisible();
+ await expect(olderGroup.first().locator('.diagnostics-error-group-run')).toContainText('会话 ');
+ await expect(olderGroup.first().locator('.diagnostics-error-group-range')).toContainText('条');
+ const currentGroup=groups.filter({hasText:'本次启动'});
+ const error=olderGroup.first().locator('.diagnostics-error').first();
+ await expect(error).toContainText('clothing.get');
+ await expect(error).toContainText('not_found');
+ // 本次启动组（若当前会话有错误）不得包含其他会话的条目：条目只在各自组内
+ if(await currentGroup.count()>0){
+  await expect(currentGroup.locator('.diagnostics-error').first()).not.toContainText('diagnostics-missing-item');
+ }
+ await error.locator('summary').click();
+ const trace=error.locator('.diagnostics-trace');
+ await expect(trace).toContainText('clothing.get');
+ await expect(trace).toContainText('not_found');
+ // 归属断言：展开的链路详情确实位于「更早会话」组内
+ await expect(olderGroup.first().locator('.diagnostics-trace')).toContainText('not_found');
+ await noHorizontalScroll(page);
+});
+test('basic checks list renders ten passing items with a navigation link',async({page})=>{
+ const panel=await openDiagnostics(page);
+ const section=panel.getByRole('region',{name:'基础检查'});
+ await expect(section).toBeVisible();
+ const items=section.locator('.diagnostics-check');
+ await expect(items).toHaveCount(10);
+ // 正常环境（全新数据目录）全部通过：状态图标与状态文字并存，不只靠颜色
+ await expect(section.locator('.diagnostics-check-pass')).toHaveCount(10);
+ await expect(section.locator('.diagnostics-check-warn')).toHaveCount(0);
+ await expect(section.locator('.diagnostics-check-fail')).toHaveCount(0);
+ await expect(section.locator('.diagnostics-checks-summary')).toContainText('全部通过');
+ for(const item of await items.all()){
+  await expect(item.locator('.diagnostics-check-status')).toContainText(/通过|警告|失败/);
+  await expect(item.locator('.diagnostics-check-detail')).toContainText(/=/);
+ }
+ // 去向链接：未配置模型 → 去「模型与连接」，点击跳转对应设置页（无 hover/拖拽依赖）
+ const goto=section.locator('.diagnostics-check-goto');
+ await expect(goto).toHaveCount(1);
+ await expect(goto).toContainText('模型与连接');
+ await goto.click();
+ await expect(page.locator('.settings-breadcrumb')).toContainText('模型与连接');
+ await noHorizontalScroll(page);
 });

@@ -333,9 +333,15 @@ impl Application {
         }
         let id = uuid::Uuid::now_v7().to_string();
         let timestamp = chrono::Utc::now().to_rfc3339();
-        let doc = json!({"schema_version":1,"id":id,"job_id":id,"operation":operation,"operation_key":key,"state":"queued","phase":"queued","progress":0,"attempts":0,"input":input,"result":null,"error":null,"created_at":timestamp,"updated_at":timestamp,"_generation":self.installation_generation,"_source_database":self.connection.path(),"_worker_lock_uri":format!("file://{}",Path::new(self.connection.path().unwrap()).parent().unwrap().join(".maintenance-locks").join(format!("{id}.lock")).to_string_lossy()),"_lease":null,"_lease_expires":0});
+        let mut doc = json!({"schema_version":1,"id":id,"job_id":id,"operation":operation,"operation_key":key,"state":"queued","phase":"queued","progress":0,"attempts":0,"input":input,"result":null,"error":null,"created_at":timestamp,"updated_at":timestamp,"_generation":self.installation_generation,"_source_database":self.connection.path(),"_worker_lock_uri":format!("file://{}",Path::new(self.connection.path().unwrap()).parent().unwrap().join(".maintenance-locks").join(format!("{id}.lock")).to_string_lossy()),"_lease":null,"_lease_expires":0});
+        // 链路贯穿（#44）：维护任务同样携带创建调用的 trace_id，供 worker/迁移事件还原链路
+        if let Some(trace) = crate::diagnostics::current_trace() {
+            doc["trace_id"] = json!(trace);
+        }
         save(&tx, &doc)?;
+        let pending = crate::jobs::PendingJobEvent::enqueue(&doc);
         tx.commit()?;
+        self.emit_job_event(Some(pending));
         Ok(public(doc))
     }
     pub(super) fn maintenance_raw_get(&self, id: &str) -> Result<Value, ApiError> {
@@ -449,6 +455,7 @@ impl Application {
         let tx = self.begin_write()?;
         let mut doc = load(&tx, id)?;
         self.recover_published_move(&tx, &mut doc)?;
+        let state_before = doc["state"].as_str().map(str::to_owned);
         match operation {
             "maintenance.cancel" => {
                 if doc["state"] == "cancelled" {
@@ -501,7 +508,12 @@ impl Application {
         };
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         save(&tx, &doc)?;
+        // 取消/重试的迁移留痕（#44）；状态未变（幂等返回路径已提前返回）不产生噪音。
+        // 事件在 commit 成功后发出：commit 失败不残留未发生的事件。
+        let pending = (state_before.as_deref() != doc["state"].as_str())
+            .then(|| crate::jobs::PendingJobEvent::state(&doc, state_before.as_deref()));
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(public(doc))
     }
     fn maintenance_run(&self, id: &str) -> Result<Value, ApiError> {
@@ -529,13 +541,18 @@ impl Application {
             ));
         }
         let published = doc["operation"] == "backup.create" && doc["phase"] == "committing";
+        let state_before = doc["state"].as_str().map(str::to_owned);
         doc["state"] = json!("running");
         doc["phase"] = json!(if published { "committing" } else { "working" });
         doc["_lease"] = json!(uuid::Uuid::now_v7().to_string());
         doc["_lease_expires"] = json!(now() + 300_000);
         doc["attempts"] = json!(doc["attempts"].as_u64().unwrap_or(0) + 1);
         save(&tx, &doc)?;
+        // 领取或租约接管（expired 时 state_from=running）都以文档 trace 留痕（#44）；
+        // 事件在 commit 成功后发出：commit 失败不残留未发生的事件
+        let pending = crate::jobs::PendingJobEvent::state(&doc, state_before.as_deref());
         tx.commit()?;
+        self.emit_job_event(Some(pending));
         let control = Control::new(self, &doc);
         let operation = doc["operation"].as_str().unwrap();
         let result = if operation == "data_directory.move" {
@@ -574,13 +591,15 @@ impl Application {
         }
         finished["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         finished["_lease"] = Value::Null;
+        let pending = crate::jobs::PendingJobEvent::state(&finished, Some("running"));
         save(&tx, &finished)?;
         tx.commit()?;
+        self.emit_job_event(Some(pending));
         Ok(public(finished))
     }
 }
 pub(super) fn job_schema() -> Value {
-    json!({"type":"object","required":["schema_version","id","job_id","operation","state","phase","progress","result","error"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"job_id":{"type":"string"},"operation":{"type":"string"},"operation_key":{"type":"string"},"state":{"enum":["queued","running","succeeded","failed","cancelled"]},"phase":{"type":"string"},"progress":{"type":"integer","minimum":0,"maximum":100},"attempts":{"type":"integer","minimum":0},"next_due":{"type":"integer"},"lease_expires":{"type":"integer"},"attempts_left":{"type":"integer"},"created_at":{"type":"string"},"updated_at":{"type":"string"},"input":{"type":"object"},"payload":{"type":"object"},"submitted_at":{"type":["string","null"]},"last_outcome":{"type":["string","null"]},"directory":{"type":"string"},"include_originals":{"type":"boolean"},"include_database":{"type":"boolean"},"result":{},"error":{}}})
+    json!({"type":"object","required":["schema_version","id","job_id","operation","state","phase","progress","result","error"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"job_id":{"type":"string"},"operation":{"type":"string"},"operation_key":{"type":"string"},"state":{"enum":["queued","running","succeeded","failed","cancelled"]},"phase":{"type":"string"},"progress":{"type":"integer","minimum":0,"maximum":100},"attempts":{"type":"integer","minimum":0},"next_due":{"type":"integer"},"lease_expires":{"type":"integer"},"attempts_left":{"type":"integer"},"created_at":{"type":"string"},"updated_at":{"type":"string"},"input":{"type":"object"},"payload":{"type":"object"},"submitted_at":{"type":["string","null"]},"last_outcome":{"type":["string","null"]},"directory":{"type":"string"},"include_originals":{"type":"boolean"},"include_database":{"type":"boolean"},"trace_id":{"type":"string","description":"创建该任务的应用调用链路标识"},"result":{},"error":{}}})
 }
 pub(super) fn descriptors() -> Vec<Value> {
     ["get","list","cancel","retry","worker.run"].into_iter().map(|action|{

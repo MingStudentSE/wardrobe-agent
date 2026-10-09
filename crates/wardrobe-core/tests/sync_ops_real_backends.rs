@@ -49,7 +49,10 @@ fn pair(
     let owner = Application::open(a).unwrap();
     let peer = Application::open(b).unwrap();
     owner
-        .execute("encryption.create", json!({"password":password,"device_name":name_a}))
+        .execute(
+            "encryption.create",
+            json!({"password":password,"device_name":name_a}),
+        )
         .unwrap();
     let offer = owner
         .execute("encryption.pair.offer", json!({"device_name":name_b}))
@@ -61,7 +64,10 @@ fn pair(
         )
         .unwrap();
     let confirmation = owner
-        .execute("encryption.pair.confirm", json!({"receipt":receipt["receipt"]}))
+        .execute(
+            "encryption.pair.confirm",
+            json!({"receipt":receipt["receipt"]}),
+        )
         .unwrap();
     peer.execute(
         "encryption.device.apply",
@@ -111,9 +117,7 @@ fn webdav_switch_rotation_credential_migration_and_unpair_cleanup() {
     let root2 = format!("wd31-{}", uuid::Uuid::now_v7().simple());
     configure_webdav(&owner, &server.base_url, &root1);
     configure_webdav(&peer, &server.base_url, &root1);
-    let space = owner
-        .execute("space.default", json!({}))
-        .unwrap()["space_id"]
+    let space = owner.execute("space.default", json!({})).unwrap()["space_id"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -148,18 +152,26 @@ fn webdav_switch_rotation_credential_migration_and_unpair_cleanup() {
     let status: Value = owner.execute("sync.status", json!({})).unwrap();
     assert_eq!(status["target"]["root"], json!(root2));
     let result = owner.sync_batch().unwrap();
-    assert_eq!(result["sent"], json!(0), "切换后复制内容即已发布内容: {result}");
+    assert_eq!(
+        result["sent"],
+        json!(0),
+        "切换后复制内容即已发布内容: {result}"
+    );
     // 旧根目录内容原样保留（回退可用）。
     let old_root_status = peer.sync_batch().unwrap();
     assert_eq!(
-        old_root_status["quarantined"], json!(0),
+        old_root_status["quarantined"],
+        json!(0),
         "旧目标继续可用: {old_root_status}"
     );
 
     // 纪元轮换（撤销对端）：目标键按纪元滚动，传输凭据随之迁移，
     // 所有者无需重输 WebDAV 密码即可继续同步。
     let peer_state: Value = peer.execute("encryption.status", json!({})).unwrap();
-    let peer_device = peer_state["state"]["device_id"].as_str().unwrap().to_owned();
+    let peer_device = peer_state["state"]["device_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let revoked = owner
         .execute(
             "encryption.device.revoke",
@@ -195,10 +207,7 @@ fn webdav_switch_rotation_credential_migration_and_unpair_cleanup() {
         "unpair 应清理同步目标凭据"
     );
     let status: Value = owner.execute("sync.status", json!({})).unwrap();
-    assert!(
-        status["target"].is_null(),
-        "解除配对后同步目标状态一并清除"
-    );
+    assert!(status["target"].is_null(), "解除配对后同步目标状态一并清除");
 }
 
 fn env_s3() -> Option<(String, String, String, String)> {
@@ -300,10 +309,7 @@ fn s3_mirror_backup_and_promotion_key_path() {
 
     // 显式提升：校验镜像与主目标一致后切换；提升后同步继续。
     let promoted = owner.execute("sync.mirror.promote", json!({})).unwrap();
-    assert_eq!(
-        promoted["target"]["prefix"], json!(prefix2),
-        "{promoted}"
-    );
+    assert_eq!(promoted["target"]["prefix"], json!(prefix2), "{promoted}");
     let status: Value = owner.execute("sync.status", json!({})).unwrap();
     assert_eq!(status["target"]["prefix"], json!(prefix2));
     assert_eq!(status["mirror"]["prefix"], json!(prefix1));
@@ -311,7 +317,8 @@ fn s3_mirror_backup_and_promotion_key_path() {
     assert_eq!(result["sent"], json!(0), "{result}");
     assert_eq!(result["received"], json!(0), "{result}");
     assert_eq!(
-        owner.execute("clothing.get", json!({"member_id":member,"id":shirt["id"]}))
+        owner
+            .execute("clothing.get", json!({"member_id":member,"id":shirt["id"]}))
             .unwrap()["name"],
         "S3 运维衬衫"
     );

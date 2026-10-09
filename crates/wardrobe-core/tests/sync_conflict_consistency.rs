@@ -6,7 +6,7 @@
 //! 并发字段与集合合并不丢添加、搭配结构冲突可见、乱序/重复事件正确计数、
 //! 离线重连收敛、画像一致与同步不再回声。
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use wardrobe_core::Application;
 
 #[path = "support/learning.rs"]
@@ -228,14 +228,12 @@ fn late_edit_arriving_after_delete_keeps_conflict_copy_until_explicit_restore() 
     }
     // 对端的删改冲突副本在删除送达时即可见。
     let peer_conflicts = conflicts_of(&peer, &member);
-    assert!(
-        find_conflict(
-            peer_conflicts["items"].as_array().unwrap(),
-            &id,
-            "lifecycle"
-        )
-        .is_some_and(|v| v["variants"].as_array().unwrap().len() >= 2)
-    );
+    assert!(find_conflict(
+        peer_conflicts["items"].as_array().unwrap(),
+        &id,
+        "lifecycle"
+    )
+    .is_some_and(|v| v["variants"].as_array().unwrap().len() >= 2));
 
     // 迟到编辑此刻才到达源端：删除不被复活，编辑保留为冲突副本。
     unpark(remote.path(), &parked, &edit_op);
@@ -255,13 +253,11 @@ fn late_edit_arriving_after_delete_keeps_conflict_copy_until_explicit_restore() 
     )
     .expect("迟到的并发编辑必须保留为可见冲突副本")
     .clone();
-    assert!(
-        lifecycle["variants"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|v| v["value"] == json!("离线改名不被复活"))
-    );
+    assert!(lifecycle["variants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v["value"] == json!("离线改名不被复活")));
 
     // 恢复是显式动作：显式选择后两端收敛为“恢复 + 保留离线编辑”。
     owner.execute("sync.resolve",json!({"member_id":member,"entity_type":"clothing","entity_id":id,"field":"lifecycle","value":"active","expected_token":lifecycle["token"],"operation_key":"ticket28 explicit restore"}))
@@ -274,14 +270,12 @@ fn late_edit_arriving_after_delete_keeps_conflict_copy_until_explicit_restore() 
             .unwrap();
         assert_eq!(doc["status"], "active");
         assert_eq!(doc["name"], "离线改名不被复活");
-        assert!(
-            find_conflict(
-                conflicts_of(app, &member)["items"].as_array().unwrap(),
-                &id,
-                "lifecycle"
-            )
-            .is_none()
-        );
+        assert!(find_conflict(
+            conflicts_of(app, &member)["items"].as_array().unwrap(),
+            &id,
+            "lifecycle"
+        )
+        .is_none());
     }
     // 收敛后重复同步不再产生同逻辑日志（不回声）。
     for app in [&owner, &peer] {
@@ -426,14 +420,12 @@ fn concurrent_field_and_set_edits_merge_without_losing_either_addition() {
             .execute("clothing.get", json!({"member_id":member,"id":id}))
             .unwrap();
         assert_eq!(doc["name"], "甲方名称");
-        assert!(
-            find_conflict(
-                conflicts_of(app, &member)["items"].as_array().unwrap(),
-                &id,
-                "name"
-            )
-            .is_none()
-        );
+        assert!(find_conflict(
+            conflicts_of(app, &member)["items"].as_array().unwrap(),
+            &id,
+            "name"
+        )
+        .is_none());
     }
     for app in [&owner, &peer] {
         let again = app.sync_batch().unwrap();
@@ -706,14 +698,12 @@ fn arrival_order_and_op_ordering_never_decide_facts_resolution_does() {
                 .unwrap()["name"],
             "甲编辑"
         );
-        assert!(
-            find_conflict(
-                conflicts_of(app, &member)["items"].as_array().unwrap(),
-                &id,
-                "name"
-            )
-            .is_none()
-        );
+        assert!(find_conflict(
+            conflicts_of(app, &member)["items"].as_array().unwrap(),
+            &id,
+            "name"
+        )
+        .is_none());
     }
     // 看到对方选择后的新编辑按因果支配直接收敛，无需再次人工裁决。
     peer.execute(
@@ -729,13 +719,11 @@ fn arrival_order_and_op_ordering_never_decide_facts_resolution_does() {
             .execute("clothing.get", json!({"member_id":member,"id":id}))
             .unwrap();
         assert_eq!(doc["name"], "乙后继编辑", "因果更新直接收敛：{doc}");
-        assert!(
-            conflicts_of(app, &member)["items"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|v| v["entity_id"] != json!(id))
-        );
+        assert!(conflicts_of(app, &member)["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v["entity_id"] != json!(id)));
     }
     for app in [&owner, &peer] {
         let again = app.sync_batch().unwrap();

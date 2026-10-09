@@ -14,6 +14,12 @@ async function fits(page:Page,label:string){
 test('all workspaces and settings fit intermediate and small windows',async({page})=>{
  execFileSync(fileURLToPath(new URL('../../../target/debug/wardrobe-cli',import.meta.url)),['--trusted-local','clothing.create',JSON.stringify({member_id:'default',name:'长名称验收衣物春秋宽松休闲纯棉连帽外套适合日常出门通勤穿着',category:'top'})],{env:{...process.env,WARDROBE_DATA_DIR:process.env.WARDROBE_TEST_DATA_DIR}});
  await page.emulateMedia({reducedMotion:'reduce'});await page.goto('/');
+ // 同套件内 pairing 规格会把选中成员持久化为「配对成员乙」；本规格创建与断言都基于默认成员，
+ // 与 pairing.spec 的做法一致：先显式切回「我」，等默认成员衣橱真实加载（种子≥24 件）。
+ // 记录弹窗的衣物列表独立拉取（clothing.list limit 100），不依赖首屏分页是否包含新建单品。
+ await page.getByText('当前衣橱').click();
+ await page.getByRole('combobox',{name:/^当前成员/}).selectOption({label:'我'});
+ await expect.poll(async()=>await page.locator('.collection .grid article').count(),{timeout:15000}).toBeGreaterThanOrEqual(24);
  for(const [width,height] of [[375,900],[667,900],[768,900],[900,900],[1024,900],[1440,900],[900,500]]){
  await page.setViewportSize({width,height});
  for(const name of ['衣橱','穿搭','记录','设置']){await nav(page,name).click();await fits(page,`${name} ${width}`);}

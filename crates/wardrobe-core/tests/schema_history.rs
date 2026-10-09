@@ -19,13 +19,16 @@ impl WaitsApplication for Application {
             if job["state"] == "succeeded" {
                 Ok(job["result"].clone())
             } else {
-                Err(wardrobe_core::ApiError::of(job["error"]["code"]
+                Err(wardrobe_core::ApiError::of(
+                    job["error"]["code"]
                         .as_str()
                         .unwrap_or("job_cancelled")
-                        .to_owned(), job["error"]["message"]
+                        .to_owned(),
+                    job["error"]["message"]
                         .as_str()
                         .unwrap_or("任务未完成")
-                        .to_owned()))
+                        .to_owned(),
+                ))
             }
         } else {
             Ok(submitted)

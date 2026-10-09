@@ -243,8 +243,9 @@ impl Application {
             "baseline":candidate,
             "submission":"not_submitted",
         });
-        let job = jobs::insert(&tx, &member, "purchase_recognition", key, payload)?;
+        let (job, pending) = self.insert_job(&tx, &member, "purchase_recognition", key, payload)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(job)
     }
 
@@ -357,38 +358,36 @@ impl Application {
                 "任务已取消或租约到期，不再发送图片",
             ));
         }
-        jobs::save(&tx, &job)?;
+        let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
-        let submit_started = std::time::Instant::now();
+        self.emit_job_event(pending);
+        // 供应商请求事件（#44）：trace 取自任务文档——worker 可能运行在另一进程
+        let provider_request = crate::diagnostics::ProviderRequestLog::from_job(&job, "");
+        provider_request.begin_send();
         let response = match request.send() {
-            Ok(r) => {
-                self.log_provider_request(
-                    "purchase.recognition",
-                    "image_submission",
-                    "",
-                    if r.status().is_success() { "ok" } else { "http_error" },
-                    Some(r.status().as_u16()),
-                    submit_started,
-                );
-                r
-            }
+            Ok(r) => r,
             Err(_) => {
-                self.log_provider_request(
-                    "purchase.recognition",
-                    "image_submission",
-                    "",
-                    "send_failed",
-                    None,
-                    submit_started,
-                );
-                return self.job_finish(&member, id, &lease, "waiting_input", Value::Null, json!({"code":"submission_unknown","message":"提交后的连接失败，结果未知；不会自动再次上传","retryable":false}))
+                provider_request.record(self, "image_submission", "outcome_unknown", None);
+                return self.job_finish(&member, id, &lease, "waiting_input", Value::Null, json!({"code":"submission_unknown","message":"提交后的连接失败，结果未知；不会自动再次上传","retryable":false}));
             }
         };
         let status = response.status();
         if status.is_server_error() {
+            provider_request.record(
+                self,
+                "image_submission",
+                "outcome_unknown",
+                Some(status.as_u16()),
+            );
             return self.job_finish(&member, id, &lease, "waiting_input", Value::Null, json!({"code":"submission_unknown","http_status":status.as_u16(),"message":"供应商服务错误，是否接受提交待核实","retryable":false}));
         }
         if !status.is_success() {
+            provider_request.record(
+                self,
+                "image_submission",
+                "http_error",
+                Some(status.as_u16()),
+            );
             let retry = status.as_u16() == 429;
             let delay = response
                 .headers()
@@ -407,8 +406,9 @@ impl Application {
             {
                 return Err(ApiError::new("lease_lost", "任务已取消或过期，不恢复队列"));
             }
-            jobs::save(&tx, &job)?;
+            let pending = self.save_job(&tx, &job)?;
             tx.commit()?;
+            self.emit_job_event(pending);
             return self.job_finish(&member, id, &lease, "failed", Value::Null, json!({"code":if retry{"provider_rate_limit"}else{"provider_rejected"},"message":"供应商拒绝请求，候选仍可手工填写","http_status":status.as_u16(),"retryable":retry,"retry_after_ms":delay}));
         }
         let mut bytes = vec![];
@@ -486,8 +486,11 @@ impl Application {
         job["payload"]["submission"] = json!("received");
         job["result"] = json!({"candidate_id":candidate["id"]});
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        jobs::save(&tx, &job)?;
+        // 响应完整可解析：HTTP 层成功（后续内容校验失败属任务失败，非请求层事件）
+        provider_request.record(self, "image_submission", "ok", None);
+        let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(job)
     }
 

@@ -229,9 +229,7 @@ impl S3Objects {
                 canonical_query
             )
         };
-        let url: reqwest::Url = url
-            .parse()
-            .map_err(|_| err("storage_transient"))?;
+        let url: reqwest::Url = url.parse().map_err(|_| err("storage_transient"))?;
         let (datestamp, amzdate) = amz_dates();
         let payload_hash = hex(&Sha256::digest(&request.body));
         let mut headers: Vec<(String, String)> = vec![
@@ -269,12 +267,16 @@ impl S3Objects {
             "AWS4-HMAC-SHA256\n{amzdate}\n{scope}\n{}",
             hex(&Sha256::digest(canonical_request.as_bytes()))
         );
-        let signing_key = hmac_chain(&self.credentials.secret_access_key, &datestamp, &self.target.region);
+        let signing_key = hmac_chain(
+            &self.credentials.secret_access_key,
+            &datestamp,
+            &self.target.region,
+        );
         let mut mac = HmacSha256::new_from_slice(&signing_key).expect("hmac key");
         mac.update(string_to_sign.as_bytes());
         let signature = hex(&mac.finalize().into_bytes());
         if std::env::var("WARDROBE_S3_SIGN_DEBUG").is_ok() {
-        eprintln!(
+            eprintln!(
             "S3SIGN canonical_request=<<\n{}\n>> string_to_sign=<<\n{}\n>> signature={signature} url={url}",
             canonical_request, string_to_sign
         );
@@ -472,7 +474,10 @@ fn map_status(status: reqwest::StatusCode, body: &[u8], purpose: &str) -> ApiErr
             "storage_unsupported",
             "对象存储不支持同步所需的条件写能力，已明确拒绝，不改变发布语义",
         ),
-        500..=599 => ApiError::new("storage_transient", "同步存储暂时不可用，保留本地数据后重试"),
+        500..=599 => ApiError::new(
+            "storage_transient",
+            "同步存储暂时不可用，保留本地数据后重试",
+        ),
         300..=399 => ApiError::new(
             "storage_transient",
             "同步存储返回重定向，请检查 endpoint/region 配置",
@@ -628,11 +633,10 @@ impl SyncStorage for S3Objects {
             let key = percent_decode(&xml_unescape(
                 xml_value(entry, "Key").ok_or_else(|| err("storage_corrupt"))?,
             ));
-            let etag = xml_unescape(
-                xml_value(entry, "ETag").ok_or_else(|| err("storage_corrupt"))?,
-            )
-            .trim_matches('"')
-            .to_string();
+            let etag =
+                xml_unescape(xml_value(entry, "ETag").ok_or_else(|| err("storage_corrupt"))?)
+                    .trim_matches('"')
+                    .to_string();
             let size: u64 = xml_value(entry, "Size")
                 .and_then(|v| v.parse().ok())
                 .ok_or_else(|| err("storage_corrupt"))?;
