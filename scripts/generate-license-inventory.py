@@ -249,7 +249,8 @@ def resolve_crate_license(
     return UNKNOWN, STATUS_MISSING_CACHE
 
 
-def resolve_member_license(repo_root: Path, name: str, version: str, manifest_candidates: list[Path]) -> tuple[str, str]:
+def resolve_member_license(manifest_candidates: list[Path]) -> tuple[str, str]:
+    """解析一个 workspace 成员/路径依赖 crate 的许可(只看仓库内 manifest)。"""
     for manifest in manifest_candidates:
         if manifest.is_file():
             license_id, license_file = license_from_cargo_toml_text(
@@ -284,7 +285,7 @@ def build_rust_inventory(
                 repo_root / "crates" / name / "Cargo.toml",
                 repo_root / "apps" / "desktop" / "src-tauri" / "Cargo.toml",
             ]
-            license_id, status = resolve_member_license(repo_root, name, version, candidates)
+            license_id, status = resolve_member_license(candidates)
         elif pkg["source"] and pkg["source"].startswith("registry+"):
             license_id, status = resolve_crate_license(name, version, src_dirs, cache_dirs)
         else:
@@ -603,7 +604,8 @@ def render_document(
         lines.append(
             "注:标注「本项目 crate」的条目是本仓库自有代码而非第三方依赖,"
             "其 license 字段未声明属于产品许可证选择事项(见 2026-10-07 MVP 发布门槛"
-            "`docs/verification/mvp-release-20261007.md`),不随第三方补全解决。"
+            "记录 `wardrobe-execution/results/continue-20261007/mvp-release-20261007.md`,"
+            "外盘只读产物,不在仓库版本管理内),不随第三方补全解决。"
         )
     else:
         lines.append("(无)")
@@ -618,7 +620,8 @@ def _render_msvc_section() -> str:
         "## Windows MSVC CRT 再分发条款",
         "",
         "Windows 构建使用 `x86_64-pc-windows-msvc` 目标(见 2026-10-07 MVP 发布门槛记录,"
-        "`docs/verification/mvp-release-20261007.md`),产物依赖 Microsoft Visual C++ 运行库"
+        "`wardrobe-execution/results/continue-20261007/mvp-release-20261007.md`,"
+        "外盘只读产物,不在仓库版本管理内),产物依赖 Microsoft Visual C++ 运行库"
         "(MSVC CRT:`vcruntime140.dll`、`vcruntime140_1.dll`、`msvcp140.dll` 等)与"
         "通用 C 运行库(UCRT:`ucrtbase.dll` 及 `api-ms-win-*` 转发 DLL)。",
         "",
@@ -706,14 +709,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_self_check()
 
     repo_root: Path = args.repo_root.resolve()
-    cargo_homes = (args.cargo_home or []) and list(args.cargo_home)
-    cargo_homes = (cargo_homes or []) + [
-        p for p in default_cargo_homes() if p not in cargo_homes
-    ]
-    npm_caches = (args.npm_cache or []) and list(args.npm_cache)
-    npm_caches = (npm_caches or []) + [
-        p for p in default_npm_caches() if p not in npm_caches
-    ]
+    cargo_homes = list(args.cargo_home or [])
+    cargo_homes += [p for p in default_cargo_homes() if p not in cargo_homes]
+    npm_caches = list(args.npm_cache or [])
+    npm_caches += [p for p in default_npm_caches() if p not in npm_caches]
     sections = build_all_sections(repo_root, cargo_homes, npm_caches)
     document = render_document(repo_root, sections)
 
@@ -738,14 +737,12 @@ def main(argv: list[str] | None = None) -> int:
 # ---------------------------------------------------------------------------
 
 def _make_crate_tar(cache_dir: Path, name: str, version: str, license_id: str) -> Path:
-    import tarfile as tf
-
     crate_path = cache_dir / f"{name}-{version}.crate"
     inner_name = f"{name}-{version}"
     manifest = f'[package]\nname = "{name}"\nversion = "{version}"\nlicense = "{license_id}"\n'.encode()
     buf = io.BytesIO()
-    with tf.open(fileobj=buf, mode="w:gz") as tar:
-        info = tf.TarInfo(f"{inner_name}/Cargo.toml")
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(f"{inner_name}/Cargo.toml")
         info.size = len(manifest)
         tar.addfile(info, io.BytesIO(manifest))
     crate_path.write_bytes(buf.getvalue())
@@ -845,8 +842,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
         encoding="utf-8",
     )
     # 模拟 npm cacache:index-v5 记录 + content-v2 存 tarball
-    import hashlib as _hashlib
-
     npm_cache = root / "npm-cache"
     manifest_bytes = json.dumps(
         {"name": "pkg-c", "version": "5.0.1", "license": "Apache-2.0"}
@@ -857,8 +852,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
         info.size = len(manifest_bytes)
         tar.addfile(info, io.BytesIO(manifest_bytes))
     blob = buf.getvalue()
-    hex_digest = _hashlib.sha512(blob).hexdigest()
-    integrity = "sha512-" + base64.b64encode(_hashlib.sha512(blob).digest()).decode()
+    hex_digest = hashlib.sha512(blob).hexdigest()
+    integrity = "sha512-" + base64.b64encode(hashlib.sha512(blob).digest()).decode()
     (npm_cache / "_cacache" / "index-v5" / hex_digest[:2] / hex_digest[2:4]).mkdir(parents=True)
     index_entry = json.dumps(
         {

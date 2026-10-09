@@ -7,7 +7,8 @@
 用法:
     python3 scripts/write-provenance.py --dir <产物目录> \
         [--commit <sha>] [--build-command "<命令>"] \
-        [--checksums <文件名>] [--repo <仓库根>] [--dry-run]
+        [--checksums <文件名>] [--repo <仓库根>] [--dry-run] \
+        [--require-provenance]
 
 约定:
 - --dir 必须显式给出;脚本绝不默认指向任何系统或数据目录。
@@ -16,6 +17,10 @@
 - 复核并重写 SHA256SUMS.txt(或已存在的 SHA256SUMS),使其与目录内实际
   字节一致;PROVENANCE.json 与校验和文件本身不计入 artifacts。
 - --dry-run 只校验不写盘;发现已有条目哈希不符或指向缺失文件时退出码 2。
+- --require-provenance 与 --dry-run 搭配:额外校验目录已携带 PROVENANCE.json
+  且 source_commit 非空,不满足时同样退出码 2——缺 PROVENANCE 的目录
+  不得作为发布候选留存。该旗标只在 dry-run 下有意义(写模式会重建
+  PROVENANCE.json),单独使用报参数错误。
 - 纯标准库;幂等:重跑整体覆盖更新,不追加。
 """
 
@@ -101,6 +106,25 @@ def verify_entries(
     return problems
 
 
+def provenance_defect(root: Path) -> Optional[str]:
+    """发布候选门槛:PROVENANCE.json 必须存在且 source_commit 非空。
+
+    返回缺陷描述;满足要求时返回 None。
+    """
+    provenance_path = root / PROVENANCE_NAME
+    if not provenance_path.is_file():
+        return (f"缺少 {PROVENANCE_NAME}:缺 PROVENANCE 的目录"
+                f"不得作为发布候选留存")
+    try:
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return f"{PROVENANCE_NAME} 无法解析: {exc}"
+    if not isinstance(provenance, dict) \
+            or not str(provenance.get("source_commit") or "").strip():
+        return f"{PROVENANCE_NAME} 的 source_commit 为空:不满足发布候选要求"
+    return None
+
+
 def tool_versions() -> dict[str, Optional[str]]:
     versions: dict[str, Optional[str]] = {"python": None, "node": None, "rustc": None}
     versions["python"] = f"{sys.version_info.major}." \
@@ -148,7 +172,15 @@ def main(argv: Optional[list[str]] = None) -> int:
                         help="校验和文件名;默认 SHA256SUMS.txt,兼容已存在的 SHA256SUMS")
     parser.add_argument("--dry-run", action="store_true",
                         help="只校验并报告,不写任何文件")
+    parser.add_argument("--require-provenance", action="store_true",
+                        help="与 --dry-run 搭配:校验 PROVENANCE.json 存在且 "
+                             "source_commit 非空,不满足时退出码 2")
     args = parser.parse_args(argv)
+    if args.require_provenance and not args.dry_run:
+        parser.error(
+            "--require-provenance 只能与 --dry-run 搭配使用"
+            "(写模式会重建 PROVENANCE.json,校验无意义)"
+        )
 
     root = Path(args.dir).expanduser().resolve()
     if not root.is_dir():
@@ -185,6 +217,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     new_text = render_checksums(digests)
 
+    defect = provenance_defect(root) if args.require_provenance else None
+
     if args.dry_run:
         if existing_text is None:
             print(f"[dry-run] 将创建 {checksums_path.name}({len(digests)} 个条目)")
@@ -198,7 +232,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"[dry-run] {problem}", file=sys.stderr)
         print(f"[dry-run] PROVENANCE.json: source_commit={commit} "
               f"dirty={bool(dirty_files)} artifacts={len(digests)}")
-        return EXIT_MISMATCH if problems else EXIT_OK
+        if args.require_provenance:
+            if defect:
+                print(f"[dry-run] {defect}", file=sys.stderr)
+            else:
+                print("[dry-run] PROVENANCE.json 存在且 source_commit 非空。")
+        return EXIT_MISMATCH if (problems or defect) else EXIT_OK
 
     if existing_text != new_text:
         checksums_path.write_text(new_text, encoding="utf-8")
