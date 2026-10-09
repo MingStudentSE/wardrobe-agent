@@ -351,8 +351,14 @@ impl Logger {
         }
         fs::create_dir_all(&self.logs_dir).ok();
         let mut file = fs::OpenOptions::new().create(true).append(true).open(&path)?;
-        file.write_all(line.as_bytes())?;
-        file.write_all(b"\n")?;
+        // 行与换行合并为一次 write：O_APPEND 下单次写入原子追加，并发写者（CLI 与 GUI
+        // 两进程共享同一 logs 目录；本进程 panic 钩子向全部日志汇并发写）的字节无法落在
+        // 行与换行之间。拆成两次 write 时，另一写者的整行可落在这两段之间，两个 JSON
+        // 事件拼成一行损坏行，被读取端按损坏行一起跳过——并发追加双方同时丢事件（#53）。
+        let mut record = String::with_capacity(line.len() + 1);
+        record.push_str(line);
+        record.push('\n');
+        file.write_all(record.as_bytes())?;
         file.flush()?;
         let written = line.len() as u64;
         state.active_size = size + written;
