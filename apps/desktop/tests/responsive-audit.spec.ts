@@ -12,7 +12,7 @@ async function fits(page:Page,label:string){
  }));expect(issues,label).toEqual([]);
 }
 test('all workspaces and settings fit intermediate and small windows',async({page})=>{
- execFileSync(fileURLToPath(new URL('../../../target/debug/wardrobe-cli',import.meta.url)),['--trusted-local','clothing.create',JSON.stringify({member_id:'default',name:'长名称验收衣物春秋宽松休闲纯棉连帽外套适合日常出门通勤穿着',category:'top'})],{env:{...process.env,WARDROBE_DATA_DIR:process.env.WARDROBE_TEST_DATA_DIR}});
+ execFileSync(process.env.WARDROBE_CLI_BIN??fileURLToPath(new URL('../../../target/debug/wardrobe-cli',import.meta.url)),['--trusted-local','clothing.create',JSON.stringify({member_id:'default',name:'长名称验收衣物春秋宽松休闲纯棉连帽外套适合日常出门通勤穿着',category:'top'})],{env:{...process.env,WARDROBE_DATA_DIR:process.env.WARDROBE_TEST_DATA_DIR}});
  await page.emulateMedia({reducedMotion:'reduce'});await page.goto('/');
  // 同套件内 pairing 规格会把选中成员持久化为「配对成员乙」；本规格创建与断言都基于默认成员，
  // 与 pairing.spec 的做法一致：先显式切回「我」，等默认成员衣橱真实加载（种子≥24 件）。
