@@ -50,7 +50,7 @@ fn resolve_db(
     if let Some(resolved) = wardrobe_core::profiles::resolve(profile.as_deref())? {
         return Ok(resolved);
     }
-    Ok(wardrobe_core::default_database_path())
+    wardrobe_core::default_database_path_checked()
 }
 
 fn run_profile(command: args::ProfileCommand) {

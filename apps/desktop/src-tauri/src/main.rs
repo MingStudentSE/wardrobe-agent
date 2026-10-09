@@ -5,7 +5,7 @@ async fn application(
     input: serde_json::Value,
 ) -> Result<serde_json::Value, wardrobe_core::ApiError> {
     tauri::async_runtime::spawn_blocking(move || {
-        wardrobe_core::Application::open(&wardrobe_core::default_database_path())?
+        wardrobe_core::Application::open(&wardrobe_core::default_database_path_checked()?)?
             .execute(&operation, input)
     })
     .await

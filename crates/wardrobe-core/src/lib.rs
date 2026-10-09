@@ -429,3 +429,33 @@ pub fn default_database_path() -> PathBuf {
         .join("wardrobe-agent");
     root.join("wardrobe.sqlite")
 }
+
+/// 调试构建的默认数据目录护栏（issue #51）：schema 迁移只向前、不可逆，
+/// 开发/测试进程一旦用默认生产目录打开数据库，就会把生产库迁移到未发布版本。
+/// debug profile 下未设置 `WARDROBE_DATA_DIR` 且未显式豁免
+/// （`WARDROBE_ALLOW_DEFAULT_DATA_DIR=1`）时拒绝；release 构建始终放行，
+/// 正式安装版必须使用默认目录。
+pub fn guard_debug_default_data_dir(isolated: bool, allow_default: bool) -> Result<(), ApiError> {
+    #[cfg(debug_assertions)]
+    if !isolated && !allow_default {
+        return Err(ApiError::new(
+            "storage_error",
+            "调试构建禁止使用默认数据目录：请设置 WARDROBE_DATA_DIR 指向隔离目录；确需连接真实数据时设置 WARDROBE_ALLOW_DEFAULT_DATA_DIR=1 并先快照数据库（见 docs/agents/build-storage.md 第 8 条）",
+        ));
+    }
+    #[cfg(not(debug_assertions))]
+    let _ = (isolated, allow_default);
+    Ok(())
+}
+
+/// 打开数据库前的路径出口：在 `default_database_path` 之上应用调试护栏。
+/// CLI 与桌面端统一走这里；诊断旁路日志只选日志目录、不打开数据库，仍用原函数。
+pub fn default_database_path_checked() -> Result<PathBuf, ApiError> {
+    let path = default_database_path();
+    guard_debug_default_data_dir(
+        std::env::var_os("WARDROBE_DATA_DIR").is_some(),
+        std::env::var_os("WARDROBE_ALLOW_DEFAULT_DATA_DIR")
+            .is_some_and(|value| value == "1"),
+    )?;
+    Ok(path)
+}
