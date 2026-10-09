@@ -69,11 +69,13 @@
 
 ## 当前状态(v0.1.0)
 
-Beta 开发中,按 [F01–F30 功能验收矩阵](docs/05-Beta开发规格.md)逐项交付,进度跟踪见 [docs/07-实施进度.md](docs/07-实施进度.md) 与 GitHub Issues:
+版本仍为 **v0.1.0**(研发试用候选,不表示正式发行)。2026-10-09 完成 MVP 发行对账(规格 [#54](https://github.com/MingStudentSE/wardrobe-agent/issues/54)):GitHub 53 张功能票全部关闭,但实现分落两处,逐票结论见 [docs/verification/reconciliation-20261009.md](docs/verification/reconciliation-20261009.md):
 
-- **已可用**:首次启动与手工录入、多成员隔离、单品管理与回收站、图片导入与压缩、可恢复批量录入、多图编辑与本地抠图、手工搭配与 Lookbook、真实穿着与改穿记录、模型配置与系统钥匙串凭据、CLI/MCP 授权接入、doctor/logs 诊断,以及 Windows/macOS/Ubuntu 五目标构建检查。
-- **已合入代码、验收开放**:AI 识别与人工纠错、商品展示图生成与采用、AI 搭配图、虚拟试穿、洗护管理、衣橱洞察、加密空间与设备配对。
-- **按规格推进**:天气与在线 AI 推荐、推荐反馈与偏好学习、单品配对、定时推荐、场景与旅行计划、购买适配分析、多后端同步、备份与恢复,以及完整 Beta 发行验收。
+- **main 已含**:首次启动与手工录入、多成员隔离、单品管理与回收站、图片导入与压缩、可恢复批量录入、多图编辑与本地抠图、手工搭配与 Lookbook、真实穿着与改穿记录、洗护管理、衣橱洞察、AI 识别与人工纠错、商品展示图、AI 搭配图、虚拟试穿、穿搭推荐(离线规则与天气/AI)、偏好学习、加密空间与设备配对、备份与恢复、模型配置与系统钥匙串凭据、CLI/MCP 授权接入,以及 #41–#53 诊断系列(doctor/logs/trace、桌面诊断页)与外部客户端配对登记——逐票证据见对账表「main 证据」列。
+- **集成线已完成并通过验收、正合回 main**:完整 Stylist、场景与旅行计划、购买适配分析、定时推荐与系统通知、本地文件夹/S3-compatible/WebDAV 三后端同步族、完整外部 Agent 契约(162 操作)与 Web 端,实现并验收于 `codex/beta-integration-continue`(对账表逐票列明分支与提交);与 main 的双向合并由 issue [#66](https://github.com/MingStudentSE/wardrobe-agent/issues/66) 跟踪,合并完成前 main 不含这部分代码。
+- **真实云验收已完成**:#14 商品展示图 / #20 AI 搭配图 / #21 虚拟试穿已于 2026-10-08 通过 ARK 真实云调用验收(request_id、真实耗时、token 用量与结果图 SHA256 存证齐全),报告见 [ticket-14](docs/verification/ticket-14/report-real-cloud.md)、[ticket-20](docs/verification/ticket-20/report-real-cloud.md)、[ticket-21](docs/verification/ticket-21/report-real-cloud.md)。
+
+发行门槛现状(三平台签名缺失、逐平台验收三态与豁免、2026-10-09 数据库版本事故与防复发护栏)见 [docs/verification/release-gates-20261009.md](docs/verification/release-gates-20261009.md);F01–F30 门禁对照见 [docs/verification/ticket-35/final-gate.md](docs/verification/ticket-35/final-gate.md)。进度与收尾跟踪见 [docs/07-实施进度.md](docs/07-实施进度.md) 与 GitHub Issues。
 
 ## 从源码构建
 
@@ -118,4 +120,4 @@ cargo test -p wardrobe-core -p wardrobe-cli
 
 ## 许可
 
-产品计划开源,不设任何收费功能;具体许可证与第三方依赖清单在对外发布前确定并补充于此。
+产品计划开源,不设任何收费功能;产品许可证待定,由维护者按 issue [#65](https://github.com/MingStudentSE/wardrobe-agent/issues/65) 决定后补充于此。第三方依赖许可清单见 [docs/third-party-licenses.md](docs/third-party-licenses.md)(由 `scripts/generate-license-inventory.py` 从 lockfile 离线生成,可复跑校验):合计 1125 个包,其中 74 项离线缓存不可得、标识为 `unknown`,119 项非 MIT/Apache/BSD/ISC 家族列入兼容审查名单,Windows MSVC CRT 再分发条款单列;标注「本项目 crate」的自有代码许可证待 [#65](https://github.com/MingStudentSE/wardrobe-agent/issues/65) 一并决定。
