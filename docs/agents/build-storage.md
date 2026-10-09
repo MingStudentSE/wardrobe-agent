@@ -23,4 +23,4 @@
 
 ## 发行产物必须携带 PROVENANCE
 
-2026-10-09 事故：现装 App 的二进制哈希在所有留存产物中找不到同源记录，无法溯源到 commit。此后每个发行产物目录必须由 `scripts/write-provenance.py --dir <产物目录>` 生成 `PROVENANCE.json`（源 commit、dirty 状态与变更文件、构建命令、rustc/node/python 版本、UTC 时间、逐文件 SHA256）；脚本同时把 `SHA256SUMS(.txt)` 复核/重写到与实际字节一致，`--dry-run` 只校验不写盘，行为测试见 `scripts/tests/test_write_provenance.py`。缺 PROVENANCE 的目录不得作为发布候选留存，发布门槛照旧要求三平台同源码产物及 SHA256。
+2026-10-09 事故：现装 App 的二进制哈希在所有留存产物中找不到同源记录，无法溯源到 commit。此后每个发行产物目录必须由 `scripts/write-provenance.py --dir <产物目录>` 生成 `PROVENANCE.json`（源 commit、dirty 状态与变更文件、构建命令、rustc/node/python 版本、UTC 时间、逐文件 SHA256）；脚本同时把 `SHA256SUMS(.txt)` 复核/重写到与实际字节一致，`--dry-run` 只校验不写盘，行为测试见 `scripts/tests/test_write_provenance.py`。缺 PROVENANCE 的目录不得作为发布候选留存，发布门槛照旧要求三平台同源码产物及 SHA256。校验既有产物目录是否满足该门槛用 `--dry-run --require-provenance`：`PROVENANCE.json` 缺失或 `source_commit` 为空时以退出码 2 拒绝（该旗标只在 dry-run 下有意义，写模式会重建 `PROVENANCE.json`）。

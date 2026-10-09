@@ -226,6 +226,46 @@ class TestIdempotency(WriteProvenanceTestCase):
         )
 
 
+class TestRequireProvenance(WriteProvenanceTestCase):
+    """--require-provenance:dry-run 额外把「缺 PROVENANCE 的目录不得作为发布候选」
+    落成机器断言——PROVENANCE.json 缺失或 source_commit 为空时非零退出。"""
+
+    def test_dry_run_fails_when_provenance_missing(self) -> None:
+        proc = self.run_script("--dry-run", "--require-provenance")
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertIn("PROVENANCE", proc.stderr)
+        # 纯校验:不得顺手补写任何文件
+        self.assertFalse((self.art / "PROVENANCE.json").exists())
+
+    def test_dry_run_fails_when_source_commit_empty(self) -> None:
+        (self.art / "PROVENANCE.json").write_text(
+            json.dumps({"schema_version": 1, "source_commit": ""}),
+            encoding="utf-8",
+        )
+        proc = self.run_script("--dry-run", "--require-provenance")
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertIn("source_commit", proc.stderr)
+
+    def test_dry_run_fails_when_provenance_unparseable(self) -> None:
+        (self.art / "PROVENANCE.json").write_text("not json", encoding="utf-8")
+        proc = self.run_script("--dry-run", "--require-provenance")
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+
+    def test_dry_run_passes_when_provenance_present_with_commit(self) -> None:
+        first = self.run_script()  # 正常模式写入合法 PROVENANCE.json
+        self.assertEqual(first.returncode, 0, first.stderr)
+        proc = self.run_script("--dry-run", "--require-provenance")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("PROVENANCE.json", proc.stdout)
+
+    def test_require_provenance_needs_dry_run(self) -> None:
+        # 写模式会重建 PROVENANCE.json,该旗标只在 dry-run 校验下有意义;
+        # 单独使用必须显式报错,不得被静默忽略。
+        proc = self.run_script("--require-provenance")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("--require-provenance", proc.stderr)
+
+
 class TestCliContract(WriteProvenanceTestCase):
     def test_dir_argument_is_required(self) -> None:
         proc = _run(["--repo", str(self.repo)])

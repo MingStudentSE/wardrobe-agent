@@ -1370,11 +1370,11 @@
 
 补全方法:在联网环境执行 `cargo fetch`(Rust)与 `npm ci`(npm)后复跑本脚本;或运行 `cargo about generate` / `license-checker` 等工具交叉核对。补全前不得视为完整发行清单。
 
-注:标注「本项目 crate」的条目是本仓库自有代码而非第三方依赖,其 license 字段未声明属于产品许可证选择事项(见 2026-10-07 MVP 发布门槛`docs/verification/mvp-release-20261007.md`),不随第三方补全解决。
+注:标注「本项目 crate」的条目是本仓库自有代码而非第三方依赖,其 license 字段未声明属于产品许可证选择事项(见 2026-10-07 MVP 发布门槛记录 `wardrobe-execution/results/continue-20261007/mvp-release-20261007.md`,外盘只读产物,不在仓库版本管理内),不随第三方补全解决。
 
 ## Windows MSVC CRT 再分发条款
 
-Windows 构建使用 `x86_64-pc-windows-msvc` 目标(见 2026-10-07 MVP 发布门槛记录,`docs/verification/mvp-release-20261007.md`),产物依赖 Microsoft Visual C++ 运行库(MSVC CRT:`vcruntime140.dll`、`vcruntime140_1.dll`、`msvcp140.dll` 等)与通用 C 运行库(UCRT:`ucrtbase.dll` 及 `api-ms-win-*` 转发 DLL)。
+Windows 构建使用 `x86_64-pc-windows-msvc` 目标(见 2026-10-07 MVP 发布门槛记录,`wardrobe-execution/results/continue-20261007/mvp-release-20261007.md`,外盘只读产物,不在仓库版本管理内),产物依赖 Microsoft Visual C++ 运行库(MSVC CRT:`vcruntime140.dll`、`vcruntime140_1.dll`、`msvcp140.dll` 等)与通用 C 运行库(UCRT:`ucrtbase.dll` 及 `api-ms-win-*` 转发 DLL)。
 
 - MSVC CRT 是**微软许可软件,不是开源软件**,不在上方许可清单内;随安装包再分发必须遵循微软的软件许可条款。
 - 微软的 Visual Studio / Visual C++ Redistributable 许可条款允许在遵守条款的前提下随应用再分发 CRT(例如捆绑 `vc_redist.x64.exe`,或按条款直接分发所需 DLL):不得修改、不得绕过许可与激活机制、须随包附带相应许可与声明信息,并仅以运行应用所需为限。
