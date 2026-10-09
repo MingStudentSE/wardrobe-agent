@@ -8,3 +8,5 @@ serde_json = "1"
 [dev-dependencies]
 base64 = "0.23.1"
 tempfile = "3"
+# doctor 降级测试：直连接缝制造过高模式版本数据库（与 wardrobe-core 测试同一用法）
+rusqlite = { version = "0.32", features = ["bundled"] }

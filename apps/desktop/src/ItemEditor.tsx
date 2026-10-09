@@ -2,6 +2,7 @@ import {useCategories} from './useCategories';
 import React, {useState,useEffect,useRef} from 'react';
 import {WearIntent} from './components/WearHistory';
 import {api} from './api';
+import {uiEvent} from './components/reproduction';
 import {Recognition} from './components/Recognition';
 import {ImageImport} from './ImageImport';
 import {ImagePreview} from './ImagePreview';
@@ -33,7 +34,7 @@ export function ItemEditor({member,item,onSaved,onClose,onBusy,disabled=false,ca
  const busyRef=useRef(false);
  function field(key:string,value:string){setValues(old=>({...old,[key]:value}));setSuccess('');}
  async function action(operation:string,input:object,reset=false){if(busyRef.current||imageBusy||disabled||!canMutate())return;busyRef.current=true;setBusy(true);onBusy(true);setError('');setSuccess('');try{await api(operation,input);await onSaved();if(item)void loadHistory();if(reset){setValues(old=>({...Object.fromEntries(Object.keys(old).map(k=>[k,k==='category'?'top':'']))}));setPrice('');setSelected([]);setColors([]);setSubCategory('');}setSuccess(operation==='clothing.create'?'已保存到本地衣橱。':'已更新本地单品。');if(operation!=='clothing.create'&&operation!=='clothing.update')onClose();}catch(e){setError(message(e));}finally{busyRef.current=false;setBusy(false);onBusy(false);}}
- function submit(e:React.FormEvent){e.preventDefault();const input:Record<string,unknown>={member_id:member,...(item?{id:item.id}:{}),name:values.name,category:values.category,seasons:selected,color:colors,sub_category:subCategory||null,favorite,currency:price===''?null:currency};try{input.purchase_price_minor=price===''?null:minor(price,currency);}catch(e){setError(message(e));return;}for(const key of Object.keys(textFields))input[key]=values[key].trim()||null;input.purchase_date=values.purchase_date||null;for(const key of Object.keys(arrayFields))input[key]=values[key].split(/[,，]/).map(v=>v.trim()).filter(Boolean);void action(item?'clothing.update':'clothing.create',input,!item);}
+ function submit(e:React.FormEvent){e.preventDefault();void uiEvent('dialog_submit','保存衣物');const input:Record<string,unknown>={member_id:member,...(item?{id:item.id}:{}),name:values.name,category:values.category,seasons:selected,color:colors,sub_category:subCategory||null,favorite,currency:price===''?null:currency};try{input.purchase_price_minor=price===''?null:minor(price,currency);}catch(e){setError(message(e));return;}for(const key of Object.keys(textFields))input[key]=values[key].trim()||null;input.purchase_date=values.purchase_date||null;for(const key of Object.keys(arrayFields))input[key]=values[key].split(/[,，]/).map(v=>v.trim()).filter(Boolean);void action(item?'clothing.update':'clothing.create',input,!item);}
  const [tab,setTab]=useState('basics');
  const deleted=item?.status==='deleted';
  return <section className="entry clothing-editor" id="entry" aria-label={item?'单品详情':'录入单品'}>

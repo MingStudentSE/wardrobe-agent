@@ -406,7 +406,7 @@ impl Application {
         }
         let tx = self.begin_write()?;
         let existing:Option<String>=tx.query_row("SELECT document FROM jobs WHERE member_id=?1 AND kind='learning_recompute' AND operation_key=?2",params![member,key],|r|r.get(0)).optional()?;
-        let job = if let Some(stored) = existing {
+        let (job, pending) = if let Some(stored) = existing {
             let job = parse(stored)?;
             if job["payload"]["request"] != input {
                 return Err(ApiError::new(
@@ -414,9 +414,9 @@ impl Application {
                     "重算标识不能改变输入",
                 ));
             }
-            job
+            (job, None)
         } else {
-            super::jobs::insert(
+            self.insert_job(
                 &tx,
                 &member,
                 "learning_recompute",
@@ -425,6 +425,7 @@ impl Application {
             )?
         };
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(
             json!({"schema_version":1,"member_id":member,"job_id":job["id"],"state":job["state"],"result":job["result"]}),
         )
@@ -739,8 +740,9 @@ impl Application {
         job["lease_token"] = Value::Null;
         job["lease_expires"] = json!(0);
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        super::jobs::save(&tx, &job)?;
+        let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(doc)
     }
     pub(super) fn learning_execute(&self, op: &str, mut input: Value) -> Result<Value, ApiError> {
@@ -938,7 +940,7 @@ pub(super) fn descriptors() -> Vec<Value> {
     let profile=json!({"type":"object","required":["schema_version","member_id","inferred","algorithm_version","explicit","source_stale"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"inferred":{"type":"array"},"algorithm_version":{"type":"string"},"explicit":{"type":"array","items":memory},"source_stale":{"type":"boolean"},"id":{"type":"string"},"created_at":{"type":"string"},"local_installation_generation":{"type":["string","null"]},"local_source_version":{"type":["integer","null"]},"reset_boundary":{"type":["string","null"]},"pair_projection":{"type":["object","null"]}}});
     let receipt=json!({"type":"object","required":["schema_version","member_id","job_id","state","result"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"job_id":{"type":"string"},"state":{"type":"string"},"result":{"type":["object","null"]}}});
     // worker.run返回完整持久化任务文档（kind固定learning_recompute）
-    let job_doc=json!({"type":"object","required":["schema_version","id","member_id","kind","operation_key","state","progress","attempts","next_due","lease_token","lease_expires","payload","result","error","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"kind":{"const":"learning_recompute"},"operation_key":{"type":"string"},"state":{"type":"string"},"progress":{"type":"integer"},"attempts":{"type":"integer"},"next_due":{"type":"integer"},"lease_token":{"type":["string","null"]},"lease_expires":{"type":"integer"},"payload":{"type":"object"},"result":{"type":["object","null"]},"error":{"type":["object","null"]},"created_at":{"type":"string"},"updated_at":{"type":"string"},"submitted_at":{"type":["string","null"]},"last_outcome":{"type":["string","null"]}}});
+    let job_doc=json!({"type":"object","required":["schema_version","id","member_id","kind","operation_key","state","progress","attempts","next_due","lease_token","lease_expires","payload","result","error","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"kind":{"const":"learning_recompute"},"operation_key":{"type":"string"},"state":{"type":"string"},"progress":{"type":"integer"},"attempts":{"type":"integer"},"next_due":{"type":"integer"},"lease_token":{"type":["string","null"]},"lease_expires":{"type":"integer"},"payload":{"type":"object"},"result":{"type":["object","null"]},"error":{"type":["object","null"]},"created_at":{"type":"string"},"updated_at":{"type":"string"},"submitted_at":{"type":["string","null"]},"last_outcome":{"type":["string","null"]},"trace_id":{"type":"string","description":"创建该任务的应用调用链路标识；worker直接入队的任务缺省"}}});
     ["get","set","edit","delete","reset","recompute","history","worker.run"].into_iter().map(|op|{
  let mut props=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
  if !["get","history","worker.run"].contains(&op){props["operation_key"]=json!({"type":"string","minLength":1,"maxLength":200});required.push("operation_key");}

@@ -144,8 +144,9 @@ impl Application {
             job["lease_token"] = Value::Null;
             job["lease_expires"] = json!(0);
             job["error"] = json!({"code":"provider_outcome_unknown","message":"结果未知，无法查询；请核对供应商或显式选择离线规则","retryable":false});
-            crate::jobs::save(&tx, &job)?;
+            let pending = self.save_job(&tx, &job)?;
             tx.commit()?;
+            self.emit_job_event(pending);
             return Ok(job);
         }
         if job["next_due"].as_i64().unwrap_or(0) > now {
@@ -286,7 +287,7 @@ impl Application {
                 &provider_id,
                 &prompt,
                 &member,
-                &job_id,
+                claimed,
                 &lease,
                 attempt,
             ) {
@@ -361,10 +362,11 @@ impl Application {
         id: &str,
         prompt: &Value,
         member: &str,
-        job: &str,
+        claimed: &Value,
         lease: &str,
         attempt: u64,
     ) -> Result<Value, ApiError> {
+        let job = claimed["id"].as_str().unwrap_or("");
         let p = self.provider_get(id)?;
         if p["adapter"] != "openai_compatible"
             || !p["capabilities"]
@@ -421,16 +423,26 @@ impl Application {
                 .map_err(|_| ApiError::new("credential_missing", "文本模型凭据不可用"))?;
             request = request.bearer_auth(key);
         }
+        // 供应商请求事件（#44）：trace 取自任务文档（claimed 已携带，不再回查任务表）；
+        // 限流重试的每次发送各记一条
+        let provider_request =
+            crate::diagnostics::ProviderRequestLog::from_job(claimed, p["model"].as_str().unwrap_or(""));
         let response = loop {
             self.text_submitted(member, job, lease, attempt)?;
-            let response = request
+            provider_request.begin_send();
+            let response = match request
                 .try_clone()
                 .ok_or_else(|| ApiError::new("provider_error", "无法建立模型请求"))?
                 .send()
-                .map_err(|_| {
-                    ApiError::new("provider_network", "模型连接失败；结果未知，不盲重发")
-                })?;
+            {
+                Ok(response) => response,
+                Err(_) => {
+                    provider_request.record(self,"chat_completions","outcome_unknown",None);
+                    return Err(ApiError::new("provider_network", "模型连接失败；结果未知，不盲重发"));
+                }
+            };
             if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                provider_request.record(self,"chat_completions","http_error",Some(response.status().as_u16()));
                 let delay = retry_after_ms(
                     response
                         .headers()
@@ -464,11 +476,13 @@ impl Application {
                 continue;
             }
             if !response.status().is_success() {
+                provider_request.record(self,"chat_completions","http_error",Some(response.status().as_u16()));
                 return Err(ApiError::new(
                     "provider_error",
                     "模型服务返回错误，已回退规则推荐",
                 ));
             }
+            provider_request.record(self,"chat_completions","ok",None);
             break response;
         };
         let mut bytes = vec![];
@@ -522,8 +536,9 @@ impl Application {
         job["next_due"] = json!(0);
         job["last_outcome"] = json!("unknown");
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        crate::jobs::save(&tx, &job)?;
+        let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(())
     }
     fn text_usage(
@@ -548,8 +563,9 @@ impl Application {
         if response["id"].as_str().is_some_and(|v| v.len() <= 200) {
             job["provider_request_id"] = response["id"].clone();
         }
-        crate::jobs::save(&tx, &job)?;
+        let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(())
     }
     fn text_rate_limited(
@@ -566,8 +582,9 @@ impl Application {
         job["next_due"] = json!(chrono::Utc::now().timestamp_millis().saturating_add(delay));
         job["error"] = json!({"code":"provider_rate_limit","message":"供应商限流，遵守Retry-After后重试","retryable":true});
         let retry = job["rate_retries"].as_u64().unwrap_or(0) < 2;
-        crate::jobs::save(&tx, &job)?;
+        let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(retry)
     }
     fn text_defer_rate_limit(&self, member: &str, id: &str, lease: &str) -> Result<(), ApiError> {
@@ -577,8 +594,9 @@ impl Application {
         job["state"] = json!("queued");
         job["lease_token"] = Value::Null;
         job["lease_expires"] = json!(0);
-        crate::jobs::save(&tx, &job)?;
+        let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(())
     }
     fn text_outcome(
@@ -592,8 +610,9 @@ impl Application {
         let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
         text_lease(&job, lease)?;
         job["last_outcome"] = json!(outcome);
-        crate::jobs::save(&tx, &job)?;
+        let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
+        self.emit_job_event(pending);
         Ok(())
     }
 }

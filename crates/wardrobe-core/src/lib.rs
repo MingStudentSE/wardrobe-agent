@@ -6,6 +6,7 @@ mod care;
 mod clothing;
 mod categories;
 mod cutout;
+pub mod diagnostics;
 mod data_directory;
 mod encryption;
 mod feedback;
@@ -41,13 +42,28 @@ pub use clothing::CATEGORIES;
 pub struct ApiError {
     pub code: String,
     pub message: String,
+    /// 链路标识（加法变更）：同一次调用的日志事件共享此值，供用户反馈精确定位。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    /// 内部原因：只写日志、绝不进用户可见输出（serde 跳过序列化）。
+    #[serde(skip_serializing)]
+    pub(crate) reason: Option<String>,
 }
 impl ApiError {
     fn new(code: &str, message: &str) -> Self {
         Self {
             code: code.into(),
             message: message.into(),
+            trace_id: None,
+            reason: None,
         }
+    }
+    /// 外部入口（CLI 参数解析、桌面端包装）构造类型化错误的公开途径。
+    pub fn custom(code: &str, message: &str) -> Self {
+        Self::new(code, message)
+    }
+    pub fn reason(&self) -> Option<&str> {
+        self.reason.as_deref()
     }
 }
 impl From<rusqlite::Error> for ApiError {
@@ -59,19 +75,34 @@ impl From<rusqlite::Error> for ApiError {
                 code.code, code.extended_code
             );
         }
-        let _ = error;
-        Self::new("storage_error", "本地数据库操作失败")
+        // 原因保留：用户可见输出保持既有错误码与中文消息，底层真实原因只写日志
+        let mut api = Self::new("storage_error", "本地数据库操作失败");
+        api.reason = Some(error.to_string());
+        api
     }
 }
 pub struct Application {
     connection: Connection,
     asset_root: PathBuf,
     installation_generation: i64,
+    logger: diagnostics::Logger,
 }
 impl Application {
     pub fn open(path: &Path) -> Result<Self, ApiError> {
+        Self::open_with_limits(path, diagnostics::LogLimits::default())
+    }
+    /// 以注入的日志上限打开（产品入口用默认值；测试注入极小值驱动轮转与保留清理）。
+    pub fn open_with_limits(path: &Path, limits: diagnostics::LogLimits) -> Result<Self, ApiError> {
         let resolved = data_directory::resolve(path)?;
-        let path = resolved.as_path();
+        let logger = diagnostics::Logger::new(resolved.parent().unwrap_or(Path::new(".")), limits);
+        let result = Self::open_resolved(&resolved, &logger);
+        if let Err(error) = &result {
+            logger.log_open_failure(error);
+        }
+        result
+    }
+    fn open_resolved(resolved: &Path, logger: &diagnostics::Logger) -> Result<Self, ApiError> {
+        let path = resolved;
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent)
                 .map_err(|_| ApiError::new("storage_error", "无法创建数据目录"))?;
@@ -167,6 +198,7 @@ impl Application {
             installation_generation,
             connection,
             asset_root: path.parent().unwrap_or(Path::new(".")).join("assets"),
+            logger: logger.clone(),
         })
     }
     fn check_schema(&self) -> Result<(), ApiError> {
@@ -210,14 +242,47 @@ impl Application {
         Ok(tx)
     }
     pub fn execute(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
+        self.execute_traced(operation, input, diagnostics::new_trace_id())
+    }
+    fn execute_traced(
+        &self,
+        operation: &str,
+        input: Value,
+        trace_id: String,
+    ) -> Result<Value, ApiError> {
         if self.installation_changed()? {
             return Application::open(Path::new(self.connection.path().unwrap()))?
-                .execute(operation, input);
+                .execute_traced(operation, input, trace_id);
         }
         if let Some(path) = self.redirected()? {
-            return Application::open(&path)?.execute(operation, input);
+            return Application::open(&path)?.execute_traced(operation, input, trace_id);
         }
-        self.execute_current(operation, input)
+        self.logged(trace_id, operation, input, Self::execute_current)
+    }
+    /// 统一计时、记录操作事件并把 trace_id 附到错误输出；不改变业务结果。
+    fn logged(
+        &self,
+        trace_id: String,
+        operation: &str,
+        input: Value,
+        run: impl Fn(&Self, &str, Value) -> Result<Value, ApiError>,
+    ) -> Result<Value, ApiError> {
+        let keys = input_keys(&input);
+        let started = std::time::Instant::now();
+        // 业务调用期间暴露线程局部 trace 上下文：创建持久任务的操作经 jobs::insert
+        // 把本次调用的 trace_id 写入任务文档（#44 异步链路贯穿的唯一传递通道）。
+        let mut outcome = diagnostics::with_trace(&trace_id, || run(self, operation, input));
+        self.logger.log_operation(
+            &trace_id,
+            operation,
+            started.elapsed(),
+            &keys,
+            &outcome,
+        );
+        if let Err(error) = &mut outcome {
+            error.trace_id.get_or_insert(trace_id);
+        }
+        outcome
     }
     pub(crate) fn execute_current(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
         if self.installation_changed()? {
@@ -248,6 +313,22 @@ impl Application {
             "imports.update" => Some(&["member_id", "id", "draft_id", "facts"]),
             "imports.commit" => Some(&["member_id", "id", "draft_id", "operation_key", "facts"]),
             "space.default" | "member.list" => Some(&[]),
+            "diagnostics.summary" => Some(&[]),
+            "diagnostics.checks" => Some(&[]),
+            "diagnostics.logs.query" => Some(&[
+                "level",
+                "since",
+                "until",
+                "trace_id",
+                "run_id",
+                "operation",
+                "keyword",
+                "limit",
+                "cursor",
+            ]),
+            "diagnostics.export" => Some(&["path", "scope", "from", "to", "kind", "attach_checks"]),
+            "diagnostics.ui_event" => Some(&["type", "label"]),
+            "diagnostics.reproduction.start" | "diagnostics.reproduction.stop" => Some(&[]),
             "member.create" => Some(&["name"]),
             "member.update" => Some(&["member_id", "name"]),
             "member.select" => Some(&["member_id"]),
@@ -282,6 +363,7 @@ impl Application {
             "client.list" => self.client_list(input),
             "client.revoke" => self.client_revoke(input),
             "client.authorize" => self.client_authorize(input),
+            name if name.starts_with("diagnostics.") => self.diagnostics_execute(name, input),
             "space.default" => self.default_space(),
             "member.list" => self.member_list(),
             "member.create" => self.member_create(input),
@@ -363,6 +445,13 @@ fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
         .and_then(Value::as_str)
         .ok_or_else(|| ApiError::new("invalid_input", &format!("缺少字符串字段 {key}")))
 }
+/// 输入摘要只取字段名，永不取值（脱敏按构造）。
+fn input_keys(input: &Value) -> Vec<String> {
+    input
+        .as_object()
+        .map(|object| object.keys().cloned().collect())
+        .unwrap_or_default()
+}
 pub fn operations() -> Value {
     let mut descriptors = members::descriptors();
     descriptors.extend(backup::descriptors());
@@ -390,6 +479,7 @@ pub fn operations() -> Value {
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());
     descriptors.extend(image_editing::descriptors());
+    descriptors.extend(diagnostics::descriptors());
     let mut capabilities = json!(
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );

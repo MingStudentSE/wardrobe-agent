@@ -6,6 +6,8 @@ use std::{
 };
 use wardrobe_core::{ApiError, Application};
 fn main() {
+    // 日志核心：进程级 panic 钩子（幂等），崩溃现场写入数据目录 logs/
+    wardrobe_core::diagnostics::install_panic_hook();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let parsed = match args::parse(&args) {
         Err(error) => fail(error),
@@ -24,19 +26,12 @@ fn main() {
         args::Parsed::Help(Some(operation)) => print_operation(operation),
         args::Parsed::Schema(operation) => print_operation(operation),
         args::Parsed::Mcp { db, profile } => {
-            let db = match resolve_db(db, profile) {
-                Ok(db) => db,
-                Err(error) => {
-                    if error.code == "storage_error" {
-                        println!("{}", json!({"schema_version":1,"error":error}));
-                        std::process::exit(1);
-                    }
-                    fail(error);
-                }
-            };
+            let db = resolve_db_or_exit(db, profile);
             run_mcp(db)
         }
         args::Parsed::Profile(command) => run_profile(command),
+        args::Parsed::Logs(command) => run_logs(command),
+        args::Parsed::Doctor(command) => run_doctor(command),
         args::Parsed::Execute(execution) => execute(execution),
     }
 }
@@ -51,6 +46,18 @@ fn resolve_db(
         return Ok(resolved);
     }
     wardrobe_core::default_database_path_checked()
+}
+/// resolve 数据库路径的统一出口：存储配置失败（storage_error）打印错误并 exit 1，
+/// 其余业务/校验拒绝走 fail() exit 2（mcp、logs、doctor、execute 同一形状）。
+fn resolve_db_or_exit(db: Option<PathBuf>, profile: Option<String>) -> PathBuf {
+    match resolve_db(db, profile) {
+        Ok(db) => db,
+        Err(error) if error.code == "storage_error" => {
+            println!("{}", json!({"schema_version":1,"error":error}));
+            std::process::exit(1)
+        }
+        Err(error) => fail(error),
+    }
 }
 
 fn run_profile(command: args::ProfileCommand) {
@@ -70,6 +77,51 @@ fn run_profile(command: args::ProfileCommand) {
         }
         Err(e) => fail(e),
     }
+}
+
+fn run_logs(command: args::LogsCommand) {
+    let db = resolve_db_or_exit(command.db, command.profile);
+    let app = match Application::open(&db) {
+        Ok(app) => app,
+        Err(e) => {
+            println!("{}", json!({"schema_version":1,"error":e}));
+            std::process::exit(1);
+        }
+    };
+    // CLI 是可信本机入口：logs 直接执行 diagnostics.logs.query（外部客户端无法获得该 scope）
+    let mut input = serde_json::Map::new();
+    let text = |value: Option<String>| value.map(|value| json!(value));
+    for (field, value) in [
+        ("level", text(command.level)),
+        ("since", text(command.since)),
+        ("until", text(command.until)),
+        ("trace_id", text(command.trace_id)),
+        ("run_id", text(command.run_id)),
+        ("operation", text(command.operation)),
+        ("keyword", text(command.keyword)),
+        ("limit", command.limit.map(|value| json!(value))),
+        ("cursor", text(command.cursor)),
+    ] {
+        if let Some(value) = value {
+            input.insert(field.to_string(), value);
+        }
+    }
+    match app.execute("diagnostics.logs.query", Value::Object(input)) {
+        Ok(result) => println!("{}", json!({"schema_version":1,"result":result})),
+        Err(e) if e.code == "storage_error" => {
+            println!("{}", json!({"schema_version":1,"error":e}));
+            std::process::exit(1)
+        }
+        Err(e) => fail(e),
+    }
+}
+
+fn run_doctor(command: args::DoctorCommand) {
+    let db = resolve_db_or_exit(command.db, command.profile);
+    // doctor 与 GUI 诊断页完全同源：core 侧直接执行 diagnostics.summary + diagnostics.checks；
+    // 数据库无法打开时降级为文件系统级体检与失败原因（见 wardrobe_core::diagnostics::doctor_report）。
+    // 产出报告即成功（exit 0）：检查项的 warn/fail 经 checks/counts 字段表达，供脚本解析。
+    println!("{}", json!({"schema_version":1,"result":wardrobe_core::diagnostics::doctor_report(&db)}));
 }
 
 fn run_mcp(db: PathBuf) {
@@ -104,22 +156,12 @@ fn execute(execution: args::Execution) {
             Some(args::Input::InputStdin | args::Input::ClientStdin)
         )
     {
-        fail(ApiError {
-            code: "secret_requires_stdin".into(),
-            message: "凭据命令使用--input-stdin，从标准输入读取密钥，避免放入命令历史和进程参数"
-                .into(),
-        });
+        fail(ApiError::custom(
+            "secret_requires_stdin",
+            "凭据命令使用--input-stdin，从标准输入读取密钥，避免放入命令历史和进程参数",
+        ));
     }
-    let db = match resolve_db(execution.db, execution.profile) {
-        Ok(db) => db,
-        Err(error) => {
-            if error.code == "storage_error" {
-                println!("{}", json!({"schema_version":1,"error":error}));
-                std::process::exit(1);
-            }
-            fail(error);
-        }
-    };
+    let db = resolve_db_or_exit(execution.db, execution.profile);
     let app = match Application::open(&db) {
         Ok(app) => app,
         Err(e) => {
@@ -138,10 +180,7 @@ fn execute(execution: args::Execution) {
                 .is_err()
                 || body.len() > 1_048_576
             {
-                fail(ApiError {
-                    code: "invalid_input".into(),
-                    message: "无法读取标准输入或输入过大".into(),
-                });
+                fail(ApiError::custom("invalid_input", "无法读取标准输入或输入过大"));
             }
             Some(body)
         }
@@ -150,10 +189,7 @@ fn execute(execution: args::Execution) {
     let input = match stdin_body.as_deref() {
         Some(text) => match serde_json::from_str(text) {
             Ok(value) => value,
-            Err(_) => fail(ApiError {
-                code: "invalid_json".into(),
-                message: "输入不是有效 JSON".into(),
-            }),
+            Err(_) => fail(ApiError::custom("invalid_json", "输入不是有效 JSON")),
         },
         None => json!({}),
     };
@@ -199,10 +235,7 @@ fn operation_metadata(operation: &str) -> Result<Value, ApiError> {
                 .find(|descriptor| descriptor["name"].as_str() == Some(operation))
                 .cloned()
         })
-        .ok_or(ApiError {
-            code: "unsupported_operation".into(),
-            message: format!("未知操作 {operation}"),
-        })
+        .ok_or_else(|| ApiError::custom("unsupported_operation", &format!("未知操作 {operation}")))
 }
 fn help() -> Value {
     json!({
@@ -213,6 +246,8 @@ fn help() -> Value {
             "wardrobe-cli help <operation>",
             "wardrobe-cli schema <operation>",
             "wardrobe-cli [--db <数据库路径>] [--trusted-local] <operation> ['<JSON>' | --input-stdin | --client-stdin]",
+            "wardrobe-cli [--db <数据库路径>] logs [过滤参数]",
+            "wardrobe-cli [--db <数据库路径>] doctor",
             "wardrobe-cli [--db <数据库路径>] mcp"
         ],
         "flags": {
@@ -223,6 +258,26 @@ fn help() -> Value {
             "--": "其后所有参数按字面量处理"
         },
         "authorization": "外部 AI 客户端通过 --client-stdin 提供连接令牌，令牌不得放入命令行参数；授权在到期、撤销与 scope 范围内可重复使用；凭据与加密命令仅接受标准输入",
+        "logs": {
+            "usage": "wardrobe-cli [--db <数据库路径>] logs [过滤参数]",
+            "description": "查询全链路日志（diagnostics.logs.query）：仅本机可信入口，事件按构造脱敏；过滤参数命名与该操作输入字段对齐",
+            "filters": {
+                "--level": "精确级别过滤：info|debug|trace|error",
+                "--since": "RFC3339 起始时间（含）",
+                "--until": "RFC3339 结束时间（含）",
+                "--trace-id": "链路标识（trace_id）；错误输出携带同一编号",
+                "--run-id": "运行会话标识",
+                "--operation": "操作名前缀",
+                "--keyword": "事件文本子串（大小写不敏感，最多 200 字符）",
+                "--limit": "每页数量 1–100，默认 50",
+                "--cursor": "上一页返回的 next_cursor；续页须保留查询条件，null 表示末页"
+            }
+        },
+        "doctor": {
+            "usage": "wardrobe-cli [--db <数据库路径>] doctor",
+            "description": "一条命令完成体检：健康摘要（diagnostics.summary）+ 基础检查清单（diagnostics.checks），与桌面诊断页完全同源；只读体检不自动修复。数据库无法打开时降级输出文件系统级检查与失败原因（error 字段非 null、summary 为 null）",
+            "output": "result.error 为 null 表示正常打开；result.checks.checks 为固定十项检查（id/status/message/setting/detail），counts 汇总 pass/warn/fail；产出报告即 exit 0"
+        },
         "data": "数据目录可用 --db 或环境变量 WARDROBE_DATA_DIR 指定；未指定时使用系统应用数据目录，数据库随应用迁移机制移动"
     })
 }

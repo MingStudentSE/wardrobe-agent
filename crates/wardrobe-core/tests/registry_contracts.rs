@@ -225,7 +225,9 @@ fn scope_metadata_reflects_actual_authorization_rules_for_every_descriptor() {
                 || name.starts_with("provider.credential.")
                 || name.starts_with("encryption.")
                 // ticket25 合并引入：精确名特权操作（无通用前缀）
-                || name == "schedule.runtime.configure",
+                || name == "schedule.runtime.configure"
+                // ticket #43：诊断查询含日志原文与底层原因，仅本机可信入口
+                || name.starts_with("diagnostics."),
             "{name} 不应标为仅本机可信"
         );
     }
@@ -237,6 +239,7 @@ fn scope_metadata_reflects_actual_authorization_rules_for_every_descriptor() {
                 || n.starts_with("provider.credential.")
                 || n.starts_with("encryption.")
                 || n == "schedule.runtime.configure"
+                || n.starts_with("diagnostics.")
         })
         .collect();
     assert_eq!(
@@ -2021,4 +2024,222 @@ fn backup_maintenance_data_directory_encryption_family_contract() {
         assert_eq!(d["effect"]["kind"], json!("mutation"), "{op}");
         assert_eq!(d["effect"]["network"], json!("none"), "{op} 纯本机加密");
     }
+}
+
+#[test]
+fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
+    // 真实运行时输出钉住 outputSchema；scope 元数据与授权执行一致由上方
+    // scope_metadata_reflects… 与 capabilities 过滤（privileged 家族）共同钉住
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("diag.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let summary = app.execute("diagnostics.summary", json!({})).unwrap();
+    assert_eq!(summary["schema_version"], 1);
+    assert_eq!(
+        summary["database_schema_version"],
+        json!(wardrobe_core::DATABASE_SCHEMA_VERSION)
+    );
+    assert_result_matches_schema(&schema_of("diagnostics.summary"), &summary, "diagnostics.summary");
+    // scope 元数据：仅本机可信入口，外部不参与 primary 判定
+    let descriptor = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("diagnostics.summary"))
+        .unwrap();
+    assert_eq!(descriptor["scope"]["access"], json!("trusted-local-only"));
+    assert_eq!(descriptor["scope"]["primary_grant_required"], json!(false));
+    // 输入严格：未知字段拒绝
+    let error = app
+        .execute("diagnostics.summary", json!({"member_id":"x"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+
+    let family = [
+        ("diagnostics.summary", "query", true),
+        ("diagnostics.checks", "query", true),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
+
+    // 基础检查：真实运行时输出钉住 outputSchema；scope 同为仅本机可信入口
+    let checks = app.execute("diagnostics.checks", json!({})).unwrap();
+    assert_eq!(checks["schema_version"], 1);
+    assert_result_matches_schema(&schema_of("diagnostics.checks"), &checks, "diagnostics.checks");
+    let items = checks["checks"].as_array().unwrap();
+    assert_eq!(items.len(), 10, "固定十项：{checks}");
+    for item in items {
+        assert!(item["message"].is_string() && item["detail"].is_string(), "{item}");
+        assert!(item["setting"].is_null() || item["setting"].is_string(), "{item}");
+    }
+    let checks_descriptor = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("diagnostics.checks"))
+        .unwrap();
+    assert_eq!(checks_descriptor["scope"]["access"], json!("trusted-local-only"));
+    assert_eq!(checks_descriptor["scope"]["primary_grant_required"], json!(false));
+    // 输入严格：未知字段拒绝
+    let error = app
+        .execute("diagnostics.checks", json!({"repair":true}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+
+    // 日志查询：过滤条件与游标严格声明，运行时输出钉住 outputSchema
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"space.","limit":1}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("diagnostics.logs.query"), &queried, "diagnostics.logs.query");
+    assert!(!queried["items"].as_array().unwrap().is_empty(), "{queried}");
+    let item = &queried["items"][0];
+    for key in ["ts", "level", "event_type", "run_id"] {
+        assert!(item[key].is_string(), "事件公共字段 {key} 须为字符串：{item}");
+    }
+    let empty = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"space.","until":"2020-01-01T00:00:00Z"}),
+        )
+        .unwrap();
+    assert!(empty["items"].as_array().unwrap().is_empty());
+    assert!(empty["next_cursor"].is_null(), "末页游标为 null：{empty}");
+    let query_descriptor = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("diagnostics.logs.query"))
+        .unwrap();
+    assert_eq!(query_descriptor["scope"]["access"], json!("trusted-local-only"));
+    assert_eq!(query_descriptor["scope"]["primary_grant_required"], json!(false));
+    let error = app
+        .execute("diagnostics.logs.query", json!({"level":"verbose"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input");
+
+    // 诊断导出：真实导出钉住 outputSchema；scope 元数据同为仅本机可信入口
+    let export_dir = tempfile::tempdir().unwrap();
+    let target = export_dir.path().join("contract-export.jsonl");
+    let exported = app
+        .execute(
+            "diagnostics.export",
+            json!({"path": target.to_string_lossy(), "scope":"recent"}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("diagnostics.export"), &exported, "diagnostics.export");
+    assert!(target.exists(), "导出文件应已写入");
+    let export_descriptor = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("diagnostics.export"))
+        .unwrap();
+    assert_eq!(export_descriptor["scope"]["access"], json!("trusted-local-only"));
+    assert_eq!(export_descriptor["scope"]["primary_grant_required"], json!(false));
+    // 输入严格：未知字段拒绝
+    let error = app
+        .execute("diagnostics.export", json!({"path":"x.jsonl","member_id":"x"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+    // 范围参数互斥与校验
+    for bad in [
+        json!({"path":"x.jsonl","scope":"today"}),
+        json!({"path":"x.jsonl","from":"2026-01-01T00:00:00Z"}),
+        json!({"path":"x.jsonl","scope":"all","to":"2026-01-01T00:00:00Z"}),
+    ] {
+        let error = app.execute("diagnostics.export", bad.clone()).unwrap_err();
+        assert_eq!(error.code, "invalid_input", "{bad}: {error:?}");
+    }
+
+    // #50 记录复现：ui_event 白名单拒绝、reproduction 标记与复现导出扩展的运行时契约
+    let ui = app
+        .execute("diagnostics.ui_event", json!({"type":"view_switch","label":"穿搭库"}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("diagnostics.ui_event"), &ui, "diagnostics.ui_event");
+    let error = app
+        .execute("diagnostics.ui_event", json!({"type":"free_text","label":"任意"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+    let start = app.execute("diagnostics.reproduction.start", json!({})).unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.reproduction.start"),
+        &start,
+        "diagnostics.reproduction.start",
+    );
+    assert!(start["started_at"].is_string(), "{start}");
+    let stop = app.execute("diagnostics.reproduction.stop", json!({})).unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.reproduction.stop"),
+        &stop,
+        "diagnostics.reproduction.stop",
+    );
+    assert!(stop["stopped_at"].is_string(), "{stop}");
+    let error = app
+        .execute("diagnostics.reproduction.start", json!({"phase":"forged"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+    // 复现导出（kind=reproduction + attach_checks）：输出契约与普通导出同形
+    let reproduction_target = export_dir.path().join("contract-reproduction.jsonl");
+    let reproduction = app
+        .execute(
+            "diagnostics.export",
+            json!({
+                "path": reproduction_target.to_string_lossy(),
+                "from": start["started_at"],
+                "to": stop["stopped_at"],
+                "kind":"reproduction",
+                "attach_checks":true,
+            }),
+        )
+        .unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.export"),
+        &reproduction,
+        "diagnostics.export(reproduction)",
+    );
+    let first_line = std::fs::read_to_string(&reproduction_target)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_string();
+    let meta: Value = serde_json::from_str(&first_line).unwrap();
+    assert_eq!(meta["kind"], json!("reproduction"), "{meta}");
+    assert_eq!(meta["checks"]["schema_version"], json!(1), "{meta}");
+    // scope 元数据：新增三个操作同为仅本机可信入口
+    for name in [
+        "diagnostics.ui_event",
+        "diagnostics.reproduction.start",
+        "diagnostics.reproduction.stop",
+    ] {
+        let descriptor = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        assert_eq!(descriptor["scope"]["access"], json!("trusted-local-only"), "{name}");
+        assert_eq!(
+            descriptor["scope"]["primary_grant_required"],
+            json!(false),
+            "{name}"
+        );
+    }
+
+    let family = [
+        ("diagnostics.summary", "query", true),
+        ("diagnostics.checks", "query", true),
+        ("diagnostics.logs.query", "query", true),
+        ("diagnostics.export", "query", true),
+        ("diagnostics.ui_event", "query", true),
+        ("diagnostics.reproduction.start", "query", true),
+        ("diagnostics.reproduction.stop", "query", true),
+    ];
+    assert_family_effects_and_examples(&descriptors, &family);
 }
