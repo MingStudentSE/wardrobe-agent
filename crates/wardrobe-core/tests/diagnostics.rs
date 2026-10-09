@@ -1486,15 +1486,22 @@ fn append_events(dir: &std::path::Path, events: &[Value]) {
     std::fs::create_dir_all(&logs).unwrap();
     let today = chrono::Local::now().date_naive().format("%Y-%m-%d");
     let path = logs.join(format!("wardrobe-{today}.jsonl"));
+    // 全部行连同换行合并为一次 write（与源码 append_line 同一原子性约定，#53）：
+    // writeln! 把行与换行拆成多次 write，并发的 panic 钩子写入（进程级，向全部
+    // 日志汇写）可落在两段之间，把伪造事件与钩子事件拼成一行损坏行，两个事件
+    // 一起被读取端按损坏行跳过——导出随即缺事件。
+    let mut record = String::new();
+    for event in events {
+        record.push_str(&event.to_string());
+        record.push('\n');
+    }
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
         .unwrap();
-    for event in events {
-        writeln!(file, "{event}").unwrap();
-    }
+    file.write_all(record.as_bytes()).unwrap();
 }
 
 #[test]
@@ -1631,6 +1638,9 @@ fn export_lines(
 
 #[test]
 fn export_scope_selects_session_recent_all_and_explicit_window() {
+    // 本测试向活动日志文件追加伪造事件并经导出断言其在场/不在场；进程级 panic 钩子
+    // 会向全部日志汇并发写（#42 通道），不得与追加及导出断言并发（#53）
+    let _guard = fs_lock();
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
     app.execute("space.default", json!({})).unwrap();
@@ -1704,6 +1714,8 @@ fn export_recent_includes_previous_run_after_reopening_the_application() {
     // 上次运行崩溃后重新打开应用再导出：recent 按时间窗口选取、跨重启，
     // 崩溃前上次运行（独立 run_id）的事件仍在文件里（run_id 每进程一次，
     // 上次进程的会话以独立 run_id 的日志事件代表——与崩溃现场同形）
+    // 追加伪造崩溃事件并断言其可导出：与 panic 钩子并发写互斥（#42 通道，#53）
+    let _guard = fs_lock();
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("wardrobe.sqlite");
     let first = Application::open(&db).unwrap();
@@ -1759,6 +1771,8 @@ fn export_recent_includes_previous_run_after_reopening_the_application() {
 #[test]
 fn export_skips_corrupt_lines_without_blocking() {
     // 尾行截断等单文件损坏不阻断导出（与查询/摘要同一容错约定）
+    // 向活动日志文件追加行并断言导出内容：与 panic 钩子并发写互斥（#42 通道，#53）
+    let _guard = fs_lock();
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
     app.execute("space.default", json!({})).unwrap();
@@ -1805,6 +1819,9 @@ fn export_skips_corrupt_lines_without_blocking() {
 
 #[test]
 fn export_explicit_window_endpoints_are_inclusive() {
+    // 本测试向活动日志文件追加端点事件并断言恰被导出一次；进程级 panic 钩子
+    // 会向全部日志汇并发写（#42 通道），不得与追加及导出断言并发（#53）
+    let _guard = fs_lock();
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
     app.execute("space.default", json!({})).unwrap();
