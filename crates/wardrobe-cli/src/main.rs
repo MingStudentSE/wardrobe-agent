@@ -1,7 +1,8 @@
 mod args;
 use serde_json::{json, Value};
 use std::{
-    io::{self, BufRead, Read},
+    fmt,
+    io::{self, BufRead, Read, Write},
     path::PathBuf,
 };
 use wardrobe_core::{ApiError, Application};
@@ -15,13 +16,12 @@ fn main() {
     };
     match parsed {
         args::Parsed::Version => {
-            println!(
-                "{}",
-                json!({"schema_version":1,"result":{"name":"wardrobe-cli","version":env!("CARGO_PKG_VERSION")}})
+            print_line(
+                json!({"schema_version":1,"result":{"name":"wardrobe-cli","version":env!("CARGO_PKG_VERSION")}}),
             );
         }
         args::Parsed::Help(None) => {
-            println!("{}", json!({"schema_version":1,"result":help()}));
+            print_line(json!({"schema_version":1,"result":help()}));
         }
         args::Parsed::Help(Some(operation)) => print_operation(operation),
         args::Parsed::Schema(operation) => print_operation(operation),
@@ -34,6 +34,30 @@ fn main() {
         args::Parsed::Doctor(command) => run_doctor(command),
         args::Parsed::Execute(execution) => execute(execution),
     }
+}
+/// stdout 统一出口（#63）：CLI 的所有 stdout JSON 输出都经这里写入。
+/// 消费者提前关闭管道（如 `wardrobe-cli capabilities | head`）时写入得到
+/// `ErrorKind::BrokenPipe`——按 CLI 惯例静默干净退出 0，不触发 panic 钩子、
+/// 不在数据目录日志留下 process.panic 现场，也不改变 stdout 的 JSON 输出契约；
+/// 其余写入失败经 stderr 报告并以 1 退出。
+/// 契约分工：普通输出路径的 BrokenPipe 视为传输中断（exit 0）；
+/// 错误出口 fail() 不走本函数的 BrokenPipe 分支，错误必须以非零退出可见。
+fn print_line(line: impl fmt::Display) {
+    if let Err(error) = write_line(line) {
+        if error.kind() == io::ErrorKind::BrokenPipe {
+            // 消费者已离开：传输中断不是程序错误，静默退出
+            std::process::exit(0);
+        }
+        let _ = writeln!(io::stderr(), "wardrobe-cli 写入标准输出失败: {error}");
+        std::process::exit(1);
+    }
+}
+/// 单行写入的公共底层：只负责写与 flush，把错误交还调用方决定退出语义
+/// （print_line 与 fail() 对 BrokenPipe 的契约不同，见各自注释）。
+fn write_line(line: impl fmt::Display) -> io::Result<()> {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    writeln!(out, "{line}").and_then(|()| out.flush())
 }
 fn resolve_db(
     db: Option<PathBuf>,
@@ -53,7 +77,7 @@ fn resolve_db_or_exit(db: Option<PathBuf>, profile: Option<String>) -> PathBuf {
     match resolve_db(db, profile) {
         Ok(db) => db,
         Err(error) if error.code == "storage_error" => {
-            println!("{}", json!({"schema_version":1,"error":error}));
+            print_line(json!({"schema_version":1,"error":error}));
             std::process::exit(1)
         }
         Err(error) => fail(error),
@@ -70,9 +94,9 @@ fn run_profile(command: args::ProfileCommand) {
         _ => unreachable!("args已校验参数组合"),
     };
     match result {
-        Ok(result) => println!("{}", json!({"schema_version":1,"result":result})),
+        Ok(result) => print_line(json!({"schema_version":1,"result":result})),
         Err(e) if e.code == "storage_error" => {
-            println!("{}", json!({"schema_version":1,"error":e}));
+            print_line(json!({"schema_version":1,"error":e}));
             std::process::exit(1);
         }
         Err(e) => fail(e),
@@ -84,7 +108,7 @@ fn run_logs(command: args::LogsCommand) {
     let app = match Application::open(&db) {
         Ok(app) => app,
         Err(e) => {
-            println!("{}", json!({"schema_version":1,"error":e}));
+            print_line(json!({"schema_version":1,"error":e}));
             std::process::exit(1);
         }
     };
@@ -107,9 +131,9 @@ fn run_logs(command: args::LogsCommand) {
         }
     }
     match app.execute("diagnostics.logs.query", Value::Object(input)) {
-        Ok(result) => println!("{}", json!({"schema_version":1,"result":result})),
+        Ok(result) => print_line(json!({"schema_version":1,"result":result})),
         Err(e) if e.code == "storage_error" => {
-            println!("{}", json!({"schema_version":1,"error":e}));
+            print_line(json!({"schema_version":1,"error":e}));
             std::process::exit(1)
         }
         Err(e) => fail(e),
@@ -121,7 +145,7 @@ fn run_doctor(command: args::DoctorCommand) {
     // doctor 与 GUI 诊断页完全同源：core 侧直接执行 diagnostics.summary + diagnostics.checks；
     // 数据库无法打开时降级为文件系统级体检与失败原因（见 wardrobe_core::diagnostics::doctor_report）。
     // 产出报告即成功（exit 0）：检查项的 warn/fail 经 checks/counts 字段表达，供脚本解析。
-    println!("{}", json!({"schema_version":1,"result":wardrobe_core::diagnostics::doctor_report(&db)}));
+    print_line(json!({"schema_version":1,"result":wardrobe_core::diagnostics::doctor_report(&db)}));
 }
 
 fn run_mcp(db: PathBuf) {
@@ -141,7 +165,8 @@ fn run_mcp(db: PathBuf) {
         match line {
             Ok(line) => {
                 if let Some(response) = mcp(&app, &line, &mut client_token) {
-                    println!("{response}");
+                    // MCP 传输断开（客户端关闭 stdout）同样经 print_line 干净退出
+                    print_line(response);
                 }
             }
             Err(_) => break,
@@ -165,7 +190,7 @@ fn execute(execution: args::Execution) {
     let app = match Application::open(&db) {
         Ok(app) => app,
         Err(e) => {
-            println!("{}", json!({"schema_version":1,"error":e}));
+            print_line(json!({"schema_version":1,"error":e}));
             std::process::exit(1);
         }
     };
@@ -207,22 +232,30 @@ fn execute(execution: args::Execution) {
         app.execute_as_client("", &execution.command, input)
     };
     match result {
-        Ok(result) => println!("{}", json!({"schema_version":1,"result":result})),
+        Ok(result) => print_line(json!({"schema_version":1,"result":result})),
         // 存储失败 exit 1；业务/校验拒绝走 fail() exit 2。MCP 传输语义不变。
         Err(e) if e.code == "storage_error" => {
-            println!("{}", json!({"schema_version":1,"error":e}));
+            print_line(json!({"schema_version":1,"error":e}));
             std::process::exit(1)
         }
         Err(e) => fail(e),
     }
 }
+/// 错误出口（业务/校验拒绝，exit 2）：错误 JSON 经 stdout 输出，但这里
+/// 不能复用 print_line 的 BrokenPipe→exit 0 分支——否则原 exit 2 契约会在
+/// 管道关闭时退化为 0，错误对外不可见。因此本路径独立处理写入失败：
+/// 无论 BrokenPipe 还是其他 IO 错误都经 stderr 报告并以 1 退出（非零可见），
+/// 写入成功才落到 exit 2；JSON 输出内容与正常路径退出语义不变。
 fn fail(error: ApiError) -> ! {
-    println!("{}", json!({"schema_version":1,"error":error}));
+    if let Err(write_error) = write_line(json!({"schema_version":1,"error":error})) {
+        let _ = writeln!(io::stderr(), "wardrobe-cli 写入错误输出失败: {write_error}");
+        std::process::exit(1);
+    }
     std::process::exit(2)
 }
 fn print_operation(operation: String) {
     match operation_metadata(&operation) {
-        Ok(descriptor) => println!("{}", json!({"schema_version":1,"result":descriptor})),
+        Ok(descriptor) => print_line(json!({"schema_version":1,"result":descriptor})),
         Err(error) => fail(error),
     }
 }
