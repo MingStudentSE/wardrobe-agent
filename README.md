@@ -122,4 +122,4 @@ cargo test -p wardrobe-core -p wardrobe-cli
 
 ## 许可
 
-产品计划开源,不设任何收费功能;产品许可证待定,由维护者按 issue [#65](https://github.com/MingStudentSE/wardrobe-agent/issues/65) 决定后补充于此。第三方依赖许可清单见 [docs/third-party-licenses.md](docs/third-party-licenses.md)(由 `scripts/generate-license-inventory.py` 从 lockfile 离线生成,可复跑校验):合计 1125 个包,其中 74 项离线缓存不可得、标识为 `unknown`,119 项非 MIT/Apache/BSD/ISC 家族列入兼容审查名单,Windows MSVC CRT 再分发条款单列;标注「本项目 crate」的自有代码许可证待 [#65](https://github.com/MingStudentSE/wardrobe-agent/issues/65) 一并决定。
+本项目以 [MIT 许可证](LICENSE) 开源,不设任何收费功能;自有 crate 与桌面应用(wardrobe-core / wardrobe-cli / wardrobe-desktop)均在清单中声明 MIT([#65](https://github.com/MingStudentSE/wardrobe-agent/issues/65) 已决定)。第三方依赖许可清单见 [docs/third-party-licenses.md](docs/third-party-licenses.md)(由 `scripts/generate-license-inventory.py` 从 lockfile 离线生成,可复跑校验):合计 1125 个包,其中 74 项离线缓存不可得、标识为 `unknown`,119 项非 MIT/Apache/BSD/ISC 家族列入兼容审查名单,Windows MSVC CRT 再分发条款单列。
