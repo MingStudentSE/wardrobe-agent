@@ -1,0 +1,9 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-25/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 1.00s
+     Running tests/schedules.rs (/tmp/wardrobe-implementation/ticket-09/target/debug/deps/schedules-efb0ba118c835291)
+
+running 1 test
+test submitted_scheduled_ai_restored_during_real_http_wait_is_not_resubmitted ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.05s
+

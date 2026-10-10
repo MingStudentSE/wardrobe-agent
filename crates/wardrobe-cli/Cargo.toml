@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 [dependencies]
+chrono = "0.4"
 wardrobe-core = { path = "../wardrobe-core" }
 serde_json = "1"
 [dev-dependencies]

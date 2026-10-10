@@ -104,7 +104,10 @@ fn logging_does_not_pollute_the_mcp_stdio_session() {
     let output = child.wait_with_output().unwrap();
     // 启用日志后，stdout 仍然恰好是逐行 JSON-RPC，无任何日志字节混入
     let text = String::from_utf8(output.stdout).unwrap();
-    let lines: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
     assert_eq!(lines.len(), 2, "stdout 应只有两条 JSON-RPC 响应：{text}");
     let first: Value = serde_json::from_str(lines[0]).unwrap();
     let second: Value = serde_json::from_str(lines[1]).unwrap();
@@ -151,7 +154,10 @@ fn logging_keeps_mcp_stdio_clean_while_the_logs_subcommand_queries() {
     let output = child.wait_with_output().unwrap();
     let text = String::from_utf8(output.stdout).unwrap();
     // stdout 恰好两条 JSON-RPC 响应，无任何日志事件字段混入
-    let lines: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
     assert_eq!(lines.len(), 2, "stdout 应只有两条 JSON-RPC 响应：{text}");
     let first: Value = serde_json::from_str(lines[0]).unwrap();
     let second: Value = serde_json::from_str(lines[1]).unwrap();
@@ -159,7 +165,10 @@ fn logging_keeps_mcp_stdio_clean_while_the_logs_subcommand_queries() {
     assert!(first["result"]["protocolVersion"].is_string(), "{first}");
     assert_eq!(second["id"], 2);
     assert_eq!(second["result"]["isError"], false, "{second}");
-    assert!(!text.contains("\"event_type\""), "MCP stdout 不得混入日志事件：{text}");
+    assert!(
+        !text.contains("\"event_type\""),
+        "MCP stdout 不得混入日志事件：{text}"
+    );
     // logs 子命令查询同一份日志：单一封套，CLI 与 MCP 两个入口的 clothing.create 都可回查
     let response = logs_subcommand(&db, &["--operation", "clothing.create"]);
     assert!(response.get("error").is_none(), "{response}");

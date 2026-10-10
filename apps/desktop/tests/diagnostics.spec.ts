@@ -4,7 +4,7 @@ const nav=(page:any,name:string)=>page.getByRole('navigation',{name:'主要导�
 const openDiagnostics=async(page:any)=>{
  await page.goto('/');await nav(page,'设置').click();
  const hub=page.getByRole('region',{name:'设置目录'});
- await expect(hub.locator('.settings-card')).toHaveCount(7);
+ await expect(hub.locator('.settings-card')).toHaveCount(9);
  await hub.getByRole('button',{name:/诊断/}).click();
  const panel=page.locator('#diagnostics-settings');
  await expect(panel).toBeVisible();

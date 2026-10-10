@@ -102,22 +102,40 @@ fn logs_filters_narrow_results_consistent_with_the_diagnostics_query() {
     assert_eq!(all_items.len(), 9, "{all_items:?}");
 
     // --level error：只含错误级事件，含失败操作的 operation 事件
-    let errors = query(&db, &["--level", "error"])["items"].as_array().unwrap().clone();
+    let errors = query(&db, &["--level", "error"])["items"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert!(!errors.is_empty());
-    assert!(errors.iter().all(|event| event["level"] == "error"), "{errors:?}");
-    assert!(errors
-        .iter()
-        .any(|event| event["operation"] == "clothing.create" && event["result"] == "invalid_input"));
+    assert!(
+        errors.iter().all(|event| event["level"] == "error"),
+        "{errors:?}"
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|event| event["operation"] == "clothing.create"
+                && event["result"] == "invalid_input")
+    );
 
     // --trace-id：错误输出里的链路标识可精确回查该次调用的全部事件
-    let traced = query(&db, &["--trace-id", &trace_id])["items"].as_array().unwrap().clone();
+    let traced = query(&db, &["--trace-id", &trace_id])["items"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert!(!traced.is_empty(), "{traced:?}");
-    assert!(traced
-        .iter()
-        .all(|event| event["trace_id"] == trace_id.as_str()), "{traced:?}");
-    assert!(traced
-        .iter()
-        .any(|event| event["operation"] == "clothing.create" && event["result"] == "invalid_input"));
+    assert!(
+        traced
+            .iter()
+            .all(|event| event["trace_id"] == trace_id.as_str()),
+        "{traced:?}"
+    );
+    assert!(
+        traced
+            .iter()
+            .any(|event| event["operation"] == "clothing.create"
+                && event["result"] == "invalid_input")
+    );
 
     // --operation 前缀：三次 clothing.create，排除 space.default 与 run_start
     let creations = query(&db, &["--operation", "clothing.create"])["items"]
@@ -125,9 +143,10 @@ fn logs_filters_narrow_results_consistent_with_the_diagnostics_query() {
         .unwrap()
         .clone();
     assert_eq!(creations.len(), 3, "{creations:?}");
-    assert!(creations
-        .iter()
-        .all(|event| event["operation"].as_str().unwrap().starts_with("clothing.create")));
+    assert!(creations.iter().all(|event| event["operation"]
+        .as_str()
+        .unwrap()
+        .starts_with("clothing.create")));
 
     // --run-id：首个运行会话的事件（run_start + space.default）共享同一 run_id
     let first_run = all_items[0]["run_id"].as_str().unwrap().to_string();
@@ -150,9 +169,25 @@ fn logs_filters_narrow_results_consistent_with_the_diagnostics_query() {
 
     // --since/--until：时间窗过滤（远期边界）。用操作前缀隔离制造阶段的事件，
     // 查询进程自身产生的日志（diagnostics.logs.query）不进入断言，避免跨进程计数竞态
-    let recent = query(&db, &["--operation", "clothing.create", "--since", "2000-01-01T00:00:00Z"]);
+    let recent = query(
+        &db,
+        &[
+            "--operation",
+            "clothing.create",
+            "--since",
+            "2000-01-01T00:00:00Z",
+        ],
+    );
     assert_eq!(recent["items"].as_array().unwrap().len(), 3, "{recent:?}");
-    let ancient = query(&db, &["--operation", "clothing.create", "--until", "2000-01-01T00:00:00Z"]);
+    let ancient = query(
+        &db,
+        &[
+            "--operation",
+            "clothing.create",
+            "--until",
+            "2000-01-01T00:00:00Z",
+        ],
+    );
     assert_eq!(ancient["items"].as_array().unwrap().len(), 0, "{ancient:?}");
     assert_eq!(ancient["next_cursor"], Value::Null);
 }
@@ -191,7 +226,12 @@ fn logs_pagination_follows_next_cursor_until_null_on_the_last_page() {
             // 续页须保留查询条件（GLOSSARY 分页游标）
             Some(cursor) => {
                 extra.truncate(2);
-                extra.extend(["--limit".into(), "2".into(), "--cursor".into(), cursor.into()]);
+                extra.extend([
+                    "--limit".into(),
+                    "2".into(),
+                    "--cursor".into(),
+                    cursor.into(),
+                ]);
             }
             None => break,
         }
@@ -215,7 +255,10 @@ fn logs_rejects_invalid_arguments_with_typed_errors() {
     };
     expect_rejected(&["--nope", "x"], "invalid_arguments");
     expect_rejected(&["--level"], "invalid_arguments");
-    expect_rejected(&["--level", "info", "--level", "error"], "invalid_arguments");
+    expect_rejected(
+        &["--level", "info", "--level", "error"],
+        "invalid_arguments",
+    );
     expect_rejected(&["--limit", "abc"], "invalid_arguments");
     expect_rejected(&["extra"], "invalid_arguments");
     // 穿透到 diagnostics.logs.query 的业务校验同样是类型化错误封套
@@ -231,9 +274,7 @@ fn help_advertises_the_logs_subcommand_and_schema_still_describes_the_operation(
     assert!(help.get("error").is_none(), "{help}");
     let usage = help["result"]["usage"].as_array().unwrap();
     assert!(
-        usage
-            .iter()
-            .any(|u| u.as_str().unwrap().contains("logs")),
+        usage.iter().any(|u| u.as_str().unwrap().contains("logs")),
         "usage 必须介绍 logs 子命令：{usage:?}"
     );
     let schema = cli_json(&["schema", "diagnostics.logs.query"]);

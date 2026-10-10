@@ -14,7 +14,10 @@ fn invalid(s: &str) -> ApiError {
 pub fn validate_name(name: &str) -> Result<(), ApiError> {
     let ok = !name.is_empty()
         && name.chars().count() <= PROFILE_NAME_LIMIT
-        && name.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
@@ -76,7 +79,10 @@ fn load(path: &Path) -> Result<Value, ApiError> {
             let value: Value = serde_json::from_slice(&bytes)
                 .map_err(|_| ApiError::new("storage_error", "profiles.json 损坏"))?;
             if value["schema_version"] != 1 || !value["profiles"].is_object() {
-                return Err(ApiError::new("storage_error", "profiles.json 版本或结构无效"));
+                return Err(ApiError::new(
+                    "storage_error",
+                    "profiles.json 版本或结构无效",
+                ));
             }
             Ok(value)
         }
@@ -102,7 +108,10 @@ pub fn upsert(name: &str, data_dir: &Path, force: bool) -> Result<Value, ApiErro
         return Err(invalid("profile数据目录须为绝对路径"));
     }
     if !data_dir.is_dir() {
-        return Err(ApiError::new("profile_data_dir_missing", "profile数据目录须已存在"));
+        return Err(ApiError::new(
+            "profile_data_dir_missing",
+            "profile数据目录须已存在",
+        ));
     }
     let path = current_path();
     let mut doc = load(&path)?;
@@ -115,10 +124,15 @@ pub fn upsert(name: &str, data_dir: &Path, force: bool) -> Result<Value, ApiErro
     let now = chrono::Utc::now().to_rfc3339();
     if let Some(existing) = profiles.get(name) {
         if existing["data_dir"] == json!(canonical.to_string_lossy()) {
-            return Ok(json!({"schema_version":1,"name":name,"data_dir":canonical.to_string_lossy(),"updated_at":existing["updated_at"].clone(),"unchanged":true}));
+            return Ok(
+                json!({"schema_version":1,"name":name,"data_dir":canonical.to_string_lossy(),"updated_at":existing["updated_at"].clone(),"unchanged":true}),
+            );
         }
         if !force {
-            return Err(ApiError::new("profile_exists", "同名profile已存在；覆盖请使用--force"));
+            return Err(ApiError::new(
+                "profile_exists",
+                "同名profile已存在；覆盖请使用--force",
+            ));
         }
     }
     profiles.insert(
@@ -129,7 +143,9 @@ pub fn upsert(name: &str, data_dir: &Path, force: bool) -> Result<Value, ApiErro
         doc["default"] = json!(name);
     }
     save(&path, &doc)?;
-    Ok(json!({"schema_version":1,"name":name,"data_dir":canonical.to_string_lossy(),"updated_at":now}))
+    Ok(
+        json!({"schema_version":1,"name":name,"data_dir":canonical.to_string_lossy(),"updated_at":now}),
+    )
 }
 
 pub fn remove(name: &str) -> Result<Value, ApiError> {
@@ -212,7 +228,10 @@ mod tests {
             );
             assert!(upsert("work", &data_b, false).is_err(), "重复添加须拒绝");
             upsert("work", &data_b, true).unwrap();
-            assert_eq!(resolve(Some("work")).unwrap().unwrap(), data_b.join("wardrobe.sqlite"));
+            assert_eq!(
+                resolve(Some("work")).unwrap().unwrap(),
+                data_b.join("wardrobe.sqlite")
+            );
             assert_eq!(
                 resolve(None).unwrap().unwrap(),
                 data_b.join("wardrobe.sqlite"),
@@ -221,8 +240,10 @@ mod tests {
             set_default("work").unwrap();
             remove("work").unwrap();
             assert_eq!(resolve(None).unwrap(), None, "删除默认后回落");
-            assert!(data_b.join("wardrobe.sqlite").exists() || std::fs::read_dir(&data_b).is_ok(),
-                "配置删除不触及数据目录");
+            assert!(
+                data_b.join("wardrobe.sqlite").exists() || std::fs::read_dir(&data_b).is_ok(),
+                "配置删除不触及数据目录"
+            );
             // 相对路径与非法名称
             assert!(upsert("rel", Path::new("relative/dir"), false).is_err());
             assert!(validate_name("1bad-").is_ok());

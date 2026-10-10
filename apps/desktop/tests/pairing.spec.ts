@@ -94,7 +94,9 @@ test('member switch mid pairing load never renders stale cross member results',a
  // return to member A so the gated pairing load below belongs to A.
  await page.getByText('当前衣橱').click();
  await page.getByRole('combobox',{name:/^当前成员/}).selectOption({label:'我'});
- await expect(page.locator('.collection').getByText('分页单品 1',{exact:true})).toBeVisible();
+ // 切换是异步持久操作：等默认成员衣橱真实加载（种子≥24 件）即可；具体
+ // 单品名可能被其他规格的正常管理操作改名，不做硬编码断言。
+ await expect.poll(async()=>await page.locator('.collection .grid article').count(),{timeout:15000}).toBeGreaterThanOrEqual(24);
  await page.getByRole('navigation').getByRole('button',{name:'穿搭',exact:true}).click();
  await page.getByRole('button',{name:'单品配对',exact:true}).click();
  const studio=page.locator('#pairing');
@@ -102,8 +104,12 @@ test('member switch mid pairing load never renders stale cross member results',a
  const memberBox=page.getByRole('combobox',{name:/^当前成员/});
  if(!await memberBox.isVisible())await page.getByText('当前衣橱').click();
  await memberBox.selectOption({label:'配对成员乙'});
- // The member switch resets the workspace to the wardrobe view: navigate
- // back into the pairing studio for the fresh member.
+ // The member switch resets the workspace to the wardrobe view: wait for the
+ // fresh member's wardrobe to finish loading before navigating again, or the
+ // workspace-tab click races the transition and lands on a replaced node.
+ await expect(page.getByRole('heading',{name:'我的衣橱'})).toBeVisible();
+ await expect.poll(async()=>await page.locator('.collection .grid article').count(),{timeout:15000}).toBe(3);
+ // Navigate back into the pairing studio for the fresh member.
  await page.getByRole('navigation').getByRole('button',{name:'穿搭',exact:true}).click();
  await page.getByRole('button',{name:'单品配对',exact:true}).click();
  const fresh=page.locator('#pairing');

@@ -1,0 +1,59 @@
+=== cargo check --workspace ===
+    Checking phf v0.12.1
+    Checking hmac v0.13.0
+    Checking tract-hir v0.23.8
+    Checking http-body-util v0.1.5
+    Checking blake2 v0.10.6
+    Checking iso_country v0.1.4
+    Checking aead v0.5.2
+   Compiling enumn v0.1.14
+    Checking memmap2 v0.9.11
+    Checking cpufeatures v0.3.1
+    Checking fallible-streaming-iterator v0.1.9
+    Checking fallible-iterator v0.3.0
+    Checking four-cc v0.4.0
+    Checking base64 v0.22.1
+    Checking reqwest v0.12.28
+    Checking libheif-rs v3.0.0
+    Checking rusqlite v0.32.1
+    Checking sha2 v0.11.0
+    Checking tract-onnx v0.23.8
+    Checking chacha20poly1305 v0.10.1
+    Checking argon2 v0.5.3
+    Checking hkdf v0.13.0
+    Checking keyring v3.6.3
+    Checking ed25519-dalek v2.2.0
+    Checking x25519-dalek v2.0.1
+    Checking uuid v1.27.0
+    Checking webp v0.3.1
+    Checking wardrobe-core v0.1.0 (/Users/links/.codex/external-workspace-volume/codex/wardrobe-execution/worktrees/integration-continue/crates/wardrobe-core)
+    Checking wardrobe-cli v0.1.0 (/Users/links/.codex/external-workspace-volume/codex/wardrobe-execution/worktrees/integration-continue/crates/wardrobe-cli)
+    Finished `dev` profile [unoptimized] target(s) in 52.68s
+check_exit=0
+=== cargo test -p wardrobe-core --lib ===
+   Compiling chrono-tz v0.10.4
+   Compiling webp v0.3.1
+   Compiling keyring v3.6.3
+   Compiling ed25519-dalek v2.2.0
+   Compiling x25519-dalek v2.0.1
+   Compiling uuid v1.27.0
+   Compiling wardrobe-core v0.1.0 (/Users/links/.codex/external-workspace-volume/codex/wardrobe-execution/worktrees/integration-continue/crates/wardrobe-core)
+    Finished `test` profile [unoptimized] target(s) in 41.75s
+     Running unittests src/lib.rs (/Users/links/.codex/wardrobe-execution/cache/integration-baseline/debug/deps/wardrobe_core-1455b102a1d64765)
+
+running 11 tests
+test profiles::tests::corrupt_or_invalid_config_is_storage_error_not_silent_reset ... ok
+test profiles::tests::profile_crud_is_atomic_and_never_touches_data ... ok
+test data_directory::tests::pending_reader_preserves_concurrently_published_active_location ... ok
+test maintenance::lease_tests::a_live_worker_lock_prevents_a_second_worker_from_claiming_an_expired_receipt ... ok
+test maintenance::lease_tests::maintenance_worker_rejects_an_external_symbolic_lock_target ... ok
+test maintenance::lease_tests::replacing_a_live_lock_inode_cannot_start_a_second_worker_or_publish_first_worker ... ok
+test ai_recommendations::publication_boundary::published_intent_survives_cancel_between_commit_and_job_finish_and_retry_is_cached ... ok
+test maintenance::lease_tests::cancellation_committed_at_lease_refresh_boundary_cannot_be_resurrected ... ok
+test maintenance::lease_tests::published_backup_recovers_its_durable_receipt_without_creating_another_package ... ok
+test maintenance::lease_tests::published_directory_switch_recovers_its_job_receipt_after_worker_disappears ... ok
+test authorization::restore_boundary_tests::restore_after_grant_validation_never_reopens_as_trusted ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+test_exit=0

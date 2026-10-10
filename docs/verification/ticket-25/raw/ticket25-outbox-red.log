@@ -1,0 +1,51 @@
+   Compiling wardrobe-core v0.1.0 (/private/tmp/wardrobe-ticket-25/crates/wardrobe-core)
+error[E0599]: no method named `schedule_claim_notification` found for struct `Application` in the current scope
+   --> crates/wardrobe-core/tests/schedules.rs:368:18
+    |
+368 |  let claimed=app.schedule_claim_notification("default").unwrap().unwrap();drop(app);
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: there is a method `schedule_tick_at` with a similar name
+    |
+368 -  let claimed=app.schedule_claim_notification("default").unwrap().unwrap();drop(app);
+368 +  let claimed=app.schedule_tick_at("default").unwrap().unwrap();drop(app);
+    |
+
+error[E0599]: no method named `schedule_claim_notification` found for struct `Application` in the current scope
+   --> crates/wardrobe-core/tests/schedules.rs:369:56
+    |
+369 |  let app=Application::open(&path).unwrap();assert!(app.schedule_claim_notification("default").unwrap().is_none());
+    |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: there is a method `schedule_tick_at` with a similar name
+    |
+369 -  let app=Application::open(&path).unwrap();assert!(app.schedule_claim_notification("default").unwrap().is_none());
+369 +  let app=Application::open(&path).unwrap();assert!(app.schedule_tick_at("default").unwrap().is_none());
+    |
+
+error[E0599]: no method named `schedule_finish_notification` found for struct `Application` in the current scope
+   --> crates/wardrobe-core/tests/schedules.rs:370:6
+    |
+370 |  app.schedule_finish_notification("default",claimed["id"].as_str().unwrap(),claimed["claim_token"].as_str().unwrap(),"unknown",Som...
+    |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: there is a method `schedule_tick_at` with a similar name, but with different arguments
+   --> crates/wardrobe-core/src/schedules.rs:251:5
+    |
+251 |     pub fn schedule_tick_at(&self, now: chrono::DateTime<chrono::Utc>) -> Result<Value, ApiError> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `schedule_claim_notification` found for struct `Application` in the current scope
+   --> crates/wardrobe-core/tests/schedules.rs:371:14
+    |
+371 |  assert!(app.schedule_claim_notification("default").unwrap().is_none());
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: there is a method `schedule_tick_at` with a similar name
+    |
+371 -  assert!(app.schedule_claim_notification("default").unwrap().is_none());
+371 +  assert!(app.schedule_tick_at("default").unwrap().is_none());
+    |
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `wardrobe-core` (test "schedules") due to 4 previous errors

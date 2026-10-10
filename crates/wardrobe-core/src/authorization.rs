@@ -1,5 +1,6 @@
 use crate::{string, ApiError, Application};
 use rusqlite::params;
+use rusqlite::OptionalExtension;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 fn hash(token: &str) -> String {
@@ -9,7 +10,8 @@ fn hash(token: &str) -> String {
         .collect()
 }
 fn privileged(operation: &str) -> bool {
-    operation.starts_with("client.")
+    operation == "schedule.runtime.configure"
+        || operation.starts_with("client.")
         || operation.starts_with("provider.credential.")
         || operation.starts_with("encryption.")
         // 诊断查询含日志原文与底层原因：仅本机可信入口，外部客户端永远无法获得
@@ -113,6 +115,45 @@ fn parse_grant(stored: &str) -> Result<Value, ApiError> {
     }
     Ok(grant)
 }
+fn check_grant_operation(grant: &Value, operation: &str) -> Result<(), ApiError> {
+    if grant["revoked"] == true {
+        return Err(ApiError::new("authorization_revoked", "客户端授权已撤销"));
+    }
+    if let Some(expires) = grant["expires_at"].as_str() {
+        let date = chrono::DateTime::parse_from_rfc3339(expires)
+            .map_err(|_| ApiError::new("storage_error", "客户端授权到期时间损坏"))?;
+        if date <= chrono::Utc::now() {
+            return Err(ApiError::new("authorization_expired", "客户端授权已到期"));
+        }
+    }
+    if privileged(operation) {
+        return Err(ApiError::new(
+            "scope_denied",
+            "客户端不能登记授权、管理系统凭据或读取诊断，请使用可信本机设置",
+        ));
+    }
+    if operation != "capabilities"
+        && grant["mode"] != "full"
+        && !grant["operations"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(operation))
+    {
+        return Err(ApiError::new("scope_denied", "操作超出客户端授权scope"));
+    }
+    Ok(())
+}
+
+fn require_granted_member(grant: &Value, member: &str) -> Result<(), ApiError> {
+    if grant["member_ids"]
+        .as_array()
+        .is_some_and(|members| !members.contains(&json!(member)))
+    {
+        return Err(ApiError::new("member_denied", "成员超出客户端授权范围"));
+    }
+    Ok(())
+}
+
 fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
     if input
         .as_object()
@@ -181,32 +222,76 @@ impl Application {
                 }
                 _ => e.into(),
             })?;
+        self.execute_as_grant_id(string(&parse_grant(&stored)?, "id")?, operation, input)
+    }
+
+    // Deferred tools retain a grant ID, never the raw bearer token. Resolve it
+    // afresh for each dispatch and reuse the same scope/member/revocation checks.
+    pub(super) fn execute_as_grant_id(
+        &self,
+        grant_id: &str,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, ApiError> {
+        if self.installation_changed()? {
+            return Application::open(std::path::Path::new(self.connection.path().unwrap()))?
+                .execute_as_grant_id(grant_id, operation, input);
+        }
+        if let Some(path) = self.redirected()? {
+            return Application::open(&path)?.execute_as_grant_id(grant_id, operation, input);
+        }
+        self.check_schema()?;
+        if !input.is_object() {
+            return Err(ApiError::new("invalid_input", "输入必须是JSON对象"));
+        }
+        let stored = self
+            .connection
+            .query_row(
+                "SELECT document FROM clients WHERE id=?1",
+                [grant_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    ApiError::new("unauthorized", "原始客户端授权不存在")
+                }
+                _ => error.into(),
+            })?;
+        self.execute_with_grant(parse_grant(&stored)?, operation, input)
+    }
+
+    pub(crate) fn check_deferred_grant(
+        &self,
+        grant_id: &str,
+        operation: &str,
+        member: &str,
+    ) -> Result<(), ApiError> {
+        self.check_schema()?;
+        let stored = self
+            .connection
+            .query_row(
+                "SELECT document FROM clients WHERE id=?1",
+                [grant_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    ApiError::new("unauthorized", "原始客户端授权不存在")
+                }
+                _ => error.into(),
+            })?;
         let grant = parse_grant(&stored)?;
-        if grant["revoked"] == true {
-            return Err(ApiError::new("authorization_revoked", "客户端授权已撤销"));
-        }
-        if let Some(expires) = grant["expires_at"].as_str() {
-            let date = chrono::DateTime::parse_from_rfc3339(expires)
-                .map_err(|_| ApiError::new("storage_error", "客户端授权到期时间损坏"))?;
-            if date <= chrono::Utc::now() {
-                return Err(ApiError::new("authorization_expired", "客户端授权已到期"));
-            }
-        }
-        if privileged(operation) {
-            return Err(ApiError::new(
-                "scope_denied",
-                "客户端不能登记授权、管理系统凭据或读取诊断，请使用可信本机设置",
-            ));
-        }
-        if operation != "capabilities"
-            && grant["mode"] != "full"
-            && !grant["operations"]
-                .as_array()
-                .unwrap()
-                .contains(&json!(operation))
-        {
-            return Err(ApiError::new("scope_denied", "操作超出客户端授权scope"));
-        }
+        check_grant_operation(&grant, operation)?;
+        require_granted_member(&grant, member)
+    }
+
+    fn execute_with_grant(
+        &self,
+        grant: Value,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, ApiError> {
+        check_grant_operation(&grant, operation)?;
         if operation == "feedback.record"
             && matches!(input["reaction"].as_str(), Some("actual_wore" | "changed"))
             && grant["mode"] != "full"
@@ -257,10 +342,36 @@ impl Application {
             }
         }
         if let Some(members) = grant["member_ids"].as_array() {
+            if ["sync.configure", "sync.run", "sync.process", "sync.status"].contains(&operation) {
+                return Err(ApiError::new(
+                    "member_denied",
+                    "同步目标和运行操作需要明确授权全部成员",
+                ));
+            }
+
+            if ["jobs.get", "jobs.cancel", "jobs.retry"].contains(&operation) {
+                if let Some(id) = input["id"].as_str() {
+                    let kind: Option<String> = self
+                        .connection
+                        .query_row("SELECT kind FROM jobs WHERE id=?1", [id], |r| r.get(0))
+                        .optional()?;
+                    if kind.as_deref().is_some_and(crate::jobs::is_space_job) {
+                        return Err(ApiError::new(
+                            "member_denied",
+                            "空间同步任务需要明确授权全部成员",
+                        ));
+                    }
+                }
+            }
             if input.get("member_id").is_some() {
                 let member = self.member(&input)?;
-                if !members.contains(&json!(member)) {
-                    return Err(ApiError::new("member_denied", "成员超出客户端授权范围"));
+                require_granted_member(&grant, &member)?;
+                if operation == "jobs.list" {
+                    let mut result = self.execute(operation, input)?;
+                    result["items"].as_array_mut().unwrap().retain(|job| {
+                        !crate::jobs::is_space_job(job["kind"].as_str().unwrap_or(""))
+                    });
+                    return Ok(result);
                 }
             } else if operation == "member.list" {
                 let mut result = self.member_list()?;
@@ -277,6 +388,28 @@ impl Application {
                     "member_denied",
                     "此操作需要明确授权的member_id，空间级操作须授权全部成员",
                 ));
+            }
+        }
+        if matches!(
+            operation,
+            "stylist.worker.run" | "jobs.retry" | "jobs.cancel"
+        ) {
+            let member = self.member(&input)?;
+            let job = self.job_get(json!({"member_id":member,"id":string(&input,"id")?}))?;
+            if job["kind"] == "stylist_query" {
+                let expected = crate::stylist::StylistOrigin::Client {
+                    grant_id: string(&grant, "id")?.to_owned(),
+                };
+                let actual: crate::stylist::StylistOrigin =
+                    serde_json::from_value(job["payload"]["origin"].clone())
+                        .map_err(|_| ApiError::new("storage_error", "任务授权来源损坏"))?;
+                if actual != expected {
+                    return Err(ApiError::new(
+                        "scope_denied",
+                        "客户端不能管理其他授权来源的着装问答",
+                    ));
+                }
+                self.check_deferred_grant(string(&grant, "id")?, "stylist.ask", &member)?;
             }
         }
         if grant["mode"] != "full"
@@ -303,6 +436,9 @@ impl Application {
                 ));
             }
         }
+        if operation == "stylist.ask" {
+            self.check_deferred_grant(string(&grant, "id")?, operation, &self.member(&input)?)?;
+        }
         #[cfg(test)]
         AFTER_AUTHORIZATION.with(|hook| {
             let callback = hook.borrow_mut().take();
@@ -318,15 +454,85 @@ impl Application {
                 {
                     return false;
                 }
+                if matches!(
+                    o["name"].as_str(),
+                    Some(
+                        "schedule.create"
+                            | "schedule.update"
+                            | "schedule.worker.run"
+                            | "schedule.tick"
+                    )
+                ) && grant["mode"] != "full"
+                    && !["care.reminders", "recommendation.generate"]
+                        .iter()
+                        .any(|op| grant["operations"].as_array().unwrap().contains(&json!(op)))
+                {
+                    return false;
+                }
                 !privileged(o["name"].as_str().unwrap())
+                    && (grant["member_ids"].is_null()
+                        || !["sync.configure", "sync.run", "sync.process", "sync.status"]
+                            .contains(&o["name"].as_str().unwrap()))
                     && (grant["mode"] == "full"
                         || o["name"] == "capabilities"
                         || grant["operations"].as_array().unwrap().contains(&o["name"]))
             });
             return Ok(result);
         }
+        if operation == "stylist.ask" {
+            return self.stylist_enqueue(
+                input,
+                crate::stylist::StylistOrigin::Client {
+                    grant_id: string(&grant, "id")?.to_owned(),
+                },
+            );
+        }
         if operation == "provider.save" {
             return self.provider_save_from_client(input);
+        }
+        if matches!(
+            operation,
+            "schedule.create" | "schedule.update" | "schedule.worker.run"
+        ) && grant["mode"] != "full"
+        {
+            let required = self.schedule_required_operation(operation, &input)?;
+            if !grant["operations"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(required))
+            {
+                return Err(ApiError::new(
+                    "scope_denied",
+                    "定时计划执行还需要原业务操作授权",
+                ));
+            }
+        }
+        if operation == "recommendation.worker.run" && grant["mode"] != "full" {
+            let member = self.member(&input)?;
+            let scheduled: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM schedule_executions WHERE member_id=?1 AND json_extract(document,'$.job_id')=?2)",rusqlite::params![member,input["id"].as_str()],|r|r.get(0))?;
+            if scheduled
+                && !grant["operations"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("recommendation.generate"))
+            {
+                return Err(ApiError::new(
+                    "scope_denied",
+                    "定时推荐任务还需要recommendation.generate原业务授权",
+                ));
+            }
+        }
+        if operation == "schedule.tick"
+            && grant["mode"] != "full"
+            && self
+                .schedule_tick_required_operations(&input)?
+                .iter()
+                .any(|op| !grant["operations"].as_array().unwrap().contains(&json!(op)))
+        {
+            return Err(ApiError::new(
+                "scope_denied",
+                "到期登记还需要计划原业务授权",
+            ));
         }
         let mut result = self.execute_current(operation, input)?;
         if operation == "maintenance.list" && grant["mode"] != "full" {

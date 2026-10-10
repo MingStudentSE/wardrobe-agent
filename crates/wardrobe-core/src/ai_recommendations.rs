@@ -1,7 +1,6 @@
 use crate::{string, ApiError, Application};
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
-use std::io::Read;
 impl Application {
     pub(super) fn recommendation_weather(
         &self,
@@ -24,12 +23,31 @@ impl Application {
         &self,
         member: &str,
         value: Option<&Value>,
+        target_date: Option<&Value>,
+        timezone: &str,
     ) -> Result<(bool, Value), ApiError> {
         if !value.is_some_and(|v| v["mode"] == "automatic") {
             return self.recommendation_weather(value);
         }
         if value.unwrap().as_object().is_none_or(|m| m.len() != 1) {
             return Err(ApiError::new("invalid_input", "自动天气只提供mode"));
+        }
+        if let Some(target) = target_date {
+            let target = target
+                .as_str()
+                .ok_or_else(|| ApiError::new("invalid_input", "目标日期须为文字"))?;
+            let date = chrono::NaiveDate::parse_from_str(target, "%Y-%m-%d")
+                .map_err(|_| ApiError::new("invalid_input", "目标日期无效"))?;
+            let zone: chrono_tz::Tz = timezone
+                .parse()
+                .map_err(|_| ApiError::new("invalid_input", "推荐时区无效"))?;
+            if date != chrono::Utc::now().with_timezone(&zone).date_naive() {
+                // This provider stores current observations, not target-day forecasts.
+                return Ok((
+                    false,
+                    json!({"mode":"automatic","source":"unavailable","stale":false,"obtained_at":null,"temperature_c":null,"network_requested":false,"target_date":target,"unavailable_reason":"target_date_not_supported","last_error":null}),
+                ));
+            }
         }
         let mut doc = self.weather_execute("weather.get", json!({"member_id":member}))?;
         let refresh = doc["config"]["mode"] == "automatic"
@@ -173,7 +191,12 @@ impl Application {
         let job_id = claimed["id"].as_str().unwrap().to_owned();
         let lease = claimed["lease_token"].as_str().unwrap().to_owned();
         let provider_id = string(&input, "provider_id")?.to_owned();
-        let weather = self.recommendation_weather_for(&member, input.get("weather"))?;
+        let weather = self.recommendation_weather_for(
+            &member,
+            input.get("weather"),
+            input.get("target_date"),
+            string(&input, "timezone")?,
+        )?;
         let mut catalog = vec![];
         let availability = self.care_execute("care.availability", json!({"member_id":member}))?;
         for field in [
@@ -247,6 +270,9 @@ impl Application {
             catalog.push(json!({"clothing_id":c["id"],"name":c["name"],"category":c["category"],"occasion":c["occasion"],"favorite":c["favorite"]}));
         }
         let mut model_controls = json!({});
+        if let Some(date) = input.get("target_date") {
+            model_controls["target_date"] = date.clone();
+        }
         for field in [
             "limit",
             "fixed_ids",
@@ -379,11 +405,6 @@ impl Application {
                 "需要配置兼容聊天接口的文本模型",
             ));
         }
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|_| ApiError::new("provider_network", "模型连接不可用"))?;
         let mut body = json!({"model":p["model"],"messages":[{"role":"system","content":"You are a wardrobe planner. Follow exact physical IDs and return only the requested JSON object."},{"role":"user","content":prompt.to_string()}],"max_tokens":2048,"temperature":0});
         let format = prompt["output_format"]
             .as_str()
@@ -411,22 +432,13 @@ impl Application {
             _ => return Err(ApiError::new("invalid_input", "文本输出格式不可用")),
         }
 
-        let mut request = client
-            .post(format!(
-                "{}/chat/completions",
-                p["endpoint"].as_str().unwrap()
-            ))
-            .json(&body);
-        if p["authentication"] == "bearer" {
-            let key = crate::providers::credential_entry_for(&p)?
-                .get_password()
-                .map_err(|_| ApiError::new("credential_missing", "文本模型凭据不可用"))?;
-            request = request.bearer_auth(key);
-        }
+        let request = self.provider_text_request(&p, &body)?;
         // 供应商请求事件（#44）：trace 取自任务文档（claimed 已携带，不再回查任务表）；
         // 限流重试的每次发送各记一条
-        let provider_request =
-            crate::diagnostics::ProviderRequestLog::from_job(claimed, p["model"].as_str().unwrap_or(""));
+        let provider_request = crate::diagnostics::ProviderRequestLog::from_job(
+            claimed,
+            p["model"].as_str().unwrap_or(""),
+        );
         let response = loop {
             self.text_submitted(member, job, lease, attempt)?;
             provider_request.begin_send();
@@ -437,12 +449,20 @@ impl Application {
             {
                 Ok(response) => response,
                 Err(_) => {
-                    provider_request.record(self,"chat_completions","outcome_unknown",None);
-                    return Err(ApiError::new("provider_network", "模型连接失败；结果未知，不盲重发"));
+                    provider_request.record(self, "chat_completions", "outcome_unknown", None);
+                    return Err(ApiError::new(
+                        "provider_network",
+                        "模型连接失败；结果未知，不盲重发",
+                    ));
                 }
             };
             if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                provider_request.record(self,"chat_completions","http_error",Some(response.status().as_u16()));
+                provider_request.record(
+                    self,
+                    "chat_completions",
+                    "http_error",
+                    Some(response.status().as_u16()),
+                );
                 let delay = retry_after_ms(
                     response
                         .headers()
@@ -476,25 +496,21 @@ impl Application {
                 continue;
             }
             if !response.status().is_success() {
-                provider_request.record(self,"chat_completions","http_error",Some(response.status().as_u16()));
+                provider_request.record(
+                    self,
+                    "chat_completions",
+                    "http_error",
+                    Some(response.status().as_u16()),
+                );
                 return Err(ApiError::new(
                     "provider_error",
                     "模型服务返回错误，已回退规则推荐",
                 ));
             }
-            provider_request.record(self,"chat_completions","ok",None);
+            provider_request.record(self, "chat_completions", "ok", None);
             break response;
         };
-        let mut bytes = vec![];
-        response
-            .take(1048577)
-            .read_to_end(&mut bytes)
-            .map_err(|_| ApiError::new("provider_response", "模型响应读取失败"))?;
-        if bytes.len() > 1048576 {
-            return Err(ApiError::new("provider_response", "模型响应过大"));
-        }
-        let response: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| ApiError::new("provider_response", "模型响应不是JSON"))?;
+        let response = crate::providers::read_chat_response(response)?;
         self.text_usage(member, job, lease, &response)?;
         let content = response["choices"][0]["message"]["content"]
             .as_str()
@@ -512,6 +528,7 @@ impl Application {
         let tx = self.begin_write()?;
         let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
         text_lease(&job, lease)?;
+        crate::schedules::validate_related_job(&tx, &job)?;
         if job["submitted_at"].is_string() {
             let invalid = job["last_outcome"] == "invalid_output"
                 && attempt == job["output_attempt"].as_u64().unwrap_or(1) + 1
@@ -617,7 +634,7 @@ impl Application {
     }
 }
 
-fn retry_after_ms(header: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> i64 {
+pub(crate) fn retry_after_ms(header: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> i64 {
     if let Some(value) = header {
         if let Ok(seconds) = value.trim().parse::<u64>() {
             return seconds.saturating_mul(1000).min(i64::MAX as u64) as i64;

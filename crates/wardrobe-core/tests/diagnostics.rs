@@ -12,7 +12,9 @@ use wardrobe_core::Application;
 /// 保证 `--test-threads` 并行下确定性（#42）。
 static LOG_FS_LOCK: Mutex<()> = Mutex::new(());
 fn fs_lock() -> MutexGuard<'static, ()> {
-    LOG_FS_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    LOG_FS_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// 文件在列出后恰好被并发清理删掉：视为"已被清理"，跳过而非报错。
@@ -110,7 +112,10 @@ fn failed_execute_errors_carry_trace_id_without_exposing_the_reason() {
     assert_eq!(public["code"], "invalid_input");
     assert_eq!(public["message"], "名称须为 1–120 个字符");
     assert!(public["trace_id"].is_string(), "{public}");
-    assert!(public.get("reason").is_none(), "原因不得进入用户可见输出 {public}");
+    assert!(
+        public.get("reason").is_none(),
+        "原因不得进入用户可见输出 {public}"
+    );
     // 日志记录失败事件与同一 trace_id
     let events = log_events(dir.path());
     let failures: Vec<&Value> = events
@@ -133,9 +138,15 @@ fn open_failures_keep_message_but_preserve_the_real_reason_in_logs() {
     assert_eq!(error.message, "本地数据库操作失败");
     // 公开序列化不含原因，只含 code/message/trace_id
     let public = serde_json::to_value(&error).unwrap();
-    let keys: Vec<&str> = public.as_object().unwrap().keys().map(String::as_str).collect();
+    let keys: Vec<&str> = public
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     assert!(
-        keys.iter().all(|k| ["code", "message", "trace_id"].contains(k)),
+        keys.iter()
+            .all(|k| ["code", "message", "trace_id"].contains(k)),
         "{public}"
     );
     // 底层真实原因保留并写入日志
@@ -147,7 +158,11 @@ fn open_failures_keep_message_but_preserve_the_real_reason_in_logs() {
         .filter(|e| e["result"] == "storage_error")
         .collect();
     assert!(!failures.is_empty(), "打开失败也应留有日志：{events:?}");
-    assert_eq!(failures[0]["reason"], json!(reason), "日志须保留底层真实原因");
+    assert_eq!(
+        failures[0]["reason"],
+        json!(reason),
+        "日志须保留底层真实原因"
+    );
 }
 
 #[test]
@@ -175,11 +190,10 @@ fn connection_tokens_and_provider_keys_never_reach_the_log_files() {
     // 供应商密钥配置操作：输入携带密钥（此供应商无认证，操作在触碰钥匙串前拒绝，
     // 但密钥内容无论成败都绝不能进日志——脱敏按构造）
     let api_key = "sk-sensitive-9f8e7d6c5b4a3210";
-    let rejected = app
-        .execute(
-            "provider.credential.set",
-            json!({"id":"any-provider","api_key":api_key}),
-        );
+    let rejected = app.execute(
+        "provider.credential.set",
+        json!({"id":"any-provider","api_key":api_key}),
+    );
     assert!(rejected.is_err(), "无认证供应商应拒绝配置密钥");
     // 令牌 hash 同样不得出现（授权表里只存 hash，日志连 hash 都不该有）
     use sha2::{Digest, Sha256};
@@ -192,7 +206,10 @@ fn connection_tokens_and_provider_keys_never_reach_the_log_files() {
         all_text.push_str(&std::fs::read_to_string(entry.unwrap().path()).unwrap());
     }
     assert!(!all_text.contains(token), "连接令牌不得写入日志");
-    assert!(!all_text.contains(&token_hash), "连接令牌 hash 不得写入日志");
+    assert!(
+        !all_text.contains(&token_hash),
+        "连接令牌 hash 不得写入日志"
+    );
     assert!(!all_text.contains(api_key), "供应商密钥不得写入日志");
     // 事件仍完整：client.authorize 成功事件存在
     let events = log_events(dir.path());
@@ -251,8 +268,8 @@ fn total_cap_and_retention_evict_old_files_keeping_recent_events() {
     let logs = dir.path().join("logs");
     std::fs::create_dir_all(&logs).unwrap();
     // 注入保留 0 天：昨日文件必须被保留清理删除
-    let yesterday = (chrono::Local::now().date_naive() - chrono::Duration::days(1))
-        .format("%Y-%m-%d");
+    let yesterday =
+        (chrono::Local::now().date_naive() - chrono::Duration::days(1)).format("%Y-%m-%d");
     std::fs::write(
         logs.join(format!("wardrobe-{yesterday}.jsonl")),
         "{\"event_type\":\"stale\"}\n",
@@ -271,9 +288,7 @@ fn total_cap_and_retention_evict_old_files_keeping_recent_events() {
         app.execute("space.default", json!({})).unwrap();
     }
     assert!(
-        !logs
-            .join(format!("wardrobe-{yesterday}.jsonl"))
-            .exists(),
+        !logs.join(format!("wardrobe-{yesterday}.jsonl")).exists(),
         "超过保留期的文件必须被清理"
     );
     let mut total = 0;
@@ -337,7 +352,10 @@ fn debug_level_adds_input_keys_while_default_info_stays_lean() {
         .iter()
         .find(|e| e["operation"] == "clothing.create")
         .unwrap();
-    assert!(created.get("input_keys").is_none(), "info 级别不含输入摘要：{created}");
+    assert!(
+        created.get("input_keys").is_none(),
+        "info 级别不含输入摘要：{created}"
+    );
 
     std::env::set_var("WARDROBE_LOG_LEVEL", "debug");
     let verbose_dir = tempfile::tempdir().unwrap();
@@ -380,8 +398,8 @@ fn concurrent_cleanup_keeps_observers_and_business_running() {
     let logs = dir.path().join("logs");
     std::fs::create_dir_all(&logs).unwrap();
     // 注入保留 0 天：清理者除总量驱逐外还会持续删过期文件，制造高频删除
-    let yesterday = (chrono::Local::now().date_naive() - chrono::Duration::days(1))
-        .format("%Y-%m-%d");
+    let yesterday =
+        (chrono::Local::now().date_naive() - chrono::Duration::days(1)).format("%Y-%m-%d");
     std::fs::write(
         logs.join(format!("wardrobe-{yesterday}.jsonl")),
         "{\"event_type\":\"stale\"}\n",
@@ -537,8 +555,11 @@ fn diagnostics_summary_matches_persisted_job_states_and_reports_log_health() {
     let cancelled = app
         .job_enqueue(&member, "local-test", "s-c", json!({}))
         .unwrap();
-    app.execute("jobs.cancel", json!({"member_id":member,"id":cancelled["id"]}))
-        .unwrap();
+    app.execute(
+        "jobs.cancel",
+        json!({"member_id":member,"id":cancelled["id"]}),
+    )
+    .unwrap();
     let unknown = app
         .job_enqueue(&member, "recognition", "s-u", json!({}))
         .unwrap();
@@ -576,7 +597,9 @@ fn diagnostics_summary_matches_persisted_job_states_and_reports_log_health() {
         "仅已提交且结果未知的 waiting_input 计入：{summary}"
     );
     // 一致性不变量：对持久任务文档逐个套领域谓词重算，与摘要计数一致
-    let listed = app.execute("jobs.list", json!({"member_id":member})).unwrap();
+    let listed = app
+        .execute("jobs.list", json!({"member_id":member}))
+        .unwrap();
     let derived = listed["items"]
         .as_array()
         .unwrap()
@@ -638,8 +661,18 @@ fn external_clients_can_never_gain_diagnostics_scope() {
         )
         .unwrap();
     let token = grant["token"].as_str().unwrap();
-    for operation in ["diagnostics.summary", "diagnostics.checks", "diagnostics.logs.query", "diagnostics.export", "diagnostics.ui_event", "diagnostics.reproduction.start", "diagnostics.reproduction.stop"] {
-        let denied = app.execute_as_client(token, operation, json!({})).unwrap_err();
+    for operation in [
+        "diagnostics.summary",
+        "diagnostics.checks",
+        "diagnostics.logs.query",
+        "diagnostics.export",
+        "diagnostics.ui_event",
+        "diagnostics.reproduction.start",
+        "diagnostics.reproduction.stop",
+    ] {
+        let denied = app
+            .execute_as_client(token, operation, json!({}))
+            .unwrap_err();
         assert_eq!(denied.code, "scope_denied", "{operation}: {denied:?}");
     }
     // 限定授权登记包含 diagnostics：登记即拒绝，令牌无从产生
@@ -651,7 +684,9 @@ fn external_clients_can_never_gain_diagnostics_scope() {
         .unwrap_err();
     assert_eq!(rejected.code, "invalid_input", "{rejected:?}");
     // capabilities 对外部客户端隐藏 diagnostics 描述符
-    let caps = app.execute_as_client(token, "capabilities", json!({})).unwrap();
+    let caps = app
+        .execute_as_client(token, "capabilities", json!({}))
+        .unwrap();
     let names: Vec<&str> = caps["operations"]
         .as_array()
         .unwrap()
@@ -762,7 +797,11 @@ fn diagnostics_log_query_filters_level_time_trace_run_operation_and_keyword() {
             json!({"operation":"space.","until":space_ts}),
         )
         .unwrap();
-    assert_eq!(until_now["items"].as_array().unwrap().len(), 1, "until 含端点");
+    assert_eq!(
+        until_now["items"].as_array().unwrap().len(),
+        1,
+        "until 含端点"
+    );
 
     // 关键词：对事件序列化文本做大小写不敏感子串匹配
     let keyword = app
@@ -773,7 +812,10 @@ fn diagnostics_log_query_filters_level_time_trace_run_operation_and_keyword() {
         .unwrap();
     assert_eq!(keyword["items"].as_array().unwrap().len(), 1, "{keyword}");
     let none = app
-        .execute("diagnostics.logs.query", json!({"keyword":"彻底不存在的词"}))
+        .execute(
+            "diagnostics.logs.query",
+            json!({"keyword":"彻底不存在的词"}),
+        )
         .unwrap();
     assert_eq!(none["items"].as_array().unwrap().len(), 0);
 
@@ -786,7 +828,9 @@ fn diagnostics_log_query_filters_level_time_trace_run_operation_and_keyword() {
         json!({"limit":101}),
         json!({"cursor":"not-a-cursor"}),
     ] {
-        let error = app.execute("diagnostics.logs.query", bad.clone()).unwrap_err();
+        let error = app
+            .execute("diagnostics.logs.query", bad.clone())
+            .unwrap_err();
         assert_eq!(error.code, "invalid_input", "{bad}: {error:?}");
     }
 }
@@ -847,7 +891,10 @@ fn diagnostics_log_query_paginates_with_cursor_until_exhausted() {
         &[collected.last().unwrap().clone()],
         "{replay}"
     );
-    assert!(replay["next_cursor"].is_null(), "末页 next_cursor 为 null：{replay}");
+    assert!(
+        replay["next_cursor"].is_null(),
+        "末页 next_cursor 为 null：{replay}"
+    );
     // 越过末尾的游标：空页且 next_cursor 为 null
     let exhausted = app
         .execute(
@@ -855,7 +902,11 @@ fn diagnostics_log_query_paginates_with_cursor_until_exhausted() {
             json!({"operation":"clothing.create","cursor":"99999999999999-0"}),
         )
         .unwrap();
-    assert_eq!(exhausted["items"].as_array().unwrap().len(), 0, "{exhausted}");
+    assert_eq!(
+        exhausted["items"].as_array().unwrap().len(),
+        0,
+        "{exhausted}"
+    );
     assert!(exhausted["next_cursor"].is_null());
 }
 
@@ -883,7 +934,10 @@ fn corrupt_log_lines_do_not_block_diagnostics_queries_or_summary() {
     }
     {
         use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         writeln!(file, "{{\"ts\":\"截断的JSON").unwrap();
         writeln!(file, "这不是JSON").unwrap();
         writeln!(file, "{{\"event_type\":\"缺公共字段\"}}").unwrap();
@@ -1185,9 +1239,21 @@ fn maintenance_job_lifecycle_events_share_the_submitted_trace_id() {
     assert_eq!(
         transitions,
         vec![
-            ("job.enqueue".to_string(), "".to_string(), "queued".to_string()),
-            ("job.state".to_string(), "queued".to_string(), "running".to_string()),
-            ("job.state".to_string(), "running".to_string(), "succeeded".to_string()),
+            (
+                "job.enqueue".to_string(),
+                "".to_string(),
+                "queued".to_string()
+            ),
+            (
+                "job.state".to_string(),
+                "queued".to_string(),
+                "running".to_string()
+            ),
+            (
+                "job.state".to_string(),
+                "running".to_string(),
+                "succeeded".to_string()
+            ),
         ],
         "维护任务须以创建调用 trace 还原排队→运行→成功：{events:?}"
     );
@@ -1339,7 +1405,10 @@ fn provider_requests_are_logged_sanitized_and_share_the_job_trace() {
             );
         }
         if expected_outcome == "ok" {
-            assert!(request_event.get("http_status").is_none(), "{request_event}");
+            assert!(
+                request_event.get("http_status").is_none(),
+                "{request_event}"
+            );
         } else {
             assert_eq!(request_event["http_status"], 429, "{request_event}");
         }
@@ -1348,7 +1417,10 @@ fn provider_requests_are_logged_sanitized_and_share_the_job_trace() {
         for entry in std::fs::read_dir(dir.path().join("logs")).unwrap() {
             all_text.push_str(&std::fs::read_to_string(entry.unwrap().path()).unwrap());
         }
-        assert!(!all_text.contains(api_key.as_str()), "供应商密钥不得写入日志");
+        assert!(
+            !all_text.contains(api_key.as_str()),
+            "供应商密钥不得写入日志"
+        );
         assert!(
             !all_text.contains("a white shirt"),
             "完整响应体不得写入日志"
@@ -1597,7 +1669,11 @@ fn export_defaults_to_recent_window_with_complete_meta_first_line() {
         events.first().unwrap()["ts"],
         "{output}"
     );
-    assert_eq!(output["covered_to"], events.last().unwrap()["ts"], "{output}");
+    assert_eq!(
+        output["covered_to"],
+        events.last().unwrap()["ts"],
+        "{output}"
+    );
 }
 
 #[test]
@@ -1647,10 +1723,7 @@ fn export_scope_selects_session_recent_all_and_explicit_window() {
     // 两个“其他运行会话”的外部事件：25 小时前（只有 all 含）与 2 小时前（recent 含）
     let now = chrono::Utc::now();
     let stamp = |hours: i64| {
-        (now - chrono::Duration::hours(hours)).to_rfc3339_opts(
-            chrono::SecondsFormat::Millis,
-            true,
-        )
+        (now - chrono::Duration::hours(hours)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
     };
     let foreign_run = "018f0000-0000-7000-8000-00000000dead";
     append_events(
@@ -1669,7 +1742,9 @@ fn export_scope_selects_session_recent_all_and_explicit_window() {
     let (_, meta, events) = export_lines(&app, &target, json!({"scope":"session"}));
     assert_eq!(meta["scope"], "session", "{meta}");
     assert!(
-        events.iter().all(|e| e["run_id"] == json!(wardrobe_core::diagnostics::run_id())),
+        events
+            .iter()
+            .all(|e| e["run_id"] == json!(wardrobe_core::diagnostics::run_id())),
         "session 只含当前运行会话：{events:?}"
     );
     assert!(contains(&events, "space.default"), "{events:?}");
@@ -1678,14 +1753,23 @@ fn export_scope_selects_session_recent_all_and_explicit_window() {
     // recent（显式传参）：最近 24 小时跨重启，含 2 小时前、不含 25 小时前
     let (_, meta, events) = export_lines(&app, &target, json!({"scope":"recent"}));
     assert_eq!(meta["scope"], "recent", "{meta}");
-    assert!(contains(&events, "recognition.crash"), "recent 含 24h 内其他运行：{events:?}");
+    assert!(
+        contains(&events, "recognition.crash"),
+        "recent 含 24h 内其他运行：{events:?}"
+    );
     assert!(contains(&events, "space.default"));
-    assert!(!contains(&events, "import.old"), "recent 不含 24h 前事件：{events:?}");
+    assert!(
+        !contains(&events, "import.old"),
+        "recent 不含 24h 前事件：{events:?}"
+    );
 
     // all：保留期内全部，含最旧事件
     let (_, meta, events) = export_lines(&app, &target, json!({"scope":"all"}));
     assert_eq!(meta["scope"], "all", "{meta}");
-    assert!(contains(&events, "import.old"), "all 含保留期内最旧事件：{events:?}");
+    assert!(
+        contains(&events, "import.old"),
+        "all 含保留期内最旧事件：{events:?}"
+    );
     assert!(contains(&events, "recognition.crash") && contains(&events, "space.default"));
 
     // 显式时间窗 [now-3h, now-1h]：恰含 2 小时前事件，排除当前与 25 小时前
@@ -1722,8 +1806,7 @@ fn export_recent_includes_previous_run_after_reopening_the_application() {
     first.execute("space.default", json!({})).unwrap();
     // 上次运行的最后现场：panic 事件带它自己的 run_id
     let crashed_run = "018f0000-0000-7000-8000-00000000cafe";
-    let crash_ts = chrono::Utc::now()
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let crash_ts = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     append_events(
         dir.path(),
         &[json!({
@@ -1737,8 +1820,7 @@ fn export_recent_includes_previous_run_after_reopening_the_application() {
     drop(first);
     // 重新打开应用（第二次运行），默认导出（recent）
     let second = Application::open(&db).unwrap();
-    let (_, meta, events) =
-        export_lines(&second, &dir.path().join("recent.jsonl"), json!({}));
+    let (_, meta, events) = export_lines(&second, &dir.path().join("recent.jsonl"), json!({}));
     assert!(
         events
             .iter()
@@ -1746,26 +1828,41 @@ fn export_recent_includes_previous_run_after_reopening_the_application() {
         "recent 必须含崩溃前上次运行的事件：{events:?}"
     );
     assert!(
-        events
-            .iter()
-            .any(|e| e["operation"] == "space.default" && e["run_id"] == json!(wardrobe_core::diagnostics::run_id())),
+        events.iter().any(|e| e["operation"] == "space.default"
+            && e["run_id"] == json!(wardrobe_core::diagnostics::run_id())),
         "recent 也含本次运行事件：{events:?}"
     );
     let run_ids = meta["run_ids"].as_array().unwrap();
     assert!(run_ids.contains(&json!(crashed_run)), "{meta}");
-    assert!(run_ids.contains(&json!(wardrobe_core::diagnostics::run_id())), "{meta}");
     assert!(
-        meta["recent_errors"].as_array().unwrap().iter().any(|e| e["run_id"] == json!(crashed_run)),
+        run_ids.contains(&json!(wardrobe_core::diagnostics::run_id())),
+        "{meta}"
+    );
+    assert!(
+        meta["recent_errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["run_id"] == json!(crashed_run)),
         "meta 最近错误含上次运行的 panic：{meta}"
     );
     // 对照：session 只含第二次运行——跨重启的包含关系确实由时间窗决定
-    let (_, meta, events) =
-        export_lines(&second, &dir.path().join("session.jsonl"), json!({"scope":"session"}));
+    let (_, meta, events) = export_lines(
+        &second,
+        &dir.path().join("session.jsonl"),
+        json!({"scope":"session"}),
+    );
     assert!(
         events.iter().all(|e| e["run_id"] != json!(crashed_run)),
         "session 不得含上次运行：{events:?}"
     );
-    assert!(!meta["run_ids"].as_array().unwrap().contains(&json!(crashed_run)), "{meta}");
+    assert!(
+        !meta["run_ids"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(crashed_run)),
+        "{meta}"
+    );
 }
 
 #[test]
@@ -1778,7 +1875,9 @@ fn export_skips_corrupt_lines_without_blocking() {
     app.execute("space.default", json!({})).unwrap();
     append_events(
         dir.path(),
-        &[json!({"ts": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true), "level":"info", "event_type":"operation", "run_id": wardrobe_core::diagnostics::run_id(), "operation":"fabricated.valid", "result":"ok"})],
+        &[
+            json!({"ts": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true), "level":"info", "event_type":"operation", "run_id": wardrobe_core::diagnostics::run_id(), "operation":"fabricated.valid", "result":"ok"}),
+        ],
     );
     // 向同一文件追加损坏行：截断 JSON、非 JSON、缺公共字段的良构 JSON
     let logs = dir.path().join("logs");
@@ -1795,15 +1894,22 @@ fn export_skips_corrupt_lines_without_blocking() {
     }
     {
         use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         writeln!(file, "{{\"ts\":\"截断的JSON").unwrap();
         writeln!(file, "这不是JSON").unwrap();
         writeln!(file, "{{\"event_type\":\"缺公共字段\"}}").unwrap();
     }
-    let (_, meta, events) = export_lines(&app, &dir.path().join("all.jsonl"), json!({"scope":"all"}));
+    let (_, meta, events) =
+        export_lines(&app, &dir.path().join("all.jsonl"), json!({"scope":"all"}));
     let content = meta.to_string();
     for fragment in ["截断的JSON", "这不是JSON", "缺公共字段"] {
-        assert!(!content.contains(fragment) && !events.iter().any(|e| e.to_string().contains(fragment)), "损坏行不得进入导出：{events:?}");
+        assert!(
+            !content.contains(fragment) && !events.iter().any(|e| e.to_string().contains(fragment)),
+            "损坏行不得进入导出：{events:?}"
+        );
     }
     assert!(
         events.iter().any(|e| e["operation"] == "space.default")
@@ -1828,12 +1934,13 @@ fn export_explicit_window_endpoints_are_inclusive() {
     let edge = "2026-06-01T12:00:00.000Z";
     append_events(
         dir.path(),
-        &[json!({"ts": edge, "level":"info", "event_type":"operation", "run_id": "018f0000-0000-7000-8000-00000000edge", "operation":"window.edge", "result":"ok"})],
+        &[
+            json!({"ts": edge, "level":"info", "event_type":"operation", "run_id": "018f0000-0000-7000-8000-00000000edge", "operation":"window.edge", "result":"ok"}),
+        ],
     );
     let target = dir.path().join("edge.jsonl");
     // from = to = 事件时刻：端点含入
-    let (output, _, events) =
-        export_lines(&app, &target, json!({"from": edge, "to": edge}));
+    let (output, _, events) = export_lines(&app, &target, json!({"from": edge, "to": edge}));
     assert_eq!(events.len(), 1, "{events:?}");
     assert_eq!(events[0]["operation"], "window.edge", "{events:?}");
     assert_eq!(output["covered_from"], json!(edge), "{output}");
@@ -1868,13 +1975,12 @@ fn export_artifact_never_contains_tokens_keys_database_or_images() {
     let token = grant["token"].as_str().unwrap();
     // 供应商密钥：输入携带密钥（无认证供应商在触碰钥匙串前拒绝，密钥无论成败绝不落盘）
     let api_key = "sk-export-9f8e7d6c5b4a3210feed";
-    assert!(
-        app.execute(
+    assert!(app
+        .execute(
             "provider.credential.set",
             json!({"id":"any-provider","api_key":api_key}),
         )
-        .is_err()
-    );
+        .is_err());
     use sha2::{Digest, Sha256};
     let token_hash: String = Sha256::digest(token.as_bytes())
         .iter()
@@ -1884,7 +1990,10 @@ fn export_artifact_never_contains_tokens_keys_database_or_images() {
     let meta_text = meta.to_string();
     let events_text: Vec<String> = events.iter().map(|e| e.to_string()).collect();
     for secret in [token, &token_hash, api_key] {
-        assert!(!meta_text.contains(secret), "meta 不得含 {secret}：{meta_text}");
+        assert!(
+            !meta_text.contains(secret),
+            "meta 不得含 {secret}：{meta_text}"
+        );
         for (index, text) in events_text.iter().enumerate() {
             assert!(!text.contains(secret), "事件行 {index} 不得含凭据：{text}");
         }
@@ -1893,7 +2002,9 @@ fn export_artifact_never_contains_tokens_keys_database_or_images() {
     // 结构性证明——导出每行都是合法 JSON 事件，数据库魔数与二进制图像不可能出现。
     assert!(!meta_text.contains("SQLite format 3"), "{meta_text}");
     assert!(
-        events.iter().all(|e| e["event_type"].is_string() && e["ts"].is_string() && e["level"].is_string()),
+        events
+            .iter()
+            .all(|e| e["event_type"].is_string() && e["ts"].is_string() && e["level"].is_string()),
         "{events:?}"
     );
     // 事件本身仍完整：client.authorize 成功事件在导出中（值脱敏、事件在场）
@@ -1934,7 +2045,13 @@ fn process_panic_leaves_a_scene_in_the_log() {
         .unwrap();
     assert_eq!(scene["level"], "error");
     assert_eq!(scene["run_id"], wardrobe_core::diagnostics::run_id());
-    assert!(scene["location"].as_str().unwrap().contains("diagnostics.rs"), "{scene}");
+    assert!(
+        scene["location"]
+            .as_str()
+            .unwrap()
+            .contains("diagnostics.rs"),
+        "{scene}"
+    );
 }
 
 /// #48 基础检查：固定十项、顺序稳定，正常环境（全新数据目录）全部 pass。
@@ -1946,7 +2063,10 @@ fn diagnostics_checks_report_all_items_passing_in_a_normal_environment() {
     let checks = app.execute("diagnostics.checks", json!({})).unwrap();
     assert_eq!(checks["schema_version"], 1, "{checks}");
     let items = checks["checks"].as_array().unwrap();
-    let ids: Vec<&str> = items.iter().map(|item| item["id"].as_str().unwrap()).collect();
+    let ids: Vec<&str> = items
+        .iter()
+        .map(|item| item["id"].as_str().unwrap())
+        .collect();
     assert_eq!(
         ids,
         vec![
@@ -1966,20 +2086,33 @@ fn diagnostics_checks_report_all_items_passing_in_a_normal_environment() {
     for item in items {
         assert_eq!(item["status"], "pass", "正常环境全部通过：{item}");
         assert!(item["message"].is_string(), "通俗消息：{item}");
-        assert!(!item["message"].as_str().unwrap().trim().is_empty(), "{item}");
+        assert!(
+            !item["message"].as_str().unwrap().trim().is_empty(),
+            "{item}"
+        );
         assert!(item["detail"].is_string(), "技术明细：{item}");
         assert!(
             item["setting"].is_null() || item["setting"].is_string(),
             "去向为设置页标识或 null：{item}"
         );
     }
-    assert_eq!(checks["counts"], json!({"pass":10,"warn":0,"fail":0}), "{checks}");
+    assert_eq!(
+        checks["counts"],
+        json!({"pass":10,"warn":0,"fail":0}),
+        "{checks}"
+    );
     // WAL 生效的技术明细可读（只读 pragma 查询）
     let wal = items.iter().find(|i| i["id"] == "database_wal").unwrap();
     assert!(wal["detail"].as_str().unwrap().contains("wal"), "{wal}");
     // 未配置模型/加密属于正常状态：pass 且通俗消息说明现状
-    let credentials = items.iter().find(|i| i["id"] == "model_credentials").unwrap();
-    assert!(credentials["message"].as_str().unwrap().contains("未配置"), "{credentials}");
+    let credentials = items
+        .iter()
+        .find(|i| i["id"] == "model_credentials")
+        .unwrap();
+    assert!(
+        credentials["message"].as_str().unwrap().contains("未配置"),
+        "{credentials}"
+    );
 }
 
 /// #48 故障注入：数据目录只读 → data_directory fail；业务操作不被检查阻塞。
@@ -2050,7 +2183,10 @@ fn expired_lease_running_jobs_are_reported_as_stuck() {
     assert_eq!(item["status"], "warn", "{item}");
     assert_eq!(item["setting"], "tasks", "{item}");
     assert!(item["message"].as_str().unwrap().contains('1'), "{item}");
-    assert!(item["detail"].as_str().unwrap().contains("stuck_jobs=1"), "{item}");
+    assert!(
+        item["detail"].as_str().unwrap().contains("stuck_jobs=1"),
+        "{item}"
+    );
 }
 
 /// #48 故障注入：残留的待发布位置标记（source_file 与当前库不符）→ warn；
@@ -2104,7 +2240,8 @@ fn checks_never_modify_configuration_or_data() {
         json!({"member_id":member,"name":"体检衬衫","category":"top"}),
     )
     .unwrap();
-    app.job_enqueue(&member, "local-test", "check-j", json!({})).unwrap();
+    app.job_enqueue(&member, "local-test", "check-j", json!({}))
+        .unwrap();
 
     let table_counts = |connection: &rusqlite::Connection| -> Vec<(String, i64)> {
         [
@@ -2166,7 +2303,11 @@ fn doctor_report_degrades_to_filesystem_checks_when_database_cannot_open() {
     {
         let connection = rusqlite::Connection::open(&db).unwrap();
         connection
-            .pragma_update(None, "user_version", wardrobe_core::DATABASE_SCHEMA_VERSION + 1)
+            .pragma_update(
+                None,
+                "user_version",
+                wardrobe_core::DATABASE_SCHEMA_VERSION + 1,
+            )
             .unwrap();
     }
     let report = wardrobe_core::diagnostics::doctor_report(&db);
@@ -2185,9 +2326,15 @@ fn doctor_report_degrades_to_filesystem_checks_when_database_cannot_open() {
         "技术明细带打开失败原因：{schema}"
     );
     let data_directory = items.iter().find(|i| i["id"] == "data_directory").unwrap();
-    assert_eq!(data_directory["status"], "pass", "文件系统级检查照常：{data_directory}");
+    assert_eq!(
+        data_directory["status"], "pass",
+        "文件系统级检查照常：{data_directory}"
+    );
     let wal = items.iter().find(|i| i["id"] == "database_wal").unwrap();
-    assert_eq!(wal["status"], "warn", "依赖数据库的项如实说明无法检查：{wal}");
+    assert_eq!(
+        wal["status"], "warn",
+        "依赖数据库的项如实说明无法检查：{wal}"
+    );
     assert_eq!(report["checks"]["counts"]["fail"], 1, "{report}");
 }
 
@@ -2214,11 +2361,21 @@ fn ui_event_accepts_only_whitelisted_types_and_short_labels() {
         assert_eq!(event["type"], json!(kind), "{event}");
         assert_eq!(event["label"], json!(label), "{event}");
         assert_eq!(event["level"], "info", "{event}");
-        assert_eq!(event["run_id"], wardrobe_core::diagnostics::run_id(), "{event}");
-        assert!(chrono::DateTime::parse_from_rfc3339(event["ts"].as_str().unwrap()).is_ok(), "{event}");
+        assert_eq!(
+            event["run_id"],
+            wardrobe_core::diagnostics::run_id(),
+            "{event}"
+        );
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(event["ts"].as_str().unwrap()).is_ok(),
+            "{event}"
+        );
         let allowed = ["ts", "level", "event_type", "run_id", "type", "label"];
         for key in event.as_object().unwrap().keys() {
-            assert!(allowed.contains(&key.as_str()), "ui 事件出现白名单外字段 {key}：{event}");
+            assert!(
+                allowed.contains(&key.as_str()),
+                "ui 事件出现白名单外字段 {key}：{event}"
+            );
         }
     }
     // 白名单外类型、缺 label、空 label、超长 label、未知字段、非法类型值：全部拒绝
@@ -2230,7 +2387,9 @@ fn ui_event_accepts_only_whitelisted_types_and_short_labels() {
         json!({"type":"view_switch","label":"穿搭库","extra":"字段"}),
         json!({"type":123,"label":"穿搭库"}),
     ] {
-        let error = app.execute("diagnostics.ui_event", bad.clone()).unwrap_err();
+        let error = app
+            .execute("diagnostics.ui_event", bad.clone())
+            .unwrap_err();
         assert_eq!(error.code, "invalid_input", "{bad}: {error:?}");
     }
     let after = log_events(dir.path());
@@ -2252,24 +2411,49 @@ fn reproduction_markers_bound_the_window_and_export_carries_reproduction_meta_wi
     // 窗口前的操作：窗口导出不得包含（隔开 2ms 避免毫秒边界同点）
     app.execute("member.list", json!({})).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2));
-    let start = app.execute("diagnostics.reproduction.start", json!({})).unwrap();
+    let start = app
+        .execute("diagnostics.reproduction.start", json!({}))
+        .unwrap();
     assert_eq!(start["schema_version"], 1, "{start}");
-    let started_at = start["started_at"].as_str().expect("started_at 须为 RFC3339").to_string();
+    let started_at = start["started_at"]
+        .as_str()
+        .expect("started_at 须为 RFC3339")
+        .to_string();
     // 窗口内：一次真实操作 + 一条用户操作时间线事件
     app.execute("space.default", json!({})).unwrap();
-    app.execute("diagnostics.ui_event", json!({"type":"view_switch","label":"穿搭库"})).unwrap();
-    let stop = app.execute("diagnostics.reproduction.stop", json!({})).unwrap();
+    app.execute(
+        "diagnostics.ui_event",
+        json!({"type":"view_switch","label":"穿搭库"}),
+    )
+    .unwrap();
+    let stop = app
+        .execute("diagnostics.reproduction.stop", json!({}))
+        .unwrap();
     assert_eq!(stop["schema_version"], 1, "{stop}");
-    let stopped_at = stop["stopped_at"].as_str().expect("stopped_at 须为 RFC3339").to_string();
+    let stopped_at = stop["stopped_at"]
+        .as_str()
+        .expect("stopped_at 须为 RFC3339")
+        .to_string();
 
     // 标记事件落盘，且落盘 ts 与返回的窗口端点完全一致
     let events = log_events(dir.path());
-    let markers: Vec<&Value> = events.iter().filter(|e| e["event_type"] == "reproduction").collect();
+    let markers: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event_type"] == "reproduction")
+        .collect();
     assert_eq!(markers.len(), 2, "开始/停止标记各一条：{events:?}");
     assert_eq!(markers[0]["phase"], "start", "{markers:?}");
-    assert_eq!(markers[0]["ts"], json!(started_at), "落盘 ts 须与 started_at 一致：{markers:?}");
+    assert_eq!(
+        markers[0]["ts"],
+        json!(started_at),
+        "落盘 ts 须与 started_at 一致：{markers:?}"
+    );
     assert_eq!(markers[1]["phase"], "stop", "{markers:?}");
-    assert_eq!(markers[1]["ts"], json!(stopped_at), "落盘 ts 须与 stopped_at 一致：{markers:?}");
+    assert_eq!(
+        markers[1]["ts"],
+        json!(stopped_at),
+        "落盘 ts 须与 stopped_at 一致：{markers:?}"
+    );
 
     // 以标记为界的窗口导出（含端点）：含两端标记、窗口内操作与 ui 事件，不含窗口前操作
     let target = dir.path().join("复现记录.jsonl");
@@ -2278,10 +2462,28 @@ fn reproduction_markers_bound_the_window_and_export_carries_reproduction_meta_wi
         &target,
         json!({"from":started_at,"to":stopped_at,"kind":"reproduction","attach_checks":true}),
     );
-    assert!(exported.iter().any(|e| e["event_type"] == "reproduction" && e["phase"] == "start"), "{exported:?}");
-    assert!(exported.iter().any(|e| e["event_type"] == "reproduction" && e["phase"] == "stop"), "{exported:?}");
-    assert!(exported.iter().any(|e| e["event_type"] == "ui" && e["type"] == "view_switch"), "{exported:?}");
-    assert!(exported.iter().any(|e| e["operation"] == "space.default"), "{exported:?}");
+    assert!(
+        exported
+            .iter()
+            .any(|e| e["event_type"] == "reproduction" && e["phase"] == "start"),
+        "{exported:?}"
+    );
+    assert!(
+        exported
+            .iter()
+            .any(|e| e["event_type"] == "reproduction" && e["phase"] == "stop"),
+        "{exported:?}"
+    );
+    assert!(
+        exported
+            .iter()
+            .any(|e| e["event_type"] == "ui" && e["type"] == "view_switch"),
+        "{exported:?}"
+    );
+    assert!(
+        exported.iter().any(|e| e["operation"] == "space.default"),
+        "{exported:?}"
+    );
     assert!(
         !exported.iter().any(|e| e["operation"] == "member.list"),
         "窗口前操作不得进入复现导出：{exported:?}"
@@ -2289,17 +2491,32 @@ fn reproduction_markers_bound_the_window_and_export_carries_reproduction_meta_wi
     assert_eq!(meta["kind"], "reproduction", "{meta}");
     let checks = &meta["checks"];
     assert_eq!(checks["schema_version"], 1, "{meta}");
-    assert_eq!(checks["checks"].as_array().unwrap().len(), 10, "附记录时刻的十项检查：{meta}");
-    assert_eq!(checks["counts"], json!({"pass":10,"warn":0,"fail":0}), "{meta}");
+    assert_eq!(
+        checks["checks"].as_array().unwrap().len(),
+        10,
+        "附记录时刻的十项检查：{meta}"
+    );
+    assert_eq!(
+        checks["counts"],
+        json!({"pass":10,"warn":0,"fail":0}),
+        "{meta}"
+    );
     // 输出契约与 #45 同形：路径与统计字段不变
     assert_eq!(output["schema_version"], 1, "{output}");
     assert_eq!(output["path"], json!(target.to_string_lossy()), "{output}");
     assert_eq!(output["event_count"], json!(exported.len()), "{output}");
 
     // #45 回归钉住：不传新参，meta.kind 仍为 diagnostics 且没有 checks 键
-    let (_, plain_meta, _) = export_lines(&app, &dir.path().join("plain.jsonl"), json!({"scope":"session"}));
+    let (_, plain_meta, _) = export_lines(
+        &app,
+        &dir.path().join("plain.jsonl"),
+        json!({"scope":"session"}),
+    );
     assert_eq!(plain_meta["kind"], "diagnostics", "{plain_meta}");
-    assert!(plain_meta.get("checks").is_none(), "不传新参不得附 checks：{plain_meta}");
+    assert!(
+        plain_meta.get("checks").is_none(),
+        "不传新参不得附 checks：{plain_meta}"
+    );
     // 新参数自身校验：非法 kind、非布尔 attach_checks、未知字段
     for bad in [
         json!({"path":"x.jsonl","kind":"video"}),
@@ -2316,13 +2533,21 @@ fn reproduction_markers_bound_the_window_and_export_carries_reproduction_meta_wi
 fn reproduction_markers_accept_no_input_fields() {
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
-    for operation in ["diagnostics.reproduction.start", "diagnostics.reproduction.stop"] {
-        let error = app.execute(operation, json!({"phase":"forged"})).unwrap_err();
+    for operation in [
+        "diagnostics.reproduction.start",
+        "diagnostics.reproduction.stop",
+    ] {
+        let error = app
+            .execute(operation, json!({"phase":"forged"}))
+            .unwrap_err();
         assert_eq!(error.code, "invalid_input", "{operation}: {error:?}");
         app.execute(operation, json!({})).unwrap();
     }
     let events = log_events(dir.path());
-    let markers: Vec<&Value> = events.iter().filter(|e| e["event_type"] == "reproduction").collect();
+    let markers: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["event_type"] == "reproduction")
+        .collect();
     assert_eq!(markers.len(), 2, "{events:?}");
     assert_eq!(markers[0]["phase"], "start", "{markers:?}");
     assert_eq!(markers[1]["phase"], "stop", "{markers:?}");

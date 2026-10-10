@@ -3,11 +3,11 @@ mod assets;
 mod authorization;
 mod backup;
 mod care;
-mod clothing;
 mod categories;
+mod clothing;
 mod cutout;
-pub mod diagnostics;
 mod data_directory;
+pub mod diagnostics;
 mod encryption;
 mod feedback;
 mod flatlay;
@@ -19,13 +19,18 @@ mod learning;
 mod maintenance;
 mod members;
 mod outfits;
+mod pair_search;
 mod pairing;
-pub mod profiles;
 mod product;
+pub mod profiles;
 mod providers;
+mod purchase;
 mod recognition;
 mod recommendations;
-mod pair_search;
+mod scenarios;
+mod schedules;
+mod stylist;
+pub mod sync;
 mod tryon;
 mod wears;
 mod weather;
@@ -36,7 +41,9 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATABASE_SCHEMA_VERSION: u32 = 21;
+// Combined categories and portable receipt variants (22) plus the schedule
+// families (23); the migration ladder below repairs each historical shape.
+pub const DATABASE_SCHEMA_VERSION: u32 = 23;
 pub use clothing::CATEGORIES;
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -51,6 +58,15 @@ pub struct ApiError {
 }
 impl ApiError {
     fn new(code: &str, message: &str) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            trace_id: None,
+            reason: None,
+        }
+    }
+    /// 供外部集成与测试构造既有形态错误（code+message）；trace/reason 走内部路径。
+    pub fn of(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             code: code.into(),
             message: message.into(),
@@ -175,15 +191,26 @@ impl Application {
         care::migrate(&tx)?;
         recommendations::migrate(&tx)?;
         weather::migrate(&tx)?;
+        schedules::migrate(&tx)?;
+        scenarios::migrate(&tx)?;
         feedback::migrate(&tx)?;
-        learning::migrate(&tx)?;
         jobs::migrate(&tx)?;
         imports::migrate(&tx)?;
         cutout::migrate(&tx)?;
         recognition::migrate(&tx)?;
+        purchase::migrate(&tx)?;
         encryption::migrate(&tx)?;
+        sync::migrate(&tx)?;
+        // Sync repairs immutable event tables before learning attaches source triggers.
+        learning::migrate(&tx)?;
         backup::migrate(&tx)?;
         maintenance::migrate(&tx)?;
+        upgrade_branch_shapes(&tx)?;
+        // The rebuild renames/drops the legacy versioned families, and SQLite
+        // drops their attached learning source-invalidation triggers with
+        // them; recreate the (idempotent) triggers so the SAME open instance
+        // keeps marking learned profiles stale on new event writes.
+        learning::migrate(&tx)?;
         tx.execute_batch(&format!(
             "PRAGMA user_version={};",
             version.max(DATABASE_SCHEMA_VERSION)
@@ -272,13 +299,8 @@ impl Application {
         // 业务调用期间暴露线程局部 trace 上下文：创建持久任务的操作经 jobs::insert
         // 把本次调用的 trace_id 写入任务文档（#44 异步链路贯穿的唯一传递通道）。
         let mut outcome = diagnostics::with_trace(&trace_id, || run(self, operation, input));
-        self.logger.log_operation(
-            &trace_id,
-            operation,
-            started.elapsed(),
-            &keys,
-            &outcome,
-        );
+        self.logger
+            .log_operation(&trace_id, operation, started.elapsed(), &keys, &outcome);
         if let Err(error) = &mut outcome {
             error.trace_id.get_or_insert(trace_id);
         }
@@ -345,6 +367,7 @@ impl Application {
             }
         }
         match operation {
+            name if name.starts_with("sync.") => self.sync_operation(name, input),
             "category.list" | "category.create" | "category.delete" => self.category_operation(operation,input),
             name if matches!(name,"backup.create"|"backup.preview"|"backup.restore"|"data_directory.move") => self.maintenance_enqueue(name,input),
             name if name.starts_with("maintenance.") => self.maintenance_operation(name,input),
@@ -400,8 +423,12 @@ impl Application {
             op if op.starts_with("outfit.") => self.outfit_execute(op, input),
             op if op.starts_with("wear.") => self.wear_execute(op, input),
             op if op.starts_with("learning.") => self.learning_execute(op, input),
+            op if op.starts_with("stylist.") => self.stylist_execute(op, input),
+            op if op.starts_with("purchase.") => self.purchase_execute(op, input),
             op if op.starts_with("feedback.") => self.feedback_execute(op, input),
             op if op.starts_with("weather.") => self.weather_execute(op, input),
+            op if op.starts_with("schedule.") => self.schedule_execute(op, input),
+            op if op.starts_with("scenario.") => self.scenario_execute(op, input),
             op if op.starts_with("recommendation.") => self.recommendation_execute(op, input),
             op if op.starts_with("pairing.") => self.pairing_execute(op, input),
             "insights.summary" => self.insights_summary(input),
@@ -432,12 +459,100 @@ impl Application {
             "assets.sync_manifest" => self.asset_sync_manifest(input),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
         }.map(|mut result| {
-            if operation.starts_with("backup.") || operation.starts_with("data_directory.") {
+            if operation.starts_with("backup.")
+                || operation.starts_with("data_directory.")
+                || operation.starts_with("schedule.")
+            {
                 result["schema_version"] = json!(1);
             }
             result
         })
     }
+}
+// Source-derived unique index signatures for one table: every unique index
+// (unique constraints, primary keys, and unique created indexes) reduced to
+// its sorted column list, so name variations and nonunique helper indexes are
+// ignored. Unique expression indexes and partial unique indexes map to an
+// unmatchable signature so they can never masquerade as a known constraint.
+pub(crate) fn unique_index_signatures(
+    db: &Connection,
+    table: &str,
+) -> Result<std::collections::HashSet<String>, ApiError> {
+    const UNMATCHABLE: &str = "!expression-or-partial";
+    let quoted_table = table.replace('"', "\"\"");
+    let indexes: Vec<(String, i64, i64)> = db
+        .prepare(&format!("PRAGMA index_list(\"{quoted_table}\")"))?
+        .query_map([], |row| Ok((row.get(1)?, row.get(2)?, row.get(4)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut signatures = std::collections::HashSet::new();
+    for (name, unique, partial) in indexes {
+        if unique != 1 {
+            continue;
+        }
+        if partial != 0 {
+            signatures.insert(UNMATCHABLE.to_string());
+            continue;
+        }
+        let quoted_index = name.replace('"', "\"\"");
+        let mut columns: Vec<Option<String>> = db
+            .prepare(&format!("PRAGMA index_info(\"{quoted_index}\")"))?
+            .query_map([], |row| row.get::<_, Option<String>>(2))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if columns.iter().any(Option::is_none) {
+            signatures.insert(UNMATCHABLE.to_string());
+            continue;
+        }
+        columns.sort();
+        signatures.insert(columns.into_iter().flatten().collect::<Vec<_>>().join("|"));
+    }
+    Ok(signatures)
+}
+
+// The extra unique signature a legacy strict versioned family carries on top
+// of the relaxed schema23 shape. Signatures join the index columns after
+// sorting them lexically.
+pub(crate) fn legacy_branch_signature(table: &str) -> &'static str {
+    match table {
+        "outfit_versions" => "outfit_id|version",
+        "feedback_events" => "revision|root_id",
+        _ => "revision|root_event_id",
+    }
+}
+
+// Schema23 adopts the final branch-capable relational shapes: outfit_versions
+// carries no composite (outfit_id,version) primary key and the event histories
+// carry no revision uniqueness, so lawful historical branch records survive
+// upgrades and restores. Legacy tables still carrying the old constraints are
+// rebuilt transactionally with their asset-ref children reattached; the check
+// is idempotent and copies rows losslessly (old constraints guaranteed no
+// duplicate branch keys).
+fn upgrade_branch_shapes(tx: &rusqlite::Transaction<'_>) -> Result<(), ApiError> {
+    for (table, refs, root) in [
+        ("wear_events", Some("wear_asset_refs"), "root_event_id"),
+        ("care_events", Some("care_asset_refs"), "root_event_id"),
+        ("feedback_events", Some("feedback_asset_refs"), "root_id"),
+        ("outfit_versions", None, ""),
+    ] {
+        if !unique_index_signatures(tx, table)?.contains(legacy_branch_signature(table)) {
+            continue;
+        }
+        if let Some(refs) = refs {
+            tx.execute_batch(&format!("ALTER TABLE {refs} RENAME TO {refs}_legacy"))?;
+        }
+        tx.execute_batch(&format!("ALTER TABLE {table} RENAME TO {table}_legacy"))?;
+        if table == "outfit_versions" {
+            tx.execute_batch("CREATE TABLE outfit_versions(outfit_id TEXT NOT NULL REFERENCES outfits(id),version INTEGER NOT NULL,document TEXT NOT NULL)")?;
+        } else {
+            tx.execute_batch(&format!("CREATE TABLE {table}(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),{root} TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL)"))?;
+        }
+        tx.execute_batch(&format!("INSERT INTO {table} SELECT * FROM {table}_legacy"))?;
+        if let Some(refs) = refs {
+            tx.execute_batch(&format!("CREATE TABLE {refs}(event_id TEXT NOT NULL REFERENCES {table}(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));INSERT INTO {refs} SELECT * FROM {refs}_legacy;DROP TABLE {refs}_legacy"))?;
+        }
+        tx.execute_batch(&format!("DROP TABLE {table}_legacy"))?;
+    }
+    tx.execute_batch("CREATE INDEX IF NOT EXISTS wear_member_root ON wear_events(member_id,root_event_id,revision);CREATE INDEX IF NOT EXISTS care_member_root ON care_events(member_id,root_event_id,revision);CREATE INDEX IF NOT EXISTS feedback_member_root ON feedback_events(member_id,root_id,revision);CREATE INDEX IF NOT EXISTS outfit_versions_branch ON outfit_versions(outfit_id,version)")?;
+    Ok(())
 }
 fn string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ApiError> {
     input
@@ -458,10 +573,12 @@ pub fn operations() -> Value {
     descriptors.extend(maintenance::descriptors());
     descriptors.extend(data_directory::descriptors());
     descriptors.extend(encryption::descriptors());
+    descriptors.extend(sync::descriptors());
     descriptors.extend(clothing::descriptors());
     descriptors.extend(categories::descriptors());
     descriptors.extend(providers::descriptors());
     descriptors.extend(recognition::descriptors());
+    descriptors.extend(purchase::descriptors());
     descriptors.extend(product::descriptors());
     descriptors.extend(flatlay::descriptors());
     descriptors.extend(tryon::descriptors());
@@ -474,8 +591,11 @@ pub fn operations() -> Value {
     descriptors.extend(recommendations::descriptors());
     descriptors.extend(pairing::descriptors());
     descriptors.extend(weather::descriptors());
+    descriptors.extend(schedules::descriptors());
+    descriptors.extend(scenarios::descriptors());
     descriptors.extend(feedback::descriptors());
     descriptors.extend(learning::descriptors());
+    descriptors.extend(stylist::descriptors());
     descriptors.extend(jobs::descriptors());
     descriptors.extend(imports::descriptors());
     descriptors.extend(image_editing::descriptors());
@@ -484,7 +604,8 @@ pub fn operations() -> Value {
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );
     capabilities["outputSchema"] = json!({"type":"object","required":["schema_version","operations","categories","taxonomy"],"properties":{"schema_version":{"type":"integer","const":1},"operations":{"type":"array","items":{"type":"object","required":["name","description","inputSchema","outputSchema"]}},"categories":{"type":"array","items":{"type":"string"}},"taxonomy":{"type":"object","required":["version","sub_categories","colors"],"properties":{"version":{"type":"integer"},"sub_categories":{"type":"array"},"colors":{"type":"array"}}}}});
-    capabilities["effect"] = json!({"kind":"query","network":"none","local_files":false,"async":null});
+    capabilities["effect"] =
+        json!({"kind":"query","network":"none","local_files":false,"async":null});
     capabilities["examples"] = json!([{"request":{},"prerequisites":["免授权发现全部公开操作契约（名称/描述/输入输出schema）","限定scope客户端仅见其授权范围内操作；本示例只读不执行业务"]}]);
     descriptors.push(capabilities);
     // scope 元数据由授权规则同源派生（authorization::scope_metadata），不是第二套命令表
@@ -544,8 +665,7 @@ pub fn default_database_path_checked() -> Result<PathBuf, ApiError> {
     let path = default_database_path();
     guard_debug_default_data_dir(
         std::env::var_os("WARDROBE_DATA_DIR").is_some(),
-        std::env::var_os("WARDROBE_ALLOW_DEFAULT_DATA_DIR")
-            .is_some_and(|value| value == "1"),
+        std::env::var_os("WARDROBE_ALLOW_DEFAULT_DATA_DIR").is_some_and(|value| value == "1"),
     )?;
     Ok(path)
 }

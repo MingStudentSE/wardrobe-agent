@@ -16,11 +16,18 @@ fn debug_cli_without_isolation_refuses_default_directory() {
     #[cfg(debug_assertions)]
     {
         assert_eq!(output.status.code(), Some(1), "护栏拒绝应走 exit 1 通道");
-        let body: Value = serde_json::from_slice(&output.stdout)
-            .unwrap_or_else(|e| panic!("非JSON stdout: {e}: {}", String::from_utf8_lossy(&output.stdout)));
+        let body: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+            panic!(
+                "非JSON stdout: {e}: {}",
+                String::from_utf8_lossy(&output.stdout)
+            )
+        });
         assert_eq!(body["error"]["code"], "storage_error");
         let message = body["error"]["message"].as_str().unwrap();
-        assert!(message.contains("WARDROBE_DATA_DIR"), "应提示隔离变量：{message}");
+        assert!(
+            message.contains("WARDROBE_DATA_DIR"),
+            "应提示隔离变量：{message}"
+        );
     }
     // release 构建放行默认目录；本测试不真正打开数据库，release 分支到此为止。
     #[cfg(not(debug_assertions))]

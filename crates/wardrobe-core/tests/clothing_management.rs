@@ -160,9 +160,19 @@ fn custom_subcategories_and_canonical_colors_are_preserved() {
     assert_eq!(item["material"], json!(["棉"]));
     let custom=app.execute("clothing.create",json!({"member_id":"default","name":"开衫","category":"top","sub_category":"细针织开衫"})).unwrap();
     assert_eq!(custom["sub_category"], "细针织开衫");
-    let updated=app.execute("clothing.update",json!({"member_id":"default","id":custom["id"],"sub_category":"短款开衫"})).unwrap();
+    let updated = app
+        .execute(
+            "clothing.update",
+            json!({"member_id":"default","id":custom["id"],"sub_category":"短款开衫"}),
+        )
+        .unwrap();
     assert_eq!(updated["sub_category"], "短款开衫");
-    assert!(app.execute("clothing.update",json!({"member_id":"default","id":custom["id"],"sub_category":"a".repeat(501)})).is_err());
+    assert!(app
+        .execute(
+            "clothing.update",
+            json!({"member_id":"default","id":custom["id"],"sub_category":"a".repeat(501)})
+        )
+        .is_err());
 }
 #[test]
 fn clothing_history_lifecycle_and_edit_are_scoped_to_the_owner_member() {

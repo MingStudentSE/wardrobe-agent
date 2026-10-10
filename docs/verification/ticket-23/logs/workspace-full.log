@@ -1,0 +1,797 @@
+   Compiling wardrobe-core v0.1.0 (/Users/links/.codex/external-workspace-volume/codex/wardrobe-execution/worktrees/ticket-23-scenarios/crates/wardrobe-core)
+   Compiling wardrobe-cli v0.1.0 (/Users/links/.codex/external-workspace-volume/codex/wardrobe-execution/worktrees/ticket-23-scenarios/crates/wardrobe-cli)
+warning: variable does not need to be mutable
+   --> crates/wardrobe-cli/tests/external_agent_workflow.rs:249:9
+    |
+249 |     let mut chunk = |t: &[u8], d: &[u8], out: &mut Vec<u8>| {
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wardrobe-cli` (test "external_agent_workflow") generated 1 warning (run `cargo fix --test "external_agent_workflow" -p wardrobe-cli` to apply 1 suggestion)
+    Finished `test` profile [unoptimized] target(s) in 51.90s
+     Running unittests src/main.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/wardrobe_cli-9efbf2021e30846a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/discovery.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/discovery-5f19e5619412e440)
+
+running 11 tests
+test duplicate_trusted_local_is_a_syntax_error ... ok
+test mcp_startup_failure_keeps_the_jsonrpc_stream_clean ... ok
+test help_and_version_succeed_as_json_without_touching_storage ... ok
+test metadata_flags_are_standalone_and_empty_command_stdin_is_rejected ... ok
+test invalid_argument_combinations_fail_before_storage_with_invalid_arguments ... ok
+test db_value_consumes_flag_like_tokens_and_separator_forces_literals ... ok
+test help_and_schema_describe_registered_operations_without_storage ... ok
+test storage_failures_exit_1_while_json_errors_stay_2 ... ok
+test only_literal_mcp_command_switches_transport_and_version_matches_package ... ok
+test registry_metadata_projects_through_cli_schema_and_mcp_tools_list ... ok
+test stdin_and_secret_transport_guards_fail_without_panic_or_token_echo ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.65s
+
+     Running tests/entrypoints.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/entrypoints-ca549b05922281a7)
+
+running 28 tests
+test cli_imported_image_is_available_through_mcp_without_gui ... ok
+test cli_and_mcp_enforce_sync_space_scope_and_publish_usable_member_descriptors ... ok
+test cli_and_mcp_use_same_persisted_application_without_gui ... ok
+test authorized_cli_and_mcp_validate_only_explicit_vision_capability ... ok
+test authorized_cli_pairing_generate_equals_fresh_mcp_pairing_list_without_wear ... ok
+test authorized_cli_and_mcp_return_the_same_derived_insights_and_persistent_threshold ... ok
+test cli_and_mcp_share_product_job_consent_idempotency_and_cancellation ... ok
+test credential_command_requires_stdin_to_keep_secret_out_of_process_arguments ... ok
+test authorized_cli_mcp_share_actual_wear_retries_corrections_and_immutable_history ... ok
+test external_cli_and_mcp_enforce_same_operation_and_member_grant ... ok
+test cli_mcp_real_multimage_flatlay_preview_and_local_save_keep_template_and_wear ... ok
+test cli_saved_outfit_and_immutable_version_are_the_same_through_mcp_after_restart ... ok
+test authorized_cli_mcp_share_recognition_proposal_review_and_restart ... ok
+test cli_mcp_share_durable_care_threshold_chronology_and_reminder_availability ... ok
+test cli_member_profiles_and_mcp_inventory_share_member_scope ... ok
+test cli_mcp_share_durable_batch_job_ids_cancellation_and_idempotent_commit ... ok
+test mcp_edits_and_restores_same_clothing_as_cli_filters_without_gui ... ok
+test cli_mcp_share_immutable_image_edits_and_cancelled_cutout_jobs ... ok
+test mcp_initialized_full_authorization_is_reused_for_multiple_writes_without_reauthorization ... ok
+test stdin_configuration_and_mcp_discovery_share_provider_contract_without_gui ... ok
+test unauthenticated_external_cli_cannot_read_inventory ... ok
+test real_authorized_cli_and_stdin_mcp_share_persistent_offline_recommendation_ids ... ok
+test cli_mcp_real_multimage_tryon_preview_and_local_save_keep_template_and_wear ... ok
+test pairing_only_member_limited_grant_denies_scope_and_foreign_member_via_cli_and_mcp ... ok
+test pairing_generate_rejects_foreign_unknown_and_care_unavailable_anchor_via_mcp ... ok
+test space_crypto_uses_stdin_and_mcp_full_scope_does_not_expose_private_key_management ... ok
+test pairing_history_pages_exact_ids_across_subprocess_restarts ... ok
+test pairing_save_feedback_and_try_another_retain_anchor_without_wear ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.63s
+
+     Running tests/external_agent_workflow.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/external_agent_workflow-70484f0c4d9cfd02)
+
+running 1 test
+test external_agent_full_workflow_after_builtin_ai_off ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+
+     Running tests/profiles.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/profiles-0379c3b552553736)
+
+running 2 tests
+test mcp_profile_resolution_matches_cli_without_gui ... ok
+test profile_lifecycle_isolation_and_fallback_matrix ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/scenario_entrypoints.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/scenario_entrypoints-d8909570bc95c4b1)
+
+running 3 tests
+test mcp_tools_list_exposes_scenario_operations ... ok
+test cli_reports_shortage_and_constraint_conflicts_with_typed_errors ... ok
+test scenario_operations_are_discoverable_and_plan_travel_through_cli ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+
+     Running tests/schedule_entrypoints.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/schedule_entrypoints-26a2c24fe4dd5e11)
+
+running 3 tests
+test scheduler_rejects_profile_connection_instead_of_silently_ignoring_it ... ok
+test cli_schedule_lifecycle_pause_reopen_and_mcp_share_identity_with_declared_schema ... ok
+test restricted_second_member_is_isolated_from_first_member_plans_and_mutations_denied ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+
+     Running unittests src/lib.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/wardrobe_core-1455b102a1d64765)
+
+running 12 tests
+test profiles::tests::corrupt_or_invalid_config_is_storage_error_not_silent_reset ... ok
+test profiles::tests::profile_crud_is_atomic_and_never_touches_data ... ok
+test sync::cursor_contract::overlapping_local_jobs_never_corrupt_the_index_cursor_and_reject_fresh_remote_rollback ... ignored, requires actual OS credential store
+test data_directory::tests::pending_reader_preserves_concurrently_published_active_location ... ok
+test maintenance::lease_tests::maintenance_worker_rejects_an_external_symbolic_lock_target ... ok
+test maintenance::lease_tests::a_live_worker_lock_prevents_a_second_worker_from_claiming_an_expired_receipt ... ok
+test maintenance::lease_tests::replacing_a_live_lock_inode_cannot_start_a_second_worker_or_publish_first_worker ... ok
+test ai_recommendations::publication_boundary::published_intent_survives_cancel_between_commit_and_job_finish_and_retry_is_cached ... ok
+test maintenance::lease_tests::cancellation_committed_at_lease_refresh_boundary_cannot_be_resurrected ... ok
+test maintenance::lease_tests::published_backup_recovers_its_durable_receipt_without_creating_another_package ... ok
+test maintenance::lease_tests::published_directory_switch_recovers_its_job_receipt_after_worker_disappears ... ok
+test authorization::restore_boundary_tests::restore_after_grant_validation_never_reopens_as_trusted ... ok
+
+test result: ok. 11 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+     Running tests/ai_recommendations.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/ai_recommendations-a8dd888404013697)
+
+running 11 tests
+test illegal_model_ids_retry_twice_then_real_rule_fallback_preserves_fixed_and_no_wear ... ok
+test model_cannot_claim_recent_repeat_is_inventory_shortage_when_fresh_alternative_exists ... ok
+test model_response_after_inventory_changes_cannot_restore_archived_item ... ok
+test two_public_connections_same_intent_have_only_one_provider_submission ... ok
+test invalid_output_budget_survives_reopened_worker_and_separate_rate_limit_delay ... ok
+test valid_model_outfit_uses_current_real_ids_and_shared_template_save_without_wear ... ok
+test confirmed_rate_limit_budget_is_global_across_three_reopened_workers ... ok
+test cancelled_or_expired_submitted_request_cannot_publish_or_retry ... ok
+test cancellation_or_expiry_during_retry_after_wait_prevents_second_post ... ok
+test initial_ai_receipt_is_durable_and_precedes_weather_or_model_http ... ok
+test confirmed_rate_limit_waits_retry_after_then_returns_valid_model_result ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.44s
+
+     Running tests/application.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/application-ffdc02d1fe195a3e)
+
+running 10 tests
+test newer_database_version_is_refused_instead_of_downgraded ... ok
+test invalid_page_and_member_are_typed_errors_without_writes ... ok
+test invalid_currency_and_fractional_minor_units_are_rejected ... ok
+test open_client_refuses_operations_after_newer_client_upgrades_database ... ok
+test wrong_type_cursor_is_rejected_instead_of_restarting_page ... ok
+test pagination_preserves_every_created_item_without_duplicates ... ok
+test discovered_operations_describe_output_required_fields_for_consumers ... ok
+test supported_early_database_migrates_price_and_category_without_losing_identity ... ok
+test currency_exponent_keeps_yen_and_dinar_prices_unambiguous ... ok
+test no_key_first_entry_survives_restart_with_unknown_values ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+     Running tests/assets.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/assets-773e493192c33ac7)
+
+running 9 tests
+test image_capabilities_describe_required_references_and_real_preview_output ... ok
+test malformed_input_and_overlarge_file_do_not_become_display_assets ... ok
+test header_over_sixty_megapixels_is_rejected_before_pixel_decode ... ok
+test heic_decodes_real_container_without_external_model_and_preserves_bytes ... ok
+test jpeg_exif_rotation_is_applied_once_before_display_encoding ... ok
+test adopted_display_manifest_excludes_original_and_preview_assets ... ok
+test imported_png_survives_restart_with_a_local_original_and_display ... ok
+test detaching_an_image_preserves_bytes_and_other_clothing_references ... ok
+test large_jpeg_shrinks_and_thumbnail_can_be_rebuilt_without_original ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.40s
+
+     Running tests/authorization.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/authorization-fe956f04a592cf83)
+
+running 8 tests
+test damaged_grant_does_not_silently_expand_member_scope ... ok
+test authorization_requires_an_explicit_member_scope_instead_of_silently_granting_all ... ok
+test trusted_gui_can_authorize_a_limited_client_with_a_one_time_token ... ok
+test client_cannot_remove_credentials_indirectly_by_changing_a_provider_binding ... ok
+test limited_client_can_read_one_member_but_cannot_write_or_read_another ... ok
+test full_client_does_not_need_repeat_confirmation_and_revocation_survives_restart_without_token_leak ... ok
+test member_limited_sync_grant_cannot_smuggle_member_id_into_space_operations ... ok
+test expired_token_is_refused_and_discovery_and_member_list_hide_ungranted_data ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s
+
+     Running tests/backup.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/backup-cbbda9a3225d5625)
+
+running 36 tests
+test interrupted_pending_directory_publication_falls_back_to_old_source_before_any_new_writes ... ok
+test local_backup_preferences_persist_with_revision_but_are_not_portable_installation_settings ... ok
+test failed_real_prebackup_preserves_current_authorization_and_cleans_staged_restore_files ... ok
+test credentials_are_absent_from_every_backup_file_and_never_authorize_restored_installation ... ok
+test directory_move_retains_local_grants_configuration_and_media_without_reading_old_assets ... ok
+test data_directory_switch_verifies_copy_and_existing_application_and_reopened_tools_follow_it ... ok
+test feedback_portable_valid_day_and_confirmed_wear_reject_cross_member_wear_reference ... ok
+test portable_backup_keeps_explicit_weather_config_but_excludes_cached_results_and_errors ... ok
+test overwrite_removes_previous_installation_operational_jobs_and_authorization_without_losing_incoming_facts ... ok
+test immutable_versions_revised_wear_care_and_detached_historical_display_survive_relocated_backup ... ok
+test portable_backup_preview_restore_preserves_actual_history_after_restart ... ok
+test preview_domain_care_revision_must_match_sql_row ... ok
+test preview_domain_intent_controls_must_match_persisted_request ... ok
+test preview_domain_outfit_version_must_match_sql_row ... ok
+test portable_feedback_revisions_and_observed_display_survive_source_removal_without_originals ... ok
+test preview_domain_receipt_member_must_match_sql_row ... ok
+test portable_media_content_remains_decodable_with_extensionless_transport_object_names ... ok
+test explicit_original_option_controls_real_bytes_and_restored_original_availability ... ok
+test preview_domain_wear_root_must_match_sql_row ... ok
+test preview_domain_save_receipt_cannot_point_at_another_outfit ... ok
+test preview_rejects_feedback_receipt_disagreeing_with_original_observation ... ok
+test preview_rejects_feedback_root_identity_with_valid_transport_and_sql_references ... ok
+test preview_rejects_missing_json_asset_references_even_when_database_and_file_hashes_are_consistent ... ok
+test preview_rejects_removed_foreign_key_declarations_before_any_overwrite ... ok
+test preview_rejects_undecodable_display_even_when_transport_hash_matches ... ok
+test preview_explains_overwrite_and_real_prebackup_can_restore_previous_installation ... ok
+test preview_rejects_weather_config_with_embedded_endpoint_credentials ... ok
+test preview_rejects_invalid_category_or_document_identity_with_legitimate_file_hashes ... ok
+test restore_uses_only_verified_inventory_and_keeps_unlisted_objects_outside_local_media ... ok
+test preview_rejects_valid_changed_blob_with_old_immutable_id_even_when_transport_is_resigned ... ok
+test already_open_authorized_application_cannot_write_after_restore_removes_its_grant ... ok
+test restored_old_configuration_and_saved_outfit_receipts_keep_original_revisions ... ok
+test restored_display_is_self_contained_and_corrupt_archive_never_overwrites_current_facts ... ok
+test unsupported_versions_and_cross_platform_paths_never_change_current_installation ... ok
+test preview_rejects_feedback_domain_even_when_receipt_and_transport_agree ... ok
+test concurrent_old_connection_writes_are_present_after_directory_switch ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.82s
+
+     Running tests/backup_pair_projection.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/backup_pair_projection-ea6bd368ab48653c)
+
+running 6 tests
+test backup_preview_accepts_legacy_profile_without_pair_projection_field ... ok
+test backup_preview_rejects_exported_pair_projection_with_tampered_weight ... ok
+test backup_preview_rejects_pair_projection_anchored_on_foreign_member_event ... ok
+test backup_preview_rejects_pair_projection_with_nonexistent_source_event ... ok
+test backup_restore_roundtrip_preserves_exported_pair_projection ... ok
+test backup_preview_rejects_repeated_and_unsorted_pair_projection_entries ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+
+     Running tests/care.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/care-3f096b7d4977dc9a)
+
+running 12 tests
+test caller_cannot_bypass_manual_dirty_intent_or_omit_config_revision ... ok
+test correcting_time_or_action_preserves_notes_when_not_explicitly_replaced ... ok
+test positive_optional_threshold_and_manual_dirty_are_separate_from_lifecycle ... ok
+test configuration_keeps_identity_creation_timestamp_and_uses_revision_cas ... ok
+test correction_rejects_conflicting_manual_dirty_and_cleaning_intents_instead_of_ignoring_fields ... ok
+test chronological_backdating_correction_revocation_and_maintenance_rebuild_real_counts ... ok
+test manual_dirty_clear_cleaning_and_maintenance_follow_actual_chronology_and_wear_revocations ... ok
+test max_schema_reopens_and_repairs_actual_missing_care_tables ... ok
+test shared_garment_across_templates_reaches_threshold_without_blocking_truthful_wear ... ok
+test revoked_care_snapshot_keeps_adopted_asset_after_detach_delete_and_restart ... ok
+test timezone_exact_retries_cas_member_isolation_and_deleted_snapshot_history_survive_restart ... ok
+test availability_reads_atomic_config_cohorts_on_one_snapshot_during_external_writes ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/categories.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/categories-5f1d8f583ebb15b6)
+
+running 2 tests
+test custom_categories_and_deletion_preserve_clothing_and_are_member_scoped ... ok
+test custom_categories_survive_portable_backup_restore ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/clothing_management.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/clothing_management-84e697d05a982bad)
+
+running 8 tests
+test clothing_history_lifecycle_and_edit_are_scoped_to_the_owner_member ... ok
+test invalid_facts_are_rejected_without_partial_changes ... ok
+test unknown_patch_fields_cannot_silently_override_identity_assets_or_lifecycle ... ok
+test audit_history_retains_prior_facts_after_edit_and_delete ... ok
+test optional_clothing_facts_round_trip_and_patch_preserves_omitted_facts ... ok
+test custom_subcategories_and_canonical_colors_are_preserved ... ok
+test soft_delete_hides_clothing_and_explicit_restore_keeps_identity_and_facts ... ok
+test combined_filters_search_sort_and_pagination_find_only_matching_facts ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+     Running tests/encrypted_package.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/encrypted_package-045f42afeeda4e33)
+
+running 4 tests
+test oversized_real_fact_snapshot_fails_before_publishing_and_preserves_local_facts ... ignored, requires real OS credential store
+test paired_installation_reads_application_generated_ciphertext_package_without_original_or_local_secrets ... ignored, requires real OS credential store
+test secondary_display_referenced_by_immutable_outfit_version_remains_in_encrypted_package ... ignored, requires real OS credential store
+test full_external_client_cannot_export_or_read_local_encryption_packages ... ok
+
+test result: ok. 1 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/encryption.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/encryption-e7ed1076601f67ba)
+
+running 9 tests
+test database_and_wal_do_not_persist_exported_recovery_or_unwrapped_private_keys ... ignored, requires real OS credential store
+test device_confirmation_is_single_use_and_revocation_rotates_future_keys_for_remaining_devices ... ignored, requires real OS credential store
+test encrypted_space_restarts_with_system_key_and_pairing_imports_same_master_on_second_device ... ignored, requires real OS credential store
+test failed_rotation_is_atomic_and_recovery_keeps_all_historical_epochs ... ignored, requires real OS credential store
+test recovery_restores_keys_and_password_change_preserves_existing_ciphertext ... ignored, requires real OS credential store
+test two_connections_racing_confirmation_consume_invitation_once ... ignored, requires real OS credential store
+test highest_database_version_repairs_missing_encryption_tables_without_downgrade ... ok
+test external_full_scope_cannot_manage_space_secrets_even_with_member_argument ... ok
+test encrypted_envelopes_roundtrip_and_authenticate_workspace_kind_version_and_bytes ... ok
+
+test result: ok. 3 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 7.84s
+
+     Running tests/feedback.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/feedback-41f093acb406b2a6)
+
+running 9 tests
+test day_exclusion_is_explicit_local_day_hard_constraint_and_never_wear ... ok
+test actual_wear_requires_confirmation_and_changed_combination_is_a_real_idempotent_wear ... ok
+test explicit_feedback_persists_idempotently_with_optional_scores_without_wear ... ok
+test try_another_records_skip_preserves_fixed_and_disliked_sets_change_future_candidates ... ok
+test corrected_revoked_feedback_keeps_readable_history_without_rewriting_proposal_or_wear ... ok
+test feedback_retains_adopted_display_after_detach_and_delete_without_original_sync ... ok
+test day_exclusion_during_real_model_http_prevents_late_publication_of_fixed_garment ... ok
+test nineteen_repairs_missing_feedback_tables_and_two_clients_cannot_correct_one_revision ... ok
+test optional_score_validation_pagination_and_scoped_permissions_are_real_public_contracts ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s
+
+     Running tests/flatlay.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/flatlay-5d698fcfee5160b0)
+
+running 5 tests
+test saved_version_flatlay_requires_all_images_and_explicit_upload ... ok
+test immutable_version_inputs_and_scope_survive_later_template_edits ... ok
+test actual_multireference_http_result_saves_locally_without_wear_or_outfit_changes ... ok
+test all_inputs_preflight_rejects_missing_oversized_count_and_small_resolution_without_truncation ... ok
+test provider_failure_never_loses_saved_outfit_or_offline_collage_and_does_not_resubmit ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.00s
+
+     Running tests/image_editing.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/image_editing-8a2dcdd82019f0c5)
+
+running 7 tests
+test real_model_download_white_shirt_cutout_and_cached_offline_restart ... ignored, explicit official model download and public licensed photo inference; run for packaged runtime acceptance
+test local_cutout_model_missing_status_is_actionable_and_no_fallback ... ok
+test failed_restore_keeps_source_and_derived_display_unchanged ... ok
+test image_merge_and_replace_are_atomic_and_preserve_source_clothing ... ok
+test rotation_preserves_original_and_facts_and_restores_after_restart ... ok
+test cutout_queue_survives_restart_and_missing_model_fails_without_changing_asset ... ok
+test twenty_image_limit_and_member_scope_reject_merge_atomically ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/imports.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/imports-fdde2689a15efba1)
+
+running 7 tests
+test missing_source_can_be_restored_then_retried_without_losing_other_drafts ... ok
+test concurrent_commit_responses_reference_one_clothing_and_one_history_entry ... ok
+test durable_batch_keeps_source_and_idempotent_identity_across_restart ... ok
+test draft_edits_survive_restart_and_default_unknowns_remain_manual ... ok
+test mixed_batch_can_cancel_retry_group_and_commit_exactly_once ... ok
+test batch_limits_grouping_scope_and_auth_are_enforced_without_partial_clothing ... ok
+test version_eight_lookbook_gains_batch_tables_without_losing_versions_after_restart ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+     Running tests/insights.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/insights-41d6aa0ff75cbf66)
+
+running 6 tests
+test inventory_multicolor_and_actual_frequency_match_hand_calculation ... ok
+test member_insight_preferences_have_stable_identity_and_compare_and_swap_revision ... ok
+test highest_database_version_repairs_missing_preferences_and_retains_wear_and_inventory ... ok
+test empty_denominators_member_preferences_authorization_and_timezone_cutoff_are_explicit ... ok
+test highest_version_repairs_both_care_and_insight_preferences_without_erasing_actual_history ... ok
+test stale_boundaries_preferences_and_combinations_recompute_after_correction_and_revoke ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+
+     Running tests/jobs.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/jobs-de3e70e0e134969b)
+
+running 2 tests
+test concurrent_workers_have_one_lease_cancel_prevents_late_finish_and_expiry_recovers ... ok
+test transient_retries_are_bounded_delayed_and_permanent_errors_stay_failed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.73s
+
+     Running tests/learning.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/learning-a2a5ea61a024eb1c)
+
+running 8 tests
+test same_feature_requires_edit_instead_of_competing_explicit_values_and_cas_is_atomic ... ok
+test explicit_preference_is_durable_versioned_and_separate_from_inferred_profile ... ok
+test recommendation_reads_learning_weights_without_overriding_excluded_or_fixed_ids ... ok
+test source_snapshots_and_effective_corrections_are_used_and_management_history_is_paginated ... ok
+test optional_dimensions_have_explained_effect_and_skip_alone_is_not_dislike ... ok
+test known_feedback_and_actual_wear_recompute_deterministically_without_changing_facts ... ok
+test member_scope_validation_and_actual_missing_tables_repair_keep_learning_public ... ok
+test edits_and_deleted_inferences_reset_boundaries_survive_recompute_without_deleting_wear ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.24s
+
+     Running tests/learning_jobs.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/learning_jobs-1f9e18dda37ffc00)
+
+running 7 tests
+test worker_only_client_cannot_lift_reset_boundary ... ok
+test recompute_returns_durable_job_before_profile_changes_and_explicit_worker_publishes ... ok
+test queued_rebuild_cannot_undo_later_reset_and_cancel_survives_reopen ... ok
+test portable_learning_keeps_preferences_and_marks_foreign_inference_stale ... ok
+test accepted_db19_archive_restores_empty_learning_without_relaxing_current_schema ... ok
+test resigned_portable_learning_domain_corruption_is_rejected_without_replacing_local_facts ... ok
+test running_worker_cannot_publish_after_public_reset_or_cancel ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.78s
+
+     Running tests/learning_reset_offsets.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/learning_reset_offsets-aaa7d18af7fcdb3c)
+
+running 2 tests
+test wear_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset ... ok
+test feedback_created_at_same_instant_plus_fourteen_offset_stays_excluded_after_learning_reset ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.46s
+
+     Running tests/learning_scale.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/learning_scale-0746f69bc92c3053)
+
+running 1 test
+test nonempty_learning_ranks_ten_thousand_inventory_hundred_thousand_effective_wears ... ignored, actual 10k clothing / 100k wear projection scale evidence; run explicitly
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/maintenance_jobs.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/maintenance_jobs-7947377bffcf498f)
+
+running 6 tests
+test directory_move_returns_job_before_publishing_location ... ok
+test backup_create_returns_durable_job_before_creating_any_package ... ok
+test member_limited_clients_cannot_read_or_control_whole_space_jobs ... ok
+test backup_preview_returns_job_before_reading_complete_package ... ok
+test queued_cancel_is_durable_and_explicit_retry_preserves_intent ... ok
+test backup_restore_returns_job_before_overwriting_any_current_fact ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.95s
+
+     Running tests/members.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/members-8f049ded7e2d3f06)
+
+running 4 tests
+test unsupported_profile_fields_are_rejected_instead_of_silently_discarded ... ok
+test member_inventory_and_wrong_member_requests_are_isolated ... ok
+test legacy_default_profile_keeps_custom_name_and_inventory_identity ... ok
+test member_profiles_and_selection_survive_restart ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+     Running tests/outfits.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/outfits-c96ed020993d761c)
+
+running 5 tests
+test editing_requires_the_version_seen_by_the_caller_and_preserves_conflicting_template ... ok
+test existing_version_five_inventory_survives_lookbook_migration_and_reopen ... ok
+test manual_templates_accept_all_categories_but_reject_invalid_structure_atomically ... ok
+test saved_lookbook_keeps_versions_independent_from_clothing_and_clone ... ok
+test collage_uses_immutable_adopted_display_and_retains_version_asset_after_detach ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.40s
+
+     Running tests/pairing.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/pairing-1164d2ba9e13829d)
+
+running 11 tests
+test unavailable_anchor_conflicts_but_pairing_history_stays_readable ... ok
+test pairing_generate_anchors_every_real_proposal_persists_immutable_intent_without_wear ... ok
+test non_monotone_rewards_follow_small_exhaustive_public_oracle ... ok
+test recompute_include_prior_explicitly_readopts_pre_boundary_pair_facts ... ok
+test pair_projection_tracks_correction_then_revocation_through_recompute ... ok
+test anchored_like_feedback_learns_anchor_specific_pair_ranking_shared_by_ordinary_recommendations ... ok
+test pairing_list_keyset_pages_durable_anchor_intents_excluding_foreign_and_unmarked ... ok
+test pairing_rejects_day_excluded_anchor_and_foreign_feedback_never_crosses_members ... ok
+test pairing_reset_forgets_learned_pairs_until_post_boundary_recompute ... ok
+test wear_then_revoke_teaches_and_forgets_pair_rewards_through_recompute ... ok
+test large_enabled_pair_inventory_ranks_taught_pair_first_within_bounds ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 36.71s
+
+     Running tests/product_display.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/product_display-a18da5aa75ef9413)
+
+running 6 tests
+test dedicated_image_provider_preserves_adapter_and_rejects_chat_validation ... ok
+test product_job_requires_explicit_upload_and_keeps_old_display ... ok
+test cancelled_inflight_generation_never_creates_result_or_changes_clothing ... ok
+test lost_provider_response_persists_unknown_and_refuses_same_job_after_restart ... ok
+test real_http_generation_is_preview_until_adopted_and_never_blindly_resubmits ... ok
+test limited_client_requires_explicit_generation_scope_and_member ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+     Running tests/providers.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/providers-3ea6371799df229d)
+
+running 6 tests
+test credentials_can_be_set_replaced_and_removed_without_echo_or_database_persistence ... ignored, OS credential-store smoke test requires an unlocked desktop keychain/Secret Service
+test provider_configuration_rejects_insecure_urls_unknown_image_capability_and_embedded_keys ... ok
+test validation_requires_explicit_declared_capability_before_network ... ok
+test model_configuration_survives_restart_without_a_key_or_blocking_manual_entry ... ok
+test connection_validation_uses_configured_model_and_reports_only_verified_capability ... ok
+test vision_only_configuration_sends_a_builtin_multimodal_image ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/recognition.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/recognition-2f4b64dc71cadf25)
+
+running 8 tests
+test explicit_recognition_records_selected_provider_and_images_without_changing_manual_facts ... ok
+test restart_after_submission_never_posts_again_and_member_scope_precedes_network ... ok
+test batch_failure_leaves_independent_manual_drafts_saveable ... ok
+test expired_lease_before_submission_never_uploads_or_revives_the_task ... ok
+test truncated_submission_is_durable_unknown_and_cannot_blind_retry ... ok
+test uncertain_model_scores_are_unverified_and_missing_db12_table_is_repaired ... ok
+test actual_http_proposal_requires_review_and_reanalysis_preserves_manual_edits ... ok
+test cancellation_while_http_runs_cannot_publish_proposal ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+
+     Running tests/recommendation_target_weather.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/recommendation_target_weather-a7ead6d3c6d44073)
+
+running 3 tests
+test same_day_automatic_weather_remains_usable_with_explicit_target_date ... ok
+test ai_worker_prompt_carries_unavailable_target_day_context_for_future_date ... ok
+test tomorrow_rules_recommendation_does_not_present_current_observation_as_target_day_weather ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/recommendations.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/recommendations-4b434e0f15914463)
+
+running 16 tests
+test manual_weather_controls_are_explicit_offline_stale_and_strictly_validated ... ok
+test scale_ten_thousand_inventory_hundred_thousand_effective_wears ... ignored, actual 10k clothing / 100k wear projection scale evidence; run explicitly
+test replacing_optional_item_keeps_other_physical_layers_even_when_wear_ranking_changes ... ok
+test fixed_and_excluded_are_hard_and_dirty_fixed_is_an_explicit_conflict ... ok
+test replacing_one_body_or_optional_bag_preserves_exact_remaining_items_and_role ... ok
+test priority_across_body_patterns_and_actual_goal_counts_and_favorites_change_choices ... ok
+test replace_one_and_change_set_preserve_fixed_hard_controls_and_persist_child_intents ... ok
+test default_three_offline_distinct_real_sets_persist_without_creating_actual_wear ... ok
+test explicit_save_is_atomic_idempotent_template_only_and_rechecks_availability ... ok
+test seven_local_day_actual_repeat_is_soft_explicit_and_priority_affects_first_result ... ok
+test dress_and_fixed_layers_and_shortage_never_invent_inventory ... ok
+test sport_unknown_coverage_is_real_partial_while_work_formal_unknown_tags_are_explained ... ok
+test schema_fifteen_repairs_missing_intent_tables_and_preserves_insights_care_and_member_hard_isolation ... ok
+test valid_recommendations_respect_template_capacity_without_removing_fixed_items ... ok
+test single_replacement_of_optional_roles_or_shoes_preserves_other_ids_roles_layers_and_shortage ... ok
+test all_eleven_categories_fixed_roles_and_hard_lifecycle_threshold_constraints_are_real ... ok
+
+test result: ok. 15 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+     Running tests/registry_contracts.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/registry_contracts-ac8618d85daaa71b)
+
+running 25 tests
+test category_and_member_examples_are_schema_valid_with_symbolic_prerequisites ... ok
+test category_effects_describe_actual_dispatcher_behavior ... ok
+test assets_effects_and_examples_match_actual_local_file_semantics ... ok
+test initialization_is_an_open_precondition_not_a_space_default_dispatch_effect ... ok
+test category_descriptors_declare_the_actual_public_output_schemas ... ok
+test care_effects_and_examples_match_actual_completion_semantics ... ok
+test insights_effects_and_examples_match_actual_statistics_reads ... ok
+test clothing_effects_and_examples_match_actual_lifecycle ... ok
+test capabilities_is_grant_exempt_and_filtered_for_limited_clients ... ok
+test images_family_effects_examples_and_runtime_output_contract ... ok
+test member_family_effects_describe_actual_dispatcher_behavior ... ok
+test output_contract_checker_handles_constants_nullable_types_and_required_fields ... ok
+test imports_family_effects_examples_and_runtime_output_contract ... ok
+test backup_maintenance_data_directory_encryption_family_contract ... ok
+test provider_family_effects_and_examples_match_actual_authorization_and_dispatcher ... ok
+test feedback_family_effects_examples_and_runtime_output_contract ... ok
+test scope_metadata_reflects_actual_authorization_rules_for_every_descriptor ... ok
+test learning_family_effects_examples_and_runtime_output_contract ... ok
+test jobs_weather_client_capabilities_family_contract ... ok
+test media_provider_families_effects_examples_and_runtime_contract ... ok
+test preview_rebuilds_missing_thumbnail_for_temporary_generated_asset ... ok
+test outfits_effects_and_examples_match_actual_versioning ... ok
+test wears_effects_and_examples_match_actual_event_sourcing ... ok
+test recommendation_family_effects_examples_and_runtime_output_contract ... ok
+test member_grant_semantics_match_enforcement_and_metadata ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+     Running tests/scenarios.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/scenarios-ab54d521a6845705)
+
+running 11 tests
+test scenario_operations_are_registered_with_schemas_and_scope ... ok
+test fixed_and_excluded_and_ownership_are_server_validated ... ok
+test travel_plan_rotates_days_and_dedupes_packing_list ... ok
+test weather_is_optional_reference_and_failure_degrades_to_manual_notes ... ok
+test interview_plan_reports_shortage_instead_of_fabricating ... ok
+test travel_shortage_is_reported_with_reasons_when_inventory_cannot_rotate ... ok
+test plans_can_be_viewed_updated_with_optimistic_lock_and_deleted ... ok
+test unknown_model_outcome_waits_for_input_and_never_blind_resends ... ok
+test wedding_event_plan_completes_from_real_inventory_and_never_records_wear ... ok
+test ai_strategy_receipts_before_http_and_worker_adopts_validated_plan ... ok
+test model_failure_falls_back_to_rules_with_explicit_feedback ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+     Running tests/schedule_learning_portable.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/schedule_learning_portable-6ffdc76642bd7b63)
+
+running 1 test
+test portable_backup_preserves_learning_preference_and_schedule_plan_across_restore_and_reopen ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/schedules.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/schedules-efb0ba118c835291)
+
+running 19 tests
+test creation_and_edits_are_not_retroactive_and_paused_queue_cannot_execute ... ok
+test durable_care_worker_publishes_one_notification_and_cancelled_job_cannot_publish ... ok
+test long_sleep_records_the_missed_interval_and_only_latest_within_configured_window ... ok
+test dst_overlap_uses_earlier_instant_once_and_gap_is_explained_as_missed ... ok
+test disabling_notifications_between_claims_preserves_the_next_pending_notice ... ok
+test member_plan_survives_restart_and_revision_protects_edit_pause ... ok
+test hidden_host_obeys_runtime_transition_and_reports_sanitized_failure_persistently ... ok
+test generic_ai_worker_cannot_bypass_scheduled_original_business_scope ... ok
+test external_worker_scope_does_not_grant_care_business_or_another_member ... ok
+test ai_schedule_keeps_notification_pending_until_real_http_worker_result_and_records_child ... ok
+test planning_day_exclusion_uses_the_event_timezone_at_target_local_noon ... ok
+test previous_night_recommendation_uses_next_local_day_and_never_records_wear ... ok
+test public_schedule_outputs_declare_schema_version_and_descriptors_agree ... ok
+test outbox_claim_survives_restart_and_does_not_blind_resubmit_unknown_native_delivery ... ok
+test resume_runs_only_latest_due_once_marks_old_missed_and_never_runs_other_device ... ok
+test stale_native_claim_becomes_visible_unknown_without_resubmitting ... ok
+test restoring_same_space_does_not_silently_lose_a_queued_unsent_care_execution ... ok
+test submitted_scheduled_ai_restored_during_real_http_wait_is_not_resubmitted ... ok
+test portable_plans_and_history_restore_without_device_permissions_or_repeating_same_space_execution ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.29s
+
+     Running tests/schema_history.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/schema_history-23d21bb23f783c9b)
+
+running 8 tests
+test fresh_open_is_idempotent_at_schema23 ... ok
+test combined_schema23_is_the_portable_baseline ... ok
+test schedule_only_21_archive_previews_and_restores ... ok
+test strict21_upgrade_keeps_learning_source_invalidation_live ... ok
+test published_category_only_21_archive_previews_and_restores ... ok
+test unknown_or_malformed_archive_shapes_are_rejected ... ok
+test application_open_upgrades_known_historical_local_databases ... ok
+test sync22_archives_import_with_branch_records_preserved ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.19s
+
+     Running tests/stylist.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/stylist-dd2b75c3d4d23b6e)
+
+running 16 tests
+test implicit_surfaces_never_become_writes_through_the_stylist ... ok
+test provider_disconnect_parks_waiting_input_and_blocks_blind_resubmission ... ok
+test first_read_only_tool_loop_returns_durable_receipt_then_server_grounded_answer ... ok
+test explicit_wear_record_writes_once_replays_identical_retry_and_strips_forged_fields ... ok
+test explicit_clothing_edit_and_archive_apply_server_scoped_changes ... ok
+test answer_citing_unprojected_notes_exhausts_invalid_budget_without_leaking_sentinel ... ok
+test client_without_insights_scope_fails_deferred_tool_dispatch_scope_denied ... ok
+test client_without_wear_record_scope_fails_write_scope_denied_without_side_effect ... ok
+test client_without_clothing_list_scope_fails_scope_denied_after_a_single_post ... ok
+test revoked_client_origin_fails_trusted_worker_before_any_post ... ok
+test second_client_cannot_run_cancel_or_retry_first_clients_stylist_job ... ok
+test tool_request_for_foreign_member_fails_member_denied_after_a_single_post ... ok
+test write_tool_for_foreign_member_denied_without_any_side_effect ... ok
+test tool_operation_outside_readonly_whitelist_fails_without_executing ... ok
+test tool_loop_covers_todays_outfit_and_analysis_with_real_deterministic_queries ... ok
+test care_record_correct_revoke_chain_grounds_through_care_list ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+     Running tests/sync.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/sync-9bb7173914ce442b)
+
+running 11 tests
+test corrupt_indexed_marker_is_durable_and_does_not_block_a_healthy_publisher ... ignored, requires actual OS credential store
+test custom_category_create_and_its_clothing_reach_a_fresh_paired_peer_which_edits_the_garment ... ignored, requires actual OS credential store
+test epoch_change_republishes_adopted_product_displays_to_a_fresh_paired_installation ... ignored, requires actual OS credential store
+test existing_inventory_bootstrap_runs_in_durable_bounded_worker_steps ... ignored, requires actual OS credential store
+test first_fact_after_empty_peer_configuration_publishes_its_member_namespace ... ignored, requires actual OS credential store
+test incremental_publication_is_bounded_and_retains_the_rest_across_restart ... ignored, requires actual OS credential store
+test legacy_flat_epoch2_blob_commits_still_reach_a_fresh_peer_with_historical_wear_and_care_displays ... ignored, requires actual OS credential store
+test new_paired_installation_receives_original_remote_histories_on_a_new_target ... ignored, requires actual OS credential store
+test pairing_later_device_preserves_authenticated_same_epoch_history ... ignored, requires actual OS credential store
+test two_installations_exchange_member_and_clothing_incrementally_without_duplicate_facts ... ignored, requires actual OS credential store
+test legacy_schema_keeps_actual_history_asset_foreign_keys_and_repairs_sync_tables_without_downgrade ... ok
+
+test result: ok. 1 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+     Running tests/sync_dual_device.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/sync_dual_device-51a1c14ec77083d4)
+
+running 5 tests
+test asset_discovery_converges_fairly_across_members_and_survives_late_damage ... ignored, requires actual OS credential store
+test deleted_facts_and_protected_category_moves_reach_peers_exactly ... ignored, requires actual OS credential store
+test interrupted_or_corrupt_uploads_never_misapply_partial_data ... ignored, requires actual OS credential store
+test repeat_sync_is_idempotent_and_package_carries_only_adopted_displays ... ignored, requires actual OS credential store
+test two_members_stay_isolated_across_devices_with_history_branches ... ignored, requires actual OS credential store
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sync_feedback_portable.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/sync_feedback_portable-9b4da0c32f5098d1)
+
+running 2 tests
+test reordered_inventory_snapshots_stay_preview_and_restore_valid ... ignored, requires actual OS credential store
+test synced_feedback_backs_up_on_receiver_without_sender_private_intent ... ignored, requires actual OS credential store
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sync_jobs.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/sync_jobs-3416951ccb147638)
+
+running 1 test
+test sync_run_returns_a_durable_job_before_publication_and_survives_restart_and_cancel ... ignored, requires actual OS credential store
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sync_learning_integration.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/sync_learning_integration-a835de25dccacf8d)
+
+running 1 test
+test fresh_install_feedback_and_wear_invalidate_the_recomputed_profile_without_reopening ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+     Running tests/sync_legacy_receipt.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/sync_legacy_receipt-36bc1104c3f67180)
+
+running 1 test
+test schema20_member_operation_key_receipt_archive_previews_restores_and_replays_exactly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+
+     Running tests/sync_receipt_portability.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/sync_receipt_portability-3f799b58b200c4f8)
+
+running 1 test
+test colliding_feedback_receipts_stay_ambiguous_after_portable_restore ... ignored, requires actual OS credential store
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sync_restore_journal.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/sync_restore_journal-539cdf14b000da23)
+
+running 1 test
+test restored_peer_never_republishes_discarded_offline_garment_from_orphan_journal ... ignored, requires actual OS credential store
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sync_storage.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/sync_storage-02e190e68cead886)
+
+running 5 tests
+test portable_object_keys_reject_drives_absolute_and_non_normal_components ... ok
+test storage_rejects_symlinked_lock_and_bounded_upload_does_not_publish ... ok
+test interrupted_local_upload_has_no_object_and_abandoned_lock_does_not_block_retry ... ok
+test concurrent_conditional_delete_cannot_remove_a_newly_published_version ... ok
+test storage_pages_and_conditional_writes_and_deletes_preserve_versions ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.76s
+
+     Running tests/sync_storage_webdav.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/sync_storage_webdav-911681aa0eefb427)
+
+running 8 tests
+test webdav_auth_failures_are_typed_and_never_retried ... ignored, requires local Apache httpd WebDAV server
+test webdav_concurrent_create_only_has_a_single_winner_and_locked_resource_maps_to_storage_locked ... ignored, requires local Apache httpd WebDAV server
+test webdav_connect_rejects_servers_that_ignore_conditional_writes ... ignored, requires local Apache httpd WebDAV server and the dufs binary
+test webdav_get_delivers_what_the_wire_sends_and_never_validates_content_with_etag ... ignored, requires local Apache httpd WebDAV server
+test webdav_pages_and_conditional_writes_and_deletes_preserve_etag_versions ... ignored, requires local Apache httpd WebDAV server
+test webdav_rate_limit_retries_within_budget_then_maps_to_storage_rate_limited ... ignored, requires local Apache httpd WebDAV server
+test webdav_round_trip_streams_bytes_and_missing_keys_are_typed ... ignored, requires local Apache httpd WebDAV server
+test webdav_timeout_maps_to_transient_within_budget_and_dead_server_fails_fast ... ignored, requires local Apache httpd WebDAV server
+
+test result: ok. 0 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sync_webdav_dual_device.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/sync_webdav_dual_device-c9deaa3a74e4319a)
+
+running 1 test
+test webdav_dual_device_round_trip_is_idempotent_and_heals_after_server_side_truncation ... ignored, requires real Apache WebDAV server and the OS credential store
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tryon.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/tryon-f5da9cae3915c061)
+
+running 7 tests
+test person_is_private_and_tryon_preflight_requires_consent_and_all_garments ... ok
+test cancelled_inflight_generation_never_creates_result_or_changes_outfit ... ok
+test immutable_version_inputs_and_scope_survive_later_template_edits ... ok
+test person_first_http_result_compare_save_remains_private_after_restart ... ok
+test person_rights_scope_and_ten_total_reference_boundary_are_enforced_before_submission ... ok
+test all_inputs_preflight_rejects_missing_oversized_count_and_small_resolution_without_truncation ... ok
+test provider_failure_never_loses_saved_outfit_or_offline_collage_and_does_not_resubmit ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s
+
+     Running tests/wears.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/wears-1550ba0bb9fb26ec)
+
+running 8 tests
+test explicit_actual_wear_counts_events_and_local_days_without_template_side_effects ... ok
+test revoked_wear_retains_adopted_display_after_current_garment_detaches_it ... ok
+test wear_snapshot_retains_all_associated_pictures_not_only_selected_display ... ok
+test clients_discover_revision_contract_and_cannot_write_with_read_only_scope ... ok
+test public_history_keeps_template_snapshot_and_refuses_cross_member_and_future_facts ... ok
+test local_days_remain_user_date_across_utc_midnight_and_db_nine_repairs_missing_tables ... ok
+test corrections_and_revocation_append_history_recompute_and_preserve_exact_retry_receipts ... ok
+test two_clients_cannot_both_correct_one_revision_or_reuse_key_for_another_intent ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/weather.rs (/Users/links/.codex/wardrobe-execution/cache/ticket23-scenarios/debug/deps/weather-b40e0cbe55c61bdb)
+
+running 3 tests
+test late_weather_response_cannot_restore_location_after_user_disables_weather ... ok
+test configured_weather_refresh_persists_real_http_result_and_failure_keeps_manual_off_available ... ok
+test weather_cache_is_fresh_before_three_hours_and_stale_after_and_highest_version_repairs_table ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+   Doc-tests wardrobe_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

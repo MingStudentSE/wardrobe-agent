@@ -1,0 +1,5 @@
+
+# web e2e runtime artifacts
+tests-web/.auth/
+test-results/
+playwright-report/

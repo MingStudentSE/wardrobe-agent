@@ -26,10 +26,7 @@ fn assert_result_matches_schema(schema: &Value, result: &Value, context: &str) {
             assert_eq!(value, const_value, "{context}: 字段 {key} 须等于 const");
         }
         if let Some(allowed) = prop["enum"].as_array() {
-            assert!(
-                allowed.contains(value),
-                "{context}: 字段 {key} 须为枚举值"
-            );
+            assert!(allowed.contains(value), "{context}: 字段 {key} 须为枚举值");
         }
         let declared_types: Vec<String> = match prop.get("type") {
             Some(Value::String(t)) => vec![t.clone()],
@@ -46,17 +43,20 @@ fn assert_result_matches_schema(schema: &Value, result: &Value, context: &str) {
             Value::Null => "null",
         };
         assert!(
-            declared_types.is_empty() || declared_types.iter().any(|t| {
-                t == actual_type
-                    || (t == "number" && value.is_number())
-                    || (t == "integer" && value.as_f64().is_some_and(|n| n.fract() == 0.0))
-            }),
+            declared_types.is_empty()
+                || declared_types.iter().any(|t| {
+                    t == actual_type
+                        || (t == "number" && value.is_number())
+                        || (t == "integer" && value.as_f64().is_some_and(|n| n.fract() == 0.0))
+                }),
             "{context}: 字段 {key} 声明类型不符"
         );
     }
     for key in required {
-        assert!(actual.contains_key(key), "{context}: 缺少 required 字段 {key}");
-
+        assert!(
+            actual.contains_key(key),
+            "{context}: 缺少 required 字段 {key}"
+        );
     }
 }
 
@@ -67,16 +67,37 @@ fn output_contract_checker_handles_constants_nullable_types_and_required_fields(
         "optional":{"type":["string","null"],"enum":["ready",null]}
     }});
     assert_result_matches_schema(&schema, &json!({"count":1,"flag":false}), "optional absent");
-    assert_result_matches_schema(&schema, &json!({"count":1.5,"flag":false,"optional":null}), "nullable");
-    for invalid in [json!({"count":1}), json!({"count":null,"flag":false}),
-        json!({"count":1,"flag":true}), json!({"count":1,"flag":false,"optional":"bad"})] {
-        assert!(std::panic::catch_unwind(|| assert_result_matches_schema(&schema, &invalid, "invalid")).is_err());
+    assert_result_matches_schema(
+        &schema,
+        &json!({"count":1.5,"flag":false,"optional":null}),
+        "nullable",
+    );
+    for invalid in [
+        json!({"count":1}),
+        json!({"count":null,"flag":false}),
+        json!({"count":1,"flag":true}),
+        json!({"count":1,"flag":false,"optional":"bad"}),
+    ] {
+        assert!(std::panic::catch_unwind(|| assert_result_matches_schema(
+            &schema, &invalid, "invalid"
+        ))
+        .is_err());
     }
     let integer = json!({"type":"object","required":["n"],"properties":{"n":{"type":"integer"}}});
     assert_result_matches_schema(&integer, &json!({"n":1.0}), "integral number");
-    assert!(std::panic::catch_unwind(|| assert_result_matches_schema(&integer, &json!({"n":1.5}), "fraction")).is_err());
+    assert!(std::panic::catch_unwind(|| assert_result_matches_schema(
+        &integer,
+        &json!({"n":1.5}),
+        "fraction"
+    ))
+    .is_err());
     let enumeration = json!({"type":"object","properties":{"v":{"enum":["ready"]}}});
-    assert!(std::panic::catch_unwind(|| assert_result_matches_schema(&enumeration, &json!({"v":null}), "enum null")).is_err());
+    assert!(std::panic::catch_unwind(|| assert_result_matches_schema(
+        &enumeration,
+        &json!({"v":null}),
+        "enum null"
+    ))
+    .is_err());
 }
 
 #[test]
@@ -1284,10 +1305,16 @@ fn feedback_family_effects_examples_and_runtime_output_contract() {
         .unwrap()
         .to_string();
     let _top = app
-        .execute("clothing.create", json!({"member_id":member,"name":"上衣","category":"top"}))
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"上衣","category":"top"}),
+        )
         .unwrap();
     let _bottom = app
-        .execute("clothing.create", json!({"member_id":member,"name":"裤子","category":"bottom"}))
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"裤子","category":"bottom"}),
+        )
         .unwrap();
     let generated = app
         .execute(
@@ -1322,11 +1349,16 @@ fn feedback_family_effects_examples_and_runtime_output_contract() {
     assert_eq!(recorded["wear_event_id"], Value::Null, "普通反馈不产生穿着");
     assert_result_matches_schema(&schema_of("feedback.record"), &recorded, "record");
     let got = app
-        .execute("feedback.get", json!({"member_id":member,"id":recorded["id"]}))
+        .execute(
+            "feedback.get",
+            json!({"member_id":member,"id":recorded["id"]}),
+        )
         .unwrap();
     assert_eq!(got["id"], recorded["id"]);
     assert_result_matches_schema(&schema_of("feedback.get"), &got, "get");
-    let listed = app.execute("feedback.list", json!({"member_id":member})).unwrap();
+    let listed = app
+        .execute("feedback.list", json!({"member_id":member}))
+        .unwrap();
     assert_result_matches_schema(&schema_of("feedback.list"), &listed, "list");
     assert_eq!(listed["items"].as_array().unwrap().len(), 1);
 
@@ -1340,7 +1372,10 @@ fn feedback_family_effects_examples_and_runtime_output_contract() {
     assert_eq!(corrected["supersedes_event_id"], recorded["id"]);
     assert_result_matches_schema(&schema_of("feedback.correct"), &corrected, "correct");
     let history = app
-        .execute("feedback.history", json!({"member_id":member,"root_id":recorded["root_id"]}))
+        .execute(
+            "feedback.history",
+            json!({"member_id":member,"root_id":recorded["root_id"]}),
+        )
         .unwrap();
     assert_result_matches_schema(&schema_of("feedback.history"), &history, "history");
     assert_eq!(history["items"].as_array().unwrap().len(), 2);
@@ -1361,7 +1396,9 @@ fn feedback_family_effects_examples_and_runtime_output_contract() {
     assert_eq!(revoked["revoked"], json!(true));
     assert_eq!(revoked["revision"], json!(3));
     assert_result_matches_schema(&schema_of("feedback.revoke"), &revoked, "revoke");
-    let listed_after = app.execute("feedback.list", json!({"member_id":member})).unwrap();
+    let listed_after = app
+        .execute("feedback.list", json!({"member_id":member}))
+        .unwrap();
     assert_eq!(
         listed_after["items"].as_array().unwrap().len(),
         0,
@@ -1389,10 +1426,19 @@ fn feedback_family_effects_examples_and_runtime_output_contract() {
             json!({"member_id":member,"operation_key":"fb-6","intent_id":intent_id,"proposal_index":0,"reaction":"actual_wore","wear":{"confirmed":true,"local_date":"2026-10-07","timezone":"UTC"}}),
         )
         .unwrap();
-    assert!(wore["wear_event_id"].is_string(), "actual_wore显式确认才产生WearEvent");
+    assert!(
+        wore["wear_event_id"].is_string(),
+        "actual_wore显式确认才产生WearEvent"
+    );
     assert_result_matches_schema(&schema_of("feedback.record"), &wore, "record-actual_wore");
-    let wears = app.execute("wear.list", json!({"member_id":member})).unwrap();
-    assert_eq!(wears["items"].as_array().unwrap().len(), 1, "只有实际穿着产生WearEvent");
+    let wears = app
+        .execute("wear.list", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(
+        wears["items"].as_array().unwrap().len(),
+        1,
+        "只有实际穿着产生WearEvent"
+    );
 
     let family = [
         ("feedback.record", "mutation", false),
@@ -1426,7 +1472,10 @@ fn learning_family_effects_examples_and_runtime_output_contract() {
         .unwrap()
         .to_string();
     let top = app
-        .execute("clothing.create", json!({"member_id":member,"name":"上衣","category":"top"}))
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"上衣","category":"top"}),
+        )
         .unwrap();
 
     let descriptors = operations().as_array().unwrap().clone();
@@ -1458,7 +1507,9 @@ fn learning_family_effects_examples_and_runtime_output_contract() {
         )
         .unwrap_err();
     assert_eq!(dup.code, "preference_exists", "同特征重复须拒绝");
-    let profile = app.execute("learning.get", json!({"member_id":member})).unwrap();
+    let profile = app
+        .execute("learning.get", json!({"member_id":member}))
+        .unwrap();
     assert_result_matches_schema(&schema_of("learning.get"), &profile, "get");
     assert_eq!(profile["explicit"].as_array().unwrap().len(), 1);
     let edited = app
@@ -1476,22 +1527,36 @@ fn learning_family_effects_examples_and_runtime_output_contract() {
         )
         .unwrap_err();
     assert_eq!(stale.code, "stale_revision", "过期修订必须拒绝");
-    let history = app.execute("learning.history", json!({"member_id":member})).unwrap();
+    let history = app
+        .execute("learning.history", json!({"member_id":member}))
+        .unwrap();
     assert_result_matches_schema(&schema_of("learning.history"), &history, "history");
 
     let rec = app
-        .execute("learning.recompute", json!({"member_id":member,"operation_key":"lr-5"}))
+        .execute(
+            "learning.recompute",
+            json!({"member_id":member,"operation_key":"lr-5"}),
+        )
         .unwrap();
-    assert_eq!(rec["state"], json!("queued"), "recompute返回任务收据而非画像");
+    assert_eq!(
+        rec["state"],
+        json!("queued"),
+        "recompute返回任务收据而非画像"
+    );
     assert_result_matches_schema(&schema_of("learning.recompute"), &rec, "recompute");
     let job_id = rec["job_id"].as_str().unwrap().to_string();
     let job = app
-        .execute("learning.worker.run", json!({"member_id":member,"job_id":job_id}))
+        .execute(
+            "learning.worker.run",
+            json!({"member_id":member,"job_id":job_id}),
+        )
         .unwrap();
     assert_eq!(job["kind"], json!("learning_recompute"));
     assert_eq!(job["state"], json!("succeeded"));
     assert_result_matches_schema(&schema_of("learning.worker.run"), &job, "worker.run");
-    let profile2 = app.execute("learning.get", json!({"member_id":member})).unwrap();
+    let profile2 = app
+        .execute("learning.get", json!({"member_id":member}))
+        .unwrap();
     assert_eq!(profile2["source_stale"], json!(false), "重算后画像不再滞后");
 
     let deleted = app
@@ -1502,8 +1567,14 @@ fn learning_family_effects_examples_and_runtime_output_contract() {
         .unwrap();
     assert_eq!(deleted["operation"], json!("learning.delete"));
     assert_result_matches_schema(&schema_of("learning.delete"), &deleted, "delete");
-    let profile3 = app.execute("learning.get", json!({"member_id":member})).unwrap();
-    assert_eq!(profile3["explicit"].as_array().unwrap().len(), 0, "删除后显式偏好消失");
+    let profile3 = app
+        .execute("learning.get", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(
+        profile3["explicit"].as_array().unwrap().len(),
+        0,
+        "删除后显式偏好消失"
+    );
     let reset = app
         .execute(
             "learning.reset",
@@ -1579,7 +1650,10 @@ fn jobs_weather_client_capabilities_family_contract() {
         .any(|o| o["name"] == json!("recommendation.generate")));
 
     let rec = app
-        .execute("learning.recompute", json!({"member_id":member,"operation_key":"jw-1"}))
+        .execute(
+            "learning.recompute",
+            json!({"member_id":member,"operation_key":"jw-1"}),
+        )
         .unwrap();
     let job_id = rec["job_id"].clone();
     let got = app
@@ -1587,7 +1661,9 @@ fn jobs_weather_client_capabilities_family_contract() {
         .unwrap();
     assert_eq!(got["state"], json!("queued"));
     assert_result_matches_schema(&schema_of("jobs.get"), &got, "jobs.get");
-    let listed = app.execute("jobs.list", json!({"member_id":member})).unwrap();
+    let listed = app
+        .execute("jobs.list", json!({"member_id":member}))
+        .unwrap();
     assert_result_matches_schema(&schema_of("jobs.list"), &listed, "jobs.list");
     let cancelled = app
         .execute("jobs.cancel", json!({"member_id":member,"id":job_id}))
@@ -1600,7 +1676,10 @@ fn jobs_weather_client_capabilities_family_contract() {
     assert_eq!(retried["state"], json!("queued"), "本地任务取消后可重试");
     assert_result_matches_schema(&schema_of("jobs.retry"), &retried, "jobs.retry");
     let done = app
-        .execute("learning.worker.run", json!({"member_id":member,"job_id":job_id}))
+        .execute(
+            "learning.worker.run",
+            json!({"member_id":member,"job_id":job_id}),
+        )
         .unwrap();
     assert_eq!(done["state"], json!("succeeded"));
     let err = app
@@ -1609,12 +1688,19 @@ fn jobs_weather_client_capabilities_family_contract() {
     assert_eq!(err.code, "invalid_state", "已完成任务不能取消");
 
     let off = app
-        .execute("weather.configure", json!({"member_id":member,"mode":"off"}))
+        .execute(
+            "weather.configure",
+            json!({"member_id":member,"mode":"off"}),
+        )
         .unwrap();
     assert_result_matches_schema(&schema_of("weather.configure"), &off, "weather.configure");
-    let got_weather = app.execute("weather.get", json!({"member_id":member})).unwrap();
+    let got_weather = app
+        .execute("weather.get", json!({"member_id":member}))
+        .unwrap();
     assert_result_matches_schema(&schema_of("weather.get"), &got_weather, "weather.get");
-    let refreshed_off = app.execute("weather.refresh", json!({"member_id":member})).unwrap();
+    let refreshed_off = app
+        .execute("weather.refresh", json!({"member_id":member}))
+        .unwrap();
     assert_eq!(refreshed_off["cache"], Value::Null, "mode=off刷新不联网");
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1638,8 +1724,14 @@ fn jobs_weather_client_capabilities_family_contract() {
             json!({"member_id":member,"mode":"automatic","location":"上海","latitude":31.2,"longitude":121.5,"usage":"noncommercial","endpoint":format!("http://127.0.0.1:{port}/v1")}),
         )
         .unwrap();
-    assert_result_matches_schema(&schema_of("weather.configure"), &configured, "configure-automatic");
-    let refreshed = app.execute("weather.refresh", json!({"member_id":member})).unwrap();
+    assert_result_matches_schema(
+        &schema_of("weather.configure"),
+        &configured,
+        "configure-automatic",
+    );
+    let refreshed = app
+        .execute("weather.refresh", json!({"member_id":member}))
+        .unwrap();
     server.join().unwrap();
     assert_eq!(
         refreshed["cache"]["temperature_c"],
@@ -1655,7 +1747,10 @@ fn jobs_weather_client_capabilities_family_contract() {
             json!({"name":"契约测试客户端","mode":"limited","operations":["recommendation.generate"],"member_ids":null,"expires_at":null}),
         )
         .unwrap();
-    assert!(granted["token"].as_str().is_some(), "authorize一次性返回令牌");
+    assert!(
+        granted["token"].as_str().is_some(),
+        "authorize一次性返回令牌"
+    );
     assert_result_matches_schema(&schema_of("client.authorize"), &granted, "client.authorize");
     let clients = app.execute("client.list", json!({})).unwrap();
     assert_result_matches_schema(&schema_of("client.list"), &clients, "client.list");
@@ -1686,7 +1781,8 @@ fn jobs_weather_client_capabilities_family_contract() {
         .as_array()
         .expect("refresh 须声明条件联网");
     assert!(conditional.iter().any(|c| {
-        c["when"]["config.mode"] == json!("automatic") && c["effect"]["network"] == json!("web-weather")
+        c["when"]["config.mode"] == json!("automatic")
+            && c["effect"]["network"] == json!("web-weather")
     }));
 }
 
@@ -1733,7 +1829,10 @@ fn imports_family_effects_examples_and_runtime_output_contract() {
     let mut processed = Value::Null;
     for _ in 0..3 {
         processed = app
-            .execute("imports.process", json!({"member_id":member,"id":batch["id"]}))
+            .execute(
+                "imports.process",
+                json!({"member_id":member,"id":batch["id"]}),
+            )
             .unwrap();
     }
     assert_result_matches_schema(&schema_of("imports.process"), &processed, "process");
@@ -1755,7 +1854,9 @@ fn imports_family_effects_examples_and_runtime_output_contract() {
         .execute("imports.get", json!({"member_id":member,"id":batch["id"]}))
         .unwrap();
     assert_result_matches_schema(&schema_of("imports.get"), &got, "get");
-    let listed = app.execute("imports.list", json!({"member_id":member})).unwrap();
+    let listed = app
+        .execute("imports.list", json!({"member_id":member}))
+        .unwrap();
     assert_result_matches_schema(&schema_of("imports.list"), &listed, "list");
     let updated = app
         .execute(
@@ -1802,9 +1903,16 @@ fn images_family_effects_examples_and_runtime_output_contract() {
         .execute("assets.import", json!({"member_id":member,"path":source}))
         .unwrap();
     let clothing = app
-        .execute("clothing.create", json!({"member_id":member,"name":"白衬衣","category":"top"}))
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"白衬衣","category":"top"}),
+        )
         .unwrap();
-    app.execute("assets.adopt", json!({"member_id":member,"asset_id":asset["id"],"clothing_id":clothing["id"]})).unwrap();
+    app.execute(
+        "assets.adopt",
+        json!({"member_id":member,"asset_id":asset["id"],"clothing_id":clothing["id"]}),
+    )
+    .unwrap();
 
     let descriptors = operations().as_array().unwrap().clone();
     let schema_of = |name: &str| -> Value {
@@ -1820,19 +1928,30 @@ fn images_family_effects_examples_and_runtime_output_contract() {
         )
     };
 
-    let status = app.execute("images.model.status", json!({"member_id":member})).unwrap();
+    let status = app
+        .execute("images.model.status", json!({"member_id":member}))
+        .unwrap();
     assert_result_matches_schema(&schema_of("images.model.status"), &status, "model.status");
     let rotated = app
-        .execute("images.rotate", json!({"member_id":member,"asset_id":asset["id"],"degrees":90}))
+        .execute(
+            "images.rotate",
+            json!({"member_id":member,"asset_id":asset["id"],"degrees":90}),
+        )
         .unwrap();
     assert_eq!(rotated["lineage"][0]["action"], json!("rotate"));
     assert_result_matches_schema(&schema_of("images.rotate"), &rotated, "rotate");
     let main = app
-        .execute("images.main", json!({"member_id":member,"clothing_id":clothing["id"],"asset_id":asset["id"]}))
+        .execute(
+            "images.main",
+            json!({"member_id":member,"clothing_id":clothing["id"],"asset_id":asset["id"]}),
+        )
         .unwrap();
     assert_result_matches_schema(&schema_of("images.main"), &main, "main");
     let restored = app
-        .execute("images.restore", json!({"member_id":member,"asset_id":asset["id"]}))
+        .execute(
+            "images.restore",
+            json!({"member_id":member,"asset_id":asset["id"]}),
+        )
         .unwrap();
     assert_result_matches_schema(&schema_of("images.restore"), &restored, "restore");
 
@@ -1849,7 +1968,9 @@ fn images_family_effects_examples_and_runtime_output_contract() {
         .iter()
         .find(|d| d["name"] == json!("images.cutout"))
         .unwrap();
-    let async_meta = cutout["effect"]["async"].as_object().expect("cutout须声明异步入队");
+    let async_meta = cutout["effect"]["async"]
+        .as_object()
+        .expect("cutout须声明异步入队");
     assert_eq!(async_meta["job_kind"], json!("local_cutout"));
     assert_eq!(async_meta["process"], json!("images.worker.run"));
     let worker = descriptors
@@ -1888,11 +2009,16 @@ fn media_provider_families_effects_examples_and_runtime_contract() {
         )
     };
 
-    let listed = app.execute("recognition.list", json!({"member_id":member})).unwrap();
+    let listed = app
+        .execute("recognition.list", json!({"member_id":member}))
+        .unwrap();
     assert_eq!(listed["items"], json!([]), "无建议时返回空容器");
     assert_result_matches_schema(&schema_of("recognition.list"), &listed, "recognition.list");
     let missing = app
-        .execute("recognition.get", json!({"member_id":member,"id":"<不存在>"}))
+        .execute(
+            "recognition.get",
+            json!({"member_id":member,"id":"<不存在>"}),
+        )
         .unwrap_err();
     assert_eq!(missing.code, "not_found");
 
@@ -1920,11 +2046,18 @@ fn media_provider_families_effects_examples_and_runtime_contract() {
     ];
     assert_family_effects_and_examples(&descriptors, &family);
     // 供应商条件语义：提交挂起时才真实联网消耗额度
-    for op in ["recognition.create", "product.generate", "flatlay.generate", "tryon.generate"] {
+    for op in [
+        "recognition.create",
+        "product.generate",
+        "flatlay.generate",
+        "tryon.generate",
+    ] {
         let d = descriptors.iter().find(|d| d["name"] == json!(op)).unwrap();
         let conditional = d["effect"]["conditional_effects"].as_array().expect(op);
         assert!(
-            conditional.iter().any(|c| c["effect"]["network"] == json!("explicit-provider")),
+            conditional
+                .iter()
+                .any(|c| c["effect"]["network"] == json!("explicit-provider")),
             "{op} 须声明条件供应商网络"
         );
     }
@@ -1969,12 +2102,13 @@ fn backup_maintenance_data_directory_encryption_family_contract() {
         .execute("maintenance.worker.run", json!({"id":created["id"]}))
         .unwrap();
     assert_eq!(done["state"], json!("succeeded"), "worker本地完成备份");
-    assert_result_matches_schema(&schema_of("maintenance.worker.run"), &done, "maintenance.worker.run");
+    assert_result_matches_schema(
+        &schema_of("maintenance.worker.run"),
+        &done,
+        "maintenance.worker.run",
+    );
     let previewed = app
-        .execute(
-            "backup.preview",
-            json!({"directory":backup_dir}),
-        )
+        .execute("backup.preview", json!({"directory":backup_dir}))
         .unwrap();
     assert_result_matches_schema(&schema_of("backup.preview"), &previewed, "backup.preview");
     let current = app.execute("backup.settings.get", json!({})).unwrap();
@@ -1984,9 +2118,17 @@ fn backup_maintenance_data_directory_encryption_family_contract() {
             json!({"directory":backup_dir,"include_originals":false,"expected_revision":current["revision"]}),
         )
         .unwrap();
-    assert_result_matches_schema(&schema_of("backup.settings.set"), &settings, "backup.settings.set");
+    assert_result_matches_schema(
+        &schema_of("backup.settings.set"),
+        &settings,
+        "backup.settings.set",
+    );
     let status = app.execute("encryption.status", json!({})).unwrap();
-    assert_result_matches_schema(&schema_of("encryption.status"), &status, "encryption.status");
+    assert_result_matches_schema(
+        &schema_of("encryption.status"),
+        &status,
+        "encryption.status",
+    );
     let listed = app.execute("maintenance.list", json!({})).unwrap();
     assert_result_matches_schema(&schema_of("maintenance.list"), &listed, "maintenance.list");
 
@@ -2009,18 +2151,44 @@ fn backup_maintenance_data_directory_encryption_family_contract() {
     assert_family_effects_and_examples(&descriptors, &family);
     for op in ["backup.create", "backup.restore", "data_directory.move"] {
         let d = descriptors.iter().find(|d| d["name"] == json!(op)).unwrap();
-        let async_meta = d["effect"]["async"].as_object().unwrap_or_else(|| panic!("{op} 须声明异步入队"));
-        assert_eq!(async_meta["process"], json!("maintenance.worker.run"), "{op}");
+        let async_meta = d["effect"]["async"]
+            .as_object()
+            .unwrap_or_else(|| panic!("{op} 须声明异步入队"));
+        assert_eq!(
+            async_meta["process"],
+            json!("maintenance.worker.run"),
+            "{op}"
+        );
     }
     let create = descriptors
         .iter()
         .find(|d| d["name"] == json!("backup.create"))
         .unwrap();
-    let async_meta = create["effect"]["async"].as_object().expect("backup.create须声明异步入队");
+    let async_meta = create["effect"]["async"]
+        .as_object()
+        .expect("backup.create须声明异步入队");
     assert_eq!(async_meta["process"], json!("maintenance.worker.run"));
     // 其余加密操作（create/pair/device/seal等）的运行时证明沿用既有加密套件（真实两安装外部密文包已验）
-    for op in ["encryption.create", "encryption.encrypt", "encryption.pair.offer", "encryption.unpair", "encryption.recovery.create", "encryption.seal", "encryption.open", "encryption.decrypt", "encryption.password.change", "encryption.device.apply", "encryption.device.revoke", "encryption.pair.accept", "encryption.pair.confirm", "encryption.unpair"] {
-        let d = descriptors.iter().find(|d| d["name"] == json!(op)).unwrap_or_else(|| panic!("{op}"));
+    for op in [
+        "encryption.create",
+        "encryption.encrypt",
+        "encryption.pair.offer",
+        "encryption.unpair",
+        "encryption.recovery.create",
+        "encryption.seal",
+        "encryption.open",
+        "encryption.decrypt",
+        "encryption.password.change",
+        "encryption.device.apply",
+        "encryption.device.revoke",
+        "encryption.pair.accept",
+        "encryption.pair.confirm",
+        "encryption.unpair",
+    ] {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(op))
+            .unwrap_or_else(|| panic!("{op}"));
         assert_eq!(d["effect"]["kind"], json!("mutation"), "{op}");
         assert_eq!(d["effect"]["network"], json!("none"), "{op} 纯本机加密");
     }
@@ -2053,7 +2221,11 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
         summary["database_schema_version"],
         json!(wardrobe_core::DATABASE_SCHEMA_VERSION)
     );
-    assert_result_matches_schema(&schema_of("diagnostics.summary"), &summary, "diagnostics.summary");
+    assert_result_matches_schema(
+        &schema_of("diagnostics.summary"),
+        &summary,
+        "diagnostics.summary",
+    );
     // scope 元数据：仅本机可信入口，外部不参与 primary 判定
     let descriptor = descriptors
         .iter()
@@ -2076,19 +2248,35 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
     // 基础检查：真实运行时输出钉住 outputSchema；scope 同为仅本机可信入口
     let checks = app.execute("diagnostics.checks", json!({})).unwrap();
     assert_eq!(checks["schema_version"], 1);
-    assert_result_matches_schema(&schema_of("diagnostics.checks"), &checks, "diagnostics.checks");
+    assert_result_matches_schema(
+        &schema_of("diagnostics.checks"),
+        &checks,
+        "diagnostics.checks",
+    );
     let items = checks["checks"].as_array().unwrap();
     assert_eq!(items.len(), 10, "固定十项：{checks}");
     for item in items {
-        assert!(item["message"].is_string() && item["detail"].is_string(), "{item}");
-        assert!(item["setting"].is_null() || item["setting"].is_string(), "{item}");
+        assert!(
+            item["message"].is_string() && item["detail"].is_string(),
+            "{item}"
+        );
+        assert!(
+            item["setting"].is_null() || item["setting"].is_string(),
+            "{item}"
+        );
     }
     let checks_descriptor = descriptors
         .iter()
         .find(|d| d["name"] == json!("diagnostics.checks"))
         .unwrap();
-    assert_eq!(checks_descriptor["scope"]["access"], json!("trusted-local-only"));
-    assert_eq!(checks_descriptor["scope"]["primary_grant_required"], json!(false));
+    assert_eq!(
+        checks_descriptor["scope"]["access"],
+        json!("trusted-local-only")
+    );
+    assert_eq!(
+        checks_descriptor["scope"]["primary_grant_required"],
+        json!(false)
+    );
     // 输入严格：未知字段拒绝
     let error = app
         .execute("diagnostics.checks", json!({"repair":true}))
@@ -2102,11 +2290,21 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
             json!({"operation":"space.","limit":1}),
         )
         .unwrap();
-    assert_result_matches_schema(&schema_of("diagnostics.logs.query"), &queried, "diagnostics.logs.query");
-    assert!(!queried["items"].as_array().unwrap().is_empty(), "{queried}");
+    assert_result_matches_schema(
+        &schema_of("diagnostics.logs.query"),
+        &queried,
+        "diagnostics.logs.query",
+    );
+    assert!(
+        !queried["items"].as_array().unwrap().is_empty(),
+        "{queried}"
+    );
     let item = &queried["items"][0];
     for key in ["ts", "level", "event_type", "run_id"] {
-        assert!(item[key].is_string(), "事件公共字段 {key} 须为字符串：{item}");
+        assert!(
+            item[key].is_string(),
+            "事件公共字段 {key} 须为字符串：{item}"
+        );
     }
     let empty = app
         .execute(
@@ -2120,8 +2318,14 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
         .iter()
         .find(|d| d["name"] == json!("diagnostics.logs.query"))
         .unwrap();
-    assert_eq!(query_descriptor["scope"]["access"], json!("trusted-local-only"));
-    assert_eq!(query_descriptor["scope"]["primary_grant_required"], json!(false));
+    assert_eq!(
+        query_descriptor["scope"]["access"],
+        json!("trusted-local-only")
+    );
+    assert_eq!(
+        query_descriptor["scope"]["primary_grant_required"],
+        json!(false)
+    );
     let error = app
         .execute("diagnostics.logs.query", json!({"level":"verbose"}))
         .unwrap_err();
@@ -2136,17 +2340,30 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
             json!({"path": target.to_string_lossy(), "scope":"recent"}),
         )
         .unwrap();
-    assert_result_matches_schema(&schema_of("diagnostics.export"), &exported, "diagnostics.export");
+    assert_result_matches_schema(
+        &schema_of("diagnostics.export"),
+        &exported,
+        "diagnostics.export",
+    );
     assert!(target.exists(), "导出文件应已写入");
     let export_descriptor = descriptors
         .iter()
         .find(|d| d["name"] == json!("diagnostics.export"))
         .unwrap();
-    assert_eq!(export_descriptor["scope"]["access"], json!("trusted-local-only"));
-    assert_eq!(export_descriptor["scope"]["primary_grant_required"], json!(false));
+    assert_eq!(
+        export_descriptor["scope"]["access"],
+        json!("trusted-local-only")
+    );
+    assert_eq!(
+        export_descriptor["scope"]["primary_grant_required"],
+        json!(false)
+    );
     // 输入严格：未知字段拒绝
     let error = app
-        .execute("diagnostics.export", json!({"path":"x.jsonl","member_id":"x"}))
+        .execute(
+            "diagnostics.export",
+            json!({"path":"x.jsonl","member_id":"x"}),
+        )
         .unwrap_err();
     assert_eq!(error.code, "invalid_input", "{error:?}");
     // 范围参数互斥与校验
@@ -2161,21 +2378,35 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
 
     // #50 记录复现：ui_event 白名单拒绝、reproduction 标记与复现导出扩展的运行时契约
     let ui = app
-        .execute("diagnostics.ui_event", json!({"type":"view_switch","label":"穿搭库"}))
+        .execute(
+            "diagnostics.ui_event",
+            json!({"type":"view_switch","label":"穿搭库"}),
+        )
         .unwrap();
-    assert_result_matches_schema(&schema_of("diagnostics.ui_event"), &ui, "diagnostics.ui_event");
+    assert_result_matches_schema(
+        &schema_of("diagnostics.ui_event"),
+        &ui,
+        "diagnostics.ui_event",
+    );
     let error = app
-        .execute("diagnostics.ui_event", json!({"type":"free_text","label":"任意"}))
+        .execute(
+            "diagnostics.ui_event",
+            json!({"type":"free_text","label":"任意"}),
+        )
         .unwrap_err();
     assert_eq!(error.code, "invalid_input", "{error:?}");
-    let start = app.execute("diagnostics.reproduction.start", json!({})).unwrap();
+    let start = app
+        .execute("diagnostics.reproduction.start", json!({}))
+        .unwrap();
     assert_result_matches_schema(
         &schema_of("diagnostics.reproduction.start"),
         &start,
         "diagnostics.reproduction.start",
     );
     assert!(start["started_at"].is_string(), "{start}");
-    let stop = app.execute("diagnostics.reproduction.stop", json!({})).unwrap();
+    let stop = app
+        .execute("diagnostics.reproduction.stop", json!({}))
+        .unwrap();
     assert_result_matches_schema(
         &schema_of("diagnostics.reproduction.stop"),
         &stop,
@@ -2224,7 +2455,11 @@ fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
             .iter()
             .find(|d| d["name"] == json!(name))
             .unwrap_or_else(|| panic!("{name} 必须已注册"));
-        assert_eq!(descriptor["scope"]["access"], json!("trusted-local-only"), "{name}");
+        assert_eq!(
+            descriptor["scope"]["access"],
+            json!("trusted-local-only"),
+            "{name}"
+        );
         assert_eq!(
             descriptor["scope"]["primary_grant_required"],
             json!(false),

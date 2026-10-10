@@ -126,10 +126,16 @@ fn maintenance_commit_failure_leaves_no_job_transition_events() {
             .execute_batch("DROP TRIGGER maintenance_commit_trap; DROP TABLE commit_trap;")
             .unwrap();
     }
-    let finished = app.execute("maintenance.worker.run", json!({"id":id})).unwrap();
+    let finished = app
+        .execute("maintenance.worker.run", json!({"id":id}))
+        .unwrap();
     assert_eq!(finished["state"], "succeeded");
     let events = job_events(&app);
-    assert_eq!(events.len(), 3, "成功执行补上领取与完成迁移事件：{events:?}");
+    assert_eq!(
+        events.len(),
+        3,
+        "成功执行补上领取与完成迁移事件：{events:?}"
+    );
     assert_eq!(events[1]["operation"], "job.state");
     assert_eq!(events[1]["job_id"], json!(id));
     assert_eq!(events[1]["state_to"], "running");
@@ -137,7 +143,10 @@ fn maintenance_commit_failure_leaves_no_job_transition_events() {
     assert_eq!(events[2]["operation"], "job.state");
     assert_eq!(events[2]["state_to"], "succeeded");
     assert_eq!(events[2]["state_from"], "running");
-    assert_eq!(events[1]["trace_id"], queued["trace_id"], "事件字段保持不变");
+    assert_eq!(
+        events[1]["trace_id"], queued["trace_id"],
+        "事件字段保持不变"
+    );
 }
 #[test]
 fn concurrent_workers_have_one_lease_cancel_prevents_late_finish_and_expiry_recovers() {

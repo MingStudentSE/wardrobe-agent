@@ -56,7 +56,14 @@ pub enum Parsed {
     Help(Option<String>),
     Schema(String),
     Version,
-    Mcp { db: Option<PathBuf>, profile: Option<String> },
+    Scheduler {
+        db: Option<PathBuf>,
+        once: bool,
+    },
+    Mcp {
+        db: Option<PathBuf>,
+        profile: Option<String>,
+    },
     Execute(Execution),
     Profile(ProfileCommand),
     Logs(LogsCommand),
@@ -77,6 +84,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
     let mut positionals: Vec<&str> = Vec::new();
     let mut help_flag = false;
     let mut version_flag = false;
+    let mut once = false;
     let mut literal = false;
     let mut i = 0;
     while i < args.len() {
@@ -103,6 +111,14 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                         }
                         None => return Err(invalid_arguments("--db 缺少路径参数")),
                     }
+                }
+                "--once" => {
+                    if once {
+                        return Err(invalid_arguments("--once 只能出现一次"));
+                    }
+                    once = true;
+                    i += 1;
+                    continue;
                 }
                 "--profile" => {
                     if profile.is_some() {
@@ -161,13 +177,16 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                         i += 1;
                         continue;
                     }
-                    return Err(invalid_arguments(&format!("未知参数 {other}")))
+                    return Err(invalid_arguments(&format!("未知参数 {other}")));
                 }
                 _ => {}
             }
         }
         positionals.push(arg);
         i += 1;
+    }
+    if once && positionals.first().copied() != Some("scheduler") {
+        return Err(invalid_arguments("--once 仅用于 scheduler"));
     }
     // 先解析完整 argv，再判定元数据命令：--help/--version 必须独立使用，仅可携带 --db 全局参数
     if help_flag || version_flag {
@@ -205,6 +224,23 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
                 _ => Err(invalid_arguments("schema 最多接受一个操作名称")),
             }
         }
+        Some("scheduler") => {
+            if !trusted_local {
+                return Err(ApiError::custom(
+                    "scope_denied",
+                    "本机调度服务须显式--trusted-local；外部客户端使用成员限定schedule API",
+                ));
+            }
+            if profile.is_some() {
+                return Err(invalid_arguments(
+                    "scheduler 不支持 --profile 连接选择；请使用 --db 明确指定数据库",
+                ));
+            }
+            if positionals.len() != 1 || input.is_some() {
+                return Err(invalid_arguments("scheduler 不接受输入参数"));
+            }
+            Ok(Parsed::Scheduler { db, once })
+        }
         Some("mcp") => {
             if positionals.len() > 1 {
                 return Err(invalid_arguments("mcp 不接受输入参数"));
@@ -222,8 +258,15 @@ pub fn parse(args: &[String]) -> Result<Parsed, ApiError> {
             }
             // 过滤参数命名与 diagnostics.logs.query 输入字段对齐（trace-id/run-id 为 kebab 形式）
             const FILTERS: &[&str] = &[
-                "--level", "--since", "--until", "--trace-id", "--run-id",
-                "--operation", "--keyword", "--limit", "--cursor",
+                "--level",
+                "--since",
+                "--until",
+                "--trace-id",
+                "--run-id",
+                "--operation",
+                "--keyword",
+                "--limit",
+                "--cursor",
             ];
             let mut filters: Vec<(&str, String)> = Vec::new();
             let mut rest: Vec<&str> = positionals[1..].to_vec();

@@ -29,13 +29,17 @@ impl PendingJobEvent {
         }
     }
 }
+/// Whole-space task payloads require all-member authorization even through generic job APIs.
+pub(super) fn is_space_job(kind: &str) -> bool {
+    kind == "sync"
+}
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),kind TEXT NOT NULL,operation_key TEXT NOT NULL,document TEXT NOT NULL,UNIQUE(member_id,kind,operation_key)); CREATE INDEX IF NOT EXISTS jobs_member ON jobs(member_id,id);")?;
     Ok(())
 }
 fn submission_hash(mut payload: Value, kind: &str) -> String {
     use sha2::{Digest, Sha256};
-    if kind == "recognition" {
+    if kind == "recognition" || kind == "purchase_recognition" {
         if let Some(object) = payload.as_object_mut() {
             object.remove("submission");
             object.remove("transferred_images");
@@ -49,7 +53,7 @@ fn submission_hash(mut payload: Value, kind: &str) -> String {
 /// Installation-local metadata only; never copied into portable facts.
 pub(super) fn retain_submission_guards(tx: &Transaction<'_>) -> Result<(), ApiError> {
     let space: String = tx.query_row("SELECT id FROM workspace", [], |row| row.get(0))?;
-    let mut statement=tx.prepare("SELECT document FROM jobs WHERE json_type(document,'$.submitted_at')='text' OR (kind='recognition' AND json_extract(document,'$.payload.submission') IN ('submitted','received','unknown'))")?;
+    let mut statement=tx.prepare("SELECT document FROM jobs WHERE json_type(document,'$.submitted_at')='text' OR (kind IN ('recognition','purchase_recognition') AND json_extract(document,'$.payload.submission') IN ('submitted','received','unknown'))")?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         let raw: String = row.get(0)?;
@@ -167,11 +171,13 @@ impl Application {
             .and_then(|prev| prev["attempts"].as_u64())
             .unwrap_or(0);
         let reclaimed = doc["attempts"].as_u64().unwrap_or(0) > attempts_before;
-        Ok((state_from != doc["state"].as_str() || reclaimed).then(|| PendingJobEvent {
-            doc: doc.clone(),
-            action: "state",
-            state_from: state_from.map(str::to_owned),
-        }))
+        Ok(
+            (state_from != doc["state"].as_str() || reclaimed).then(|| PendingJobEvent {
+                doc: doc.clone(),
+                action: "state",
+                state_from: state_from.map(str::to_owned),
+            }),
+        )
     }
     /// 任务链路事件（#44）：trace_id 取自任务文档——worker 可能运行在另一进程，
     /// 链路只能经任务文档传递，不依赖进程状态。字段按构造脱敏（只含任务元数据）。
@@ -320,6 +326,7 @@ impl Application {
     pub(super) fn job_action(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
         let tx = self.begin_write()?;
         let mut doc = self.job_get(input)?;
+        crate::schedules::validate_related_job(&tx, &doc)?;
         if operation == "jobs.cancel" {
             if doc["state"] == "succeeded" {
                 return Err(ApiError::new("invalid_state", "已完成任务不能取消"));
@@ -331,10 +338,15 @@ impl Application {
                 "outfit_flatlay",
                 "virtual_tryon",
                 "text_recommendation",
+                "stylist_query",
+                "scenario_plan",
             ]
             .contains(&doc["kind"].as_str().unwrap_or(""))
                 && doc["submitted_at"].is_string())
-                || (doc["kind"] == "recognition" && doc["payload"]["submission"] != "not_submitted")
+                || (matches!(
+                    doc["kind"].as_str(),
+                    Some("recognition") | Some("purchase_recognition")
+                ) && doc["payload"]["submission"] != "not_submitted")
             {
                 return Err(ApiError::new(
                     "submission_already_sent",

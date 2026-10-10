@@ -230,7 +230,9 @@ impl Logger {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, LoggerState> {
-        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// 一次 Application API 调用的结果事件。`input_keys` 只含字段名（脱敏按构造）。
@@ -289,7 +291,11 @@ impl Logger {
     /// 返回给前端的窗口端点完全一致（fields 合并覆盖基础 ts，见 log_event）。
     /// 事件只含 phase 与 ts，无可注入内容。
     pub(crate) fn log_reproduction_marker(&self, phase: &str, ts: &str) {
-        self.log_event(Level::Info, "reproduction", json!({"phase": phase, "ts": ts}));
+        self.log_event(
+            Level::Info,
+            "reproduction",
+            json!({"phase": phase, "ts": ts}),
+        );
     }
 
     /// 通用事件入口（run_start、panic；#43 的 diagnostics.ui_event 等复用）。
@@ -350,7 +356,10 @@ impl Logger {
             size = 0;
         }
         fs::create_dir_all(&self.logs_dir).ok();
-        let mut file = fs::OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
         // 行与换行合并为一次 write：O_APPEND 下单次写入原子追加，并发写者（CLI 与 GUI
         // 两进程共享同一 logs 目录；本进程 panic 钩子向全部日志汇并发写）的字节无法落在
         // 行与换行之间。拆成两次 write 时，另一写者的整行可落在这两段之间，两个 JSON
@@ -444,8 +453,7 @@ impl Logger {
         let mut files: Vec<(chrono::NaiveDate, u32, PathBuf)> = Vec::new();
         if let Ok(entries) = fs::read_dir(&self.logs_dir) {
             for entry in entries.flatten() {
-                if let Some((date, seq)) =
-                    parse_log_file_name(&entry.file_name().to_string_lossy())
+                if let Some((date, seq)) = parse_log_file_name(&entry.file_name().to_string_lossy())
                 {
                     files.push((date, seq, entry.path()));
                 }
@@ -601,7 +609,9 @@ impl Application {
             "diagnostics.export" => self.diagnostics_export(input),
             "diagnostics.checks" => self.diagnostics_checks(input),
             "diagnostics.ui_event" => self.diagnostics_ui_event(input),
-            "diagnostics.reproduction.start" => self.diagnostics_reproduction_marker(input, "start"),
+            "diagnostics.reproduction.start" => {
+                self.diagnostics_reproduction_marker(input, "start")
+            }
             "diagnostics.reproduction.stop" => self.diagnostics_reproduction_marker(input, "stop"),
             _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
         }
@@ -633,7 +643,8 @@ impl Application {
                 &format!("label 须为 1–{UI_EVENT_LABEL_MAX_CHARS} 字符的界面文案"),
             ));
         }
-        self.logger.log_event(Level::Info, "ui", json!({"type": kind, "label": label}));
+        self.logger
+            .log_event(Level::Info, "ui", json!({"type": kind, "label": label}));
         Ok(json!({"schema_version": 1}))
     }
 
@@ -662,9 +673,9 @@ impl Application {
         let level: Option<String> = match input.get("level") {
             None => None,
             Some(value) => {
-                let level = value.as_str().ok_or_else(|| {
-                    ApiError::new("invalid_input", "级别筛选必须为字符串")
-                })?;
+                let level = value
+                    .as_str()
+                    .ok_or_else(|| ApiError::new("invalid_input", "级别筛选必须为字符串"))?;
                 if !["info", "debug", "trace", "error"].contains(&level) {
                     return Err(ApiError::new("invalid_input", "级别筛选无效"));
                 }
@@ -723,12 +734,11 @@ impl Application {
                 (Some(millis), skip)
             }
         };
-        let event_millis =
-            |event: &Value| -> Option<i64> {
-                chrono::DateTime::parse_from_rfc3339(event["ts"].as_str()?)
-                    .ok()
-                    .map(|time| time.timestamp_millis())
-            };
+        let event_millis = |event: &Value| -> Option<i64> {
+            chrono::DateTime::parse_from_rfc3339(event["ts"].as_str()?)
+                .ok()
+                .map(|time| time.timestamp_millis())
+        };
         let events = self.logger.read_events();
         // 基础筛选：按写入序（文件时间序）；查询只服务 ts 可解析的良构事件，游标推进依赖它
         let mut matched: Vec<&Value> = events
@@ -852,13 +862,17 @@ impl Application {
                 ));
             }
             if !has_from || !has_to {
-                return Err(ApiError::new("invalid_input", "显式时间窗须同时提供 from 与 to"));
+                return Err(ApiError::new(
+                    "invalid_input",
+                    "显式时间窗须同时提供 from 与 to",
+                ));
             }
-            let parse_time = |key: &str| -> Result<chrono::DateTime<chrono::FixedOffset>, ApiError> {
-                parse_rfc3339_field(&input, key)?.ok_or_else(|| {
-                    ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))
-                })
-            };
+            let parse_time =
+                |key: &str| -> Result<chrono::DateTime<chrono::FixedOffset>, ApiError> {
+                    parse_rfc3339_field(&input, key)?.ok_or_else(|| {
+                        ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))
+                    })
+                };
             let from = parse_time("from")?;
             let to = parse_time("to")?;
             if from > to {
@@ -921,12 +935,11 @@ impl Application {
         };
 
         // 事件选取与查询同口径：ts 不可解析的事件不进入导出（损坏行静默跳过）
-        let event_millis =
-            |event: &Value| -> Option<i64> {
-                chrono::DateTime::parse_from_rfc3339(event["ts"].as_str()?)
-                    .ok()
-                    .map(|time| time.timestamp_millis())
-            };
+        let event_millis = |event: &Value| -> Option<i64> {
+            chrono::DateTime::parse_from_rfc3339(event["ts"].as_str()?)
+                .ok()
+                .map(|time| time.timestamp_millis())
+        };
         let cutoff = (chrono::Utc::now() - chrono::Duration::hours(24)).timestamp_millis();
         let mut selected: Vec<Value> = self
             .logger
@@ -947,8 +960,14 @@ impl Application {
             .collect();
         // 稳定排序：同毫秒事件保持写入序
         selected.sort_by_key(|event| event_millis(event).unwrap_or(i64::MIN));
-        let covered_from = selected.first().and_then(|e| e["ts"].as_str()).map(String::from);
-        let covered_to = selected.last().and_then(|e| e["ts"].as_str()).map(String::from);
+        let covered_from = selected
+            .first()
+            .and_then(|e| e["ts"].as_str())
+            .map(String::from);
+        let covered_to = selected
+            .last()
+            .and_then(|e| e["ts"].as_str())
+            .map(String::from);
         let run_ids: std::collections::BTreeSet<String> = selected
             .iter()
             .filter_map(|event| event["run_id"].as_str().map(String::from))
@@ -960,7 +979,9 @@ impl Application {
             ("error", 0),
         ]);
         for event in &selected {
-            if let Some(slot) = event["level"].as_str().and_then(|level| level_counts.get_mut(level))
+            if let Some(slot) = event["level"]
+                .as_str()
+                .and_then(|level| level_counts.get_mut(level))
             {
                 *slot += 1;
             }
@@ -1040,9 +1061,9 @@ impl Application {
             [],
             |row| row.get::<_, i64>(0).map(|count| count as u64),
         )?;
-        let database_user_version: u32 = self
-            .connection
-            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let database_user_version: u32 =
+            self.connection
+                .query_row("PRAGMA user_version", [], |row| row.get(0))?;
         let events = self.logger.read_events();
         let recent_errors: Vec<Value> = recent_errors_window(events.iter());
         let (total_bytes, file_count) = self.logger.occupancy();
@@ -1075,7 +1096,10 @@ impl Application {
             .unwrap_or(Path::new("."))
             .to_path_buf();
         let db_path = PathBuf::from(self.connection.path().unwrap_or_default());
-        let db_file = db_path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+        let db_file = db_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
         let mut checks: Vec<Value> = Vec::new();
         // 1. 数据目录解析与可写（解析失败在 Application 入口即被拒绝；此处验证可写与存在）
         checks.push(check_data_directory(&data_dir));
@@ -1089,21 +1113,30 @@ impl Application {
                 "pass",
                 "数据库正常，模式版本与当前应用一致",
                 None,
-                &format!("user_version={user_version} required={}", crate::DATABASE_SCHEMA_VERSION),
+                &format!(
+                    "user_version={user_version} required={}",
+                    crate::DATABASE_SCHEMA_VERSION
+                ),
             ),
             std::cmp::Ordering::Less => check_item(
                 "database_schema",
                 "warn",
                 "数据库模式版本低于当前应用，下次打开时会自动升级",
                 None,
-                &format!("user_version={user_version} required={}", crate::DATABASE_SCHEMA_VERSION),
+                &format!(
+                    "user_version={user_version} required={}",
+                    crate::DATABASE_SCHEMA_VERSION
+                ),
             ),
             std::cmp::Ordering::Greater => check_item(
                 "database_schema",
                 "fail",
                 "数据库由更新版本的应用创建，请升级应用后再打开",
                 None,
-                &format!("user_version={user_version} required={}", crate::DATABASE_SCHEMA_VERSION),
+                &format!(
+                    "user_version={user_version} required={}",
+                    crate::DATABASE_SCHEMA_VERSION
+                ),
             ),
         });
         // 3. WAL 生效（pragma 只读查询）
@@ -1111,7 +1144,13 @@ impl Application {
             .connection
             .query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
         checks.push(if journal_mode == "wal" {
-            check_item("database_wal", "pass", "数据库日志模式正常", None, "journal_mode=wal")
+            check_item(
+                "database_wal",
+                "pass",
+                "数据库日志模式正常",
+                None,
+                "journal_mode=wal",
+            )
         } else {
             check_item(
                 "database_wal",
@@ -1145,7 +1184,10 @@ impl Application {
                 "warn",
                 "检测到数据在本机被恢复或更换，请重启应用后继续使用",
                 None,
-                &format!("opened_generation={} current_generation={generation}", self.installation_generation),
+                &format!(
+                    "opened_generation={} current_generation={generation}",
+                    self.installation_generation
+                ),
             )
         });
         // 7. 加密钱包状态：未配置 / 已解锁 / 已锁定（只报状态，绝不触碰密钥材料）
@@ -1438,7 +1480,13 @@ fn available_bytes(_path: &Path) -> Option<u64> {
 fn check_pending_marker(data_dir: &Path, db_file: &str) -> Value {
     let marker = data_dir.join(".wardrobe-location.json");
     if !marker.exists() {
-        return check_item("pending_location_marker", "pass", "数据位置正常", None, "marker=none");
+        return check_item(
+            "pending_location_marker",
+            "pass",
+            "数据位置正常",
+            None,
+            "marker=none",
+        );
     }
     let parsed: Result<Value, String> = std::fs::File::open(&marker)
         .map_err(|error| format!("marker_read_error={error}"))
@@ -1497,7 +1545,6 @@ fn check_pending_marker(data_dir: &Path, db_file: &str) -> Value {
         ),
     }
 }
-
 
 fn log_file_name(date: chrono::NaiveDate, seq: u32) -> String {
     if seq == 0 {
@@ -1563,7 +1610,10 @@ mod tests {
     #[test]
     fn log_file_names_parse_back_to_date_and_sequence() {
         let date = chrono::NaiveDate::from_ymd_opt(2026, 10, 8).unwrap();
-        assert_eq!(parse_log_file_name("wardrobe-2026-10-08.jsonl"), Some((date, 0)));
+        assert_eq!(
+            parse_log_file_name("wardrobe-2026-10-08.jsonl"),
+            Some((date, 0))
+        );
         assert_eq!(
             parse_log_file_name("wardrobe-2026-10-08.3.jsonl"),
             Some((date, 3))
@@ -1607,7 +1657,10 @@ fn parse_rfc3339_field(
             Some(text) => chrono::DateTime::parse_from_rfc3339(text)
                 .map(Some)
                 .map_err(|_| ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
-            None => Err(ApiError::new("invalid_input", &format!("{key} 须为 RFC3339 时间"))),
+            None => Err(ApiError::new(
+                "invalid_input",
+                &format!("{key} 须为 RFC3339 时间"),
+            )),
         },
     }
 }

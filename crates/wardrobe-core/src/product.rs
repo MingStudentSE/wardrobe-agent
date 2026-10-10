@@ -173,24 +173,34 @@ impl Application {
             discover = discover.bearer_auth(key);
         }
         // 供应商请求事件（#44）：trace 取自任务文档；模型发现与生成各记一条
-        let provider_request =
-            crate::diagnostics::ProviderRequestLog::from_job(job, provider["model"].as_str().unwrap_or(""));
+        let provider_request = crate::diagnostics::ProviderRequestLog::from_job(
+            job,
+            provider["model"].as_str().unwrap_or(""),
+        );
         provider_request.begin_send();
         let response = match discover.send() {
             Ok(response) => response,
             Err(_) => {
-                provider_request.record(self,"model_discovery","error",None);
-                return Err(ApiError::new("model_discovery_failed", "无法查询可用模型，尚未发送原图"));
+                provider_request.record(self, "model_discovery", "error", None);
+                return Err(ApiError::new(
+                    "model_discovery_failed",
+                    "无法查询可用模型，尚未发送原图",
+                ));
             }
         };
         if !response.status().is_success() {
-            provider_request.record(self,"model_discovery","http_error",Some(response.status().as_u16()));
+            provider_request.record(
+                self,
+                "model_discovery",
+                "http_error",
+                Some(response.status().as_u16()),
+            );
             return Err(ApiError::new(
                 "model_discovery_failed",
                 "模型查询被拒绝，请检查账户开通及最终端点，尚未生成",
             ));
         }
-        provider_request.record(self,"model_discovery","ok",None);
+        provider_request.record(self, "model_discovery", "ok", None);
         let models = bounded_json(response, 1024 * 1024)?;
         if !models["data"]
             .as_array()
@@ -253,7 +263,7 @@ impl Application {
         let response = match request.send() {
             Ok(response) => response,
             Err(_) => {
-                provider_request.record(self,"image_generations","outcome_unknown",None);
+                provider_request.record(self, "image_generations", "outcome_unknown", None);
                 return Err(ApiError::new(
                     "provider_outcome_unknown",
                     "生成请求结果未知；请检查供应商记录，此任务不会自动重发",
@@ -261,13 +271,18 @@ impl Application {
             }
         };
         if !response.status().is_success() {
-            provider_request.record(self,"image_generations","http_error",Some(response.status().as_u16()));
+            provider_request.record(
+                self,
+                "image_generations",
+                "http_error",
+                Some(response.status().as_u16()),
+            );
             return Err(ApiError::new(
                 "provider_generation_failed",
                 "供应商未返回成功，旧图保留；请检查账户额度、模型和记录",
             ));
         }
-        provider_request.record(self,"image_generations","ok",None);
+        provider_request.record(self, "image_generations", "ok", None);
         let request_id = response
             .headers()
             .get("x-request-id")
@@ -438,8 +453,16 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({"name":"product.generate","description":"明确上传所选单品原图，创建商品展示图任务；可能使用供应商额度，旧图不变","effect":{"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]},"examples":[{"request":{"member_id":"<已授权成员ID>","clothing_id":"<单品ID>","asset_id":"<资产ID>","provider_id":"<已配置图片供应商ID>","operation_key":"<唯一操作标识>","upload_original":true},"prerequisites":["明确上传所选单品原图创建商品图任务；真实提交消耗供应商额度","旧图保持不变直到显式采用；本示例不自动执行"]}],"inputSchema":{"type":"object","required":["member_id","clothing_id","asset_id","provider_id","operation_key","upload_original"],"properties":{"member_id":{"type":"string"},"clothing_id":{"type":"string"},"asset_id":{"type":"string"},"provider_id":{"type":"string"},"operation_key":{"type":"string"},"upload_original":{"const":true}},"additionalProperties":false},"outputSchema":crate::jobs::output_schema()}),
     ];
     for name in ["product.process", "product.adopt"] {
-        let (effect,examples)=match name {
-            "product.process"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<商品图任务ID>"},"prerequisites":["推进已入队商品图任务；首次真实提交消耗供应商额度","未知结果先查询不盲重发；本示例不自动执行"]}])),"product.adopt"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<商品图任务ID>"},"prerequisites":["显式采用后压缩展示图成为当前图；拒绝/取消/失败保留旧图","仅最终采用的商品图具备同步资格"]}])),_=>unreachable!()
+        let (effect, examples) = match name {
+            "product.process" => (
+                json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),
+                json!([{"request":{"member_id":"<已授权成员ID>","id":"<商品图任务ID>"},"prerequisites":["推进已入队商品图任务；首次真实提交消耗供应商额度","未知结果先查询不盲重发；本示例不自动执行"]}]),
+            ),
+            "product.adopt" => (
+                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
+                json!([{"request":{"member_id":"<已授权成员ID>","id":"<商品图任务ID>"},"prerequisites":["显式采用后压缩展示图成为当前图；拒绝/取消/失败保留旧图","仅最终采用的商品图具备同步资格"]}]),
+            ),
+            _ => unreachable!(),
         };
         result.push(json!({"name":name,"effect":effect,"examples":examples,"description":"处理或明确采用商品图，保持旧图直到采用","inputSchema":{"type":"object","required":["member_id","id"],"properties":{"member_id":{"type":"string"},"id":{"type":"string"}},"additionalProperties":false},"outputSchema":crate::jobs::output_schema()}));
     }

@@ -1,10 +1,27 @@
+#[path = "feedback_snapshot.rs"]
+mod snapshot;
+pub(crate) fn validate_snapshot(doc: &Value) -> Result<(), ApiError> {
+    snapshot::validate(doc)
+}
 use crate::{string, ApiError, Application};
 use chrono::{TimeZone, Utc};
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS feedback_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL,UNIQUE(root_id,revision)); CREATE INDEX IF NOT EXISTS feedback_member_root ON feedback_events(member_id,root_id,revision); CREATE TABLE IF NOT EXISTS feedback_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS feedback_asset_refs(event_id TEXT NOT NULL REFERENCES feedback_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS feedback_events(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),root_id TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL); CREATE INDEX IF NOT EXISTS feedback_member_root ON feedback_events(member_id,root_id,revision); CREATE TABLE IF NOT EXISTS feedback_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key)); CREATE TABLE IF NOT EXISTS feedback_asset_refs(event_id TEXT NOT NULL REFERENCES feedback_events(id),asset_id TEXT NOT NULL,member_id TEXT NOT NULL,PRIMARY KEY(event_id,asset_id),FOREIGN KEY(asset_id,member_id) REFERENCES assets(id,member_id));")?;
+    // schema22 放宽了 feedback_events 的每根版本唯一约束（归档校验由
+    // expected_unique_index_signatures 承接 legacy 唯一性），既有库保持原样。
+    // 本地接收回执则按 schema22 便携化：旧两列 PK 升级为含 request/result
+    // 的四列 PK，接收同一 operation_key 的不同分支结果不再互相覆盖；
+    // 同步引擎的 INSERT OR IGNORE 与 sync_feedback_receipts 触发器依赖该形状。
+    let primary_key: Vec<String> = tx
+        .prepare("SELECT name FROM pragma_table_info('feedback_receipts') WHERE pk>0 ORDER BY pk")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    if primary_key == ["member_id", "operation_key"] {
+        tx.execute_batch("DROP TRIGGER IF EXISTS sync_feedback_receipts_insert; DROP TRIGGER IF EXISTS sync_feedback_receipts_update; DROP TRIGGER IF EXISTS sync_feedback_receipts_delete; ALTER TABLE feedback_receipts RENAME TO feedback_receipts_legacy; CREATE TABLE feedback_receipts(member_id TEXT NOT NULL,operation_key TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(member_id,operation_key,request,result)); INSERT INTO feedback_receipts SELECT * FROM feedback_receipts_legacy; DROP TABLE feedback_receipts_legacy;")?;
+    }
     Ok(())
 }
 fn parse(s: String) -> Result<Value, ApiError> {
@@ -67,6 +84,7 @@ pub(super) fn validate_stored_document(
     db: &rusqlite::Connection,
     doc: &Value,
 ) -> Result<(), ApiError> {
+    validate_snapshot(doc)?;
     let kind = reaction(&doc["reaction"])?;
     if doc["schema_version"] != 1
         || !doc["revoked"].is_boolean()
@@ -106,37 +124,34 @@ pub(super) fn validate_stored_document(
         chrono::DateTime::parse_from_rfc3339(string(doc, field)?)
             .map_err(|_| invalid("反馈观察时间损坏"))?;
     }
-    let raw: Option<String> = db
+    // Synced feedback carries its immutable snapshot, while private intents stay local.
+    // A UUID present for another member is a mismatch, never an absent-source fallback.
+    let source: Option<(String, String)> = db
         .query_row(
-            "SELECT document FROM recommendation_intents WHERE id=?1 AND member_id=?2",
-            params![string(doc, "intent_id")?, member],
-            |r| r.get(0),
+            "SELECT member_id,document FROM recommendation_intents WHERE id=?1",
+            [string(doc, "intent_id")?],
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
-    let intent = parse(raw.ok_or_else(|| invalid("反馈来源意图不存在"))?)?;
-    let index = doc["proposal_index"]
-        .as_u64()
-        .ok_or_else(|| invalid("反馈方案序号损坏"))? as usize;
-    if intent["proposals"].as_array().and_then(|v| v.get(index)) != Some(&doc["proposal"])
-        || doc["controls"] != intent["controls"]
-    {
-        return Err(invalid("反馈方案与不可变意图不符"));
+    if let Some((source_member, raw)) = source {
+        if source_member != member {
+            return Err(invalid("反馈来源意图成员不符"));
+        }
+        let intent = parse(raw)?;
+        let index = doc["proposal_index"]
+            .as_u64()
+            .ok_or_else(|| invalid("反馈方案序号损坏"))? as usize;
+        if intent["proposals"].as_array().and_then(|v| v.get(index)) != Some(&doc["proposal"])
+            || doc["controls"] != intent["controls"]
+        {
+            return Err(invalid("反馈方案与不可变意图不符"));
+        }
     }
     let items = doc["proposal"]["items"]
         .as_array()
         .ok_or_else(|| invalid("反馈方案损坏"))?;
-    let snapshots = doc["inventory_snapshots"]
-        .as_array()
-        .ok_or_else(|| invalid("反馈观察快照损坏"))?;
-    if snapshots.len() != items.len() {
-        return Err(invalid("反馈观察快照数量不符"));
-    }
-    for (snapshot, item) in snapshots.iter().zip(items) {
-        crate::clothing::validate_stored_document(snapshot)?;
-        if snapshot["id"] != item["clothing_id"] || snapshot["member_id"] != member {
-            return Err(invalid("反馈观察快照身份不符"));
-        }
-    }
+    // Shared intrinsic validation already checks exact snapshot IDs, uniqueness,
+    // cardinality, clothing documents and member ownership without imposing order.
     if kind == "day_exclude" {
         selected(&doc["proposal"], &doc["clothing_ids"])?;
         let scope = &doc["day_scope"];
@@ -196,11 +211,29 @@ pub(super) fn validate_stored_document(
     }
     Ok(())
 }
+fn require_unique_receipt(tx: &Transaction<'_>, member: &str, key: &str) -> Result<(), ApiError> {
+    let count: u64 = tx.query_row(
+        "SELECT count(*) FROM feedback_receipts WHERE member_id=?1 AND operation_key=?2",
+        params![member, key],
+        |row| row.get(0),
+    )?;
+    if count > 1 {
+        return Err(ApiError::new(
+            "idempotency_conflict",
+            "操作标识存在不同反馈结果，请审核历史并使用新的操作标识",
+        ));
+    }
+    Ok(())
+}
 impl Application {
+    fn feedback_require_resolved(&self, member: &str) -> Result<(), ApiError> {
+        crate::sync::require_resolved_events(&self.connection, "feedback_events", member)
+    }
     pub(super) fn feedback_disliked_sets(
         &self,
         member: &str,
     ) -> Result<std::collections::BTreeSet<Vec<String>>, ApiError> {
+        self.feedback_require_resolved(member)?;
         let mut st=self.connection.prepare("SELECT e.document FROM feedback_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM feedback_events WHERE root_id=e.root_id) AND json_extract(document,'$.revoked')=0 AND json_extract(document,'$.reaction')='dislike'")?;
         let mut sets = std::collections::BTreeSet::new();
         for row in st.query_map([member], |r| r.get::<_, String>(0))? {
@@ -221,7 +254,12 @@ impl Application {
         }
         Ok(sets)
     }
-    pub(super) fn feedback_day_exclusions(&self, member: &str) -> Result<Vec<String>, ApiError> {
+    pub(super) fn feedback_day_exclusions(
+        &self,
+        member: &str,
+        target_instant: Option<chrono::DateTime<Utc>>,
+    ) -> Result<Vec<String>, ApiError> {
+        self.feedback_require_resolved(member)?;
         let mut statement=self.connection.prepare("SELECT e.document FROM feedback_events e WHERE member_id=?1 AND revision=(SELECT MAX(revision) FROM feedback_events WHERE root_id=e.root_id) AND json_extract(document,'$.revoked')=0 AND json_extract(document,'$.reaction')='day_exclude'")?;
         let mut ids = vec![];
         for row in statement.query_map([member], |r| r.get::<_, String>(0))? {
@@ -230,7 +268,19 @@ impl Application {
                 .as_str()
                 .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
                 .ok_or_else(|| ApiError::new("storage_error", "当天排除期限损坏"))?;
-            if end > Utc::now() {
+            if target_instant.map_or_else(
+                || end > Utc::now(),
+                |instant| {
+                    let zone: chrono_tz::Tz = doc["day_scope"]["timezone"]
+                        .as_str()
+                        .unwrap()
+                        .parse()
+                        .unwrap();
+                    instant < end.with_timezone(&Utc)
+                        && instant.with_timezone(&zone).date_naive().to_string()
+                            == doc["day_scope"]["local_date"]
+                },
+            ) {
                 for id in doc["clothing_ids"]
                     .as_array()
                     .ok_or_else(|| ApiError::new("storage_error", "排除ID损坏"))?
@@ -255,7 +305,16 @@ impl Application {
         }
         let request = json!({"operation":op,"input":input}).to_string();
         let tx = self.begin_write()?;
+        require_unique_receipt(&tx, &member, key)?;
         if let Some((old,result))=tx.query_row("SELECT request,result FROM feedback_receipts WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?{if old!=request{return Err(ApiError::new("idempotency_conflict","同操作标识不能改变反馈"));}return parse(result);}
+        let root = string(&input, "root_id")?;
+        let parents: u64 = tx.query_row("SELECT count(*) FROM feedback_events WHERE member_id=?1 AND root_id=?2 AND revision=(SELECT max(revision) FROM feedback_events WHERE member_id=?1 AND root_id=?2)", params![member, root], |row| row.get(0))?;
+        if parents > 1 {
+            return Err(ApiError::new(
+                "version_conflict",
+                "反馈有并发修订，请先选择要保留的分支",
+            ));
+        }
         let old:Option<String>=tx.query_row("SELECT document FROM feedback_events WHERE member_id=?1 AND root_id=?2 ORDER BY revision DESC LIMIT 1",params![member,string(&input,"root_id")?],|r|r.get(0)).optional()?;
         let mut doc = parse(old.ok_or_else(|| ApiError::new("not_found", "反馈不存在"))?)?;
         if input["expected_revision"]
@@ -402,16 +461,32 @@ impl Application {
                 })
                 .transpose()?
                 .unwrap_or(50);
-            let cursor = input
-                .get("cursor")
-                .map(|v| v.as_u64().ok_or_else(|| invalid("历史游标须为修订整数")))
-                .transpose()?
-                .unwrap_or(0);
-            let mut statement=self.connection.prepare("SELECT document FROM feedback_events WHERE member_id=?1 AND root_id=?2 AND revision>?3 ORDER BY revision LIMIT ?4")?;
+            // Legacy integer cursors remain accepted. New composite cursors retain
+            // every immutable branch when a page ends within one numeric revision.
+            let (cursor, cursor_id) = match input.get("cursor") {
+                None => (0u64, String::new()),
+                Some(value) if value.is_u64() => (value.as_u64().unwrap(), "~".to_owned()),
+                Some(value) => {
+                    let (revision, id) = value
+                        .as_str()
+                        .and_then(|v| v.split_once(':'))
+                        .ok_or_else(|| invalid("历史游标格式无效"))?;
+                    let revision = revision
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|n| *n > 0 && *n < i64::MAX as u64)
+                        .ok_or_else(|| invalid("历史游标格式无效"))?;
+                    uuid::Uuid::parse_str(id).map_err(|_| invalid("历史游标格式无效"))?;
+                    (revision, id.to_owned())
+                }
+            };
+            let mut statement=self.connection.prepare("SELECT document FROM feedback_events WHERE member_id=?1 AND root_id=?2 AND (revision>?3 OR (revision=?3 AND id>?4)) ORDER BY revision,id LIMIT ?5")?;
             let mut items = vec![];
-            for row in statement.query_map(params![member, root, cursor, limit + 1], |r| {
-                r.get::<_, String>(0)
-            })? {
+            for row in statement
+                .query_map(params![member, root, cursor, cursor_id, limit + 1], |r| {
+                    r.get::<_, String>(0)
+                })?
+            {
                 items.push(parse(row?)?);
             }
             let exists: bool = self.connection.query_row(
@@ -425,7 +500,12 @@ impl Application {
             let more = items.len() > limit as usize;
             items.truncate(limit as usize);
             let next = if more {
-                items.last().unwrap()["revision"].clone()
+                let last = items.last().unwrap();
+                json!(format!(
+                    "{}:{}",
+                    last["revision"].as_u64().unwrap(),
+                    last["id"].as_str().unwrap()
+                ))
             } else {
                 Value::Null
             };
@@ -499,6 +579,7 @@ impl Application {
         let scores = scores(input.get("scores").unwrap_or(&json!({})))?;
         let request = input.to_string();
         let tx = self.begin_write()?;
+        require_unique_receipt(&tx, &member, key)?;
         if let Some((old,result))=tx.query_row("SELECT request,result FROM feedback_receipts WHERE member_id=?1 AND operation_key=?2",params![member,key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?{if old!=request{return Err(ApiError::new("idempotency_conflict","同操作标识不能改变反馈"));}return parse(result);}
         let intent = self.recommendation_execute(
             "recommendation.get",
@@ -633,15 +714,19 @@ impl Application {
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
-    let scores_schema=json!({"type":"object","required":["overall","comfort","style"],"properties":{"overall":{"type":["integer","null"],"minimum":1,"maximum":5},"comfort":{"type":["integer","null"],"minimum":1,"maximum":5},"style":{"type":["integer","null"],"minimum":1,"maximum":5}}});
+    let scores_schema = json!({"type":"object","required":["overall","comfort","style"],"properties":{"overall":{"type":["integer","null"],"minimum":1,"maximum":5},"comfort":{"type":["integer","null"],"minimum":1,"maximum":5},"style":{"type":["integer","null"],"minimum":1,"maximum":5}}});
     // record/correct/revoke/get共享同一事件文档；correct/revoke追加supersedes_event_id，revoke另有reason
-    let event=json!({"type":"object","required":["schema_version","member_id","id","root_id","revision","revoked","intent_id","proposal_index","proposal","inventory_snapshots","inventory_observed_at","controls","reaction","wear_event_id","day_scope","clothing_ids","scores","created_at"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"id":{"type":"string"},"root_id":{"type":"string"},"revision":{"type":"integer","minimum":1},"revoked":{"type":"boolean"},"intent_id":{"type":"string"},"proposal_index":{"type":"integer","minimum":0},"proposal":{"type":"object"},"inventory_snapshots":{"type":"array"},"inventory_observed_at":{"type":"string"},"controls":{"type":"object"},"reaction":{"enum":["like","dislike","skip","day_exclude","actual_wore","changed"]},"wear_event_id":{"type":["string","null"]},"day_scope":{"type":["object","null"]},"clothing_ids":{"type":"array","items":{"type":"string"}},"scores":scores_schema,"created_at":{"type":"string"},"supersedes_event_id":{"type":"string"},"reason":{"type":"string"}}});
+    let event = json!({"type":"object","required":["schema_version","member_id","id","root_id","revision","revoked","intent_id","proposal_index","proposal","inventory_snapshots","inventory_observed_at","controls","reaction","wear_event_id","day_scope","clothing_ids","scores","created_at"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"id":{"type":"string"},"root_id":{"type":"string"},"revision":{"type":"integer","minimum":1},"revoked":{"type":"boolean"},"intent_id":{"type":"string"},"proposal_index":{"type":"integer","minimum":0},"proposal":{"type":"object"},"inventory_snapshots":{"type":"array"},"inventory_observed_at":{"type":"string"},"controls":{"type":"object"},"reaction":{"enum":["like","dislike","skip","day_exclude","actual_wore","changed"]},"wear_event_id":{"type":["string","null"]},"day_scope":{"type":["object","null"]},"clothing_ids":{"type":"array","items":{"type":"string"}},"scores":scores_schema,"created_at":{"type":"string"},"supersedes_event_id":{"type":"string"},"reason":{"type":"string"}}});
     // try_another内嵌recommendation.change结果，输出schema直接复用共享注册表来源，不复制第二份
-    let generate_union=crate::recommendations::descriptors().into_iter().find(|d| d["name"]=="recommendation.generate").map(|d| d["outputSchema"].clone()).unwrap_or(json!({}));
+    let generate_union = crate::recommendations::descriptors()
+        .into_iter()
+        .find(|d| d["name"] == "recommendation.generate")
+        .map(|d| d["outputSchema"].clone())
+        .unwrap_or(json!({}));
     ["record","get","list","correct","revoke","history","try_another"].into_iter().map(|op|{
  let mut props=json!({"member_id":{"type":"string"}});let mut required=vec!["member_id"];
  match op {"try_another"=>{required.extend(["operation_key","intent_id","proposal_index"]);props["operation_key"]=json!({"type":"string"});props["intent_id"]=json!({"type":"string"});props["proposal_index"]=json!({"type":"integer","minimum":0});},"record"=>{for f in ["operation_key","intent_id"]{props[f]=json!({"type":"string"});required.push(f);}required.extend(["proposal_index","reaction"]);props["proposal_index"]=json!({"type":"integer","minimum":0});props["reaction"]=json!({"enum":["like","dislike","skip","day_exclude","actual_wore","changed"]});props["wear"]=json!({"type":"object","additionalProperties":false,"required":["confirmed","local_date","timezone"],"properties":{"confirmed":{"const":true},"local_date":{"type":"string"},"timezone":{"type":"string"},"local_time":{"type":"string"},"notes":{"type":"string"},"clothing_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":100,"uniqueItems":true}}});props["timezone"]=json!({"type":"string"});props["clothing_ids"]=json!({"type":"array","minItems":1,"maxItems":100,"uniqueItems":true,"items":{"type":"string"}});props["scores"]=json!({"type":"object","additionalProperties":false,"properties":{"overall":{"type":["integer","null"],"minimum":1,"maximum":5},"comfort":{"type":["integer","null"],"minimum":1,"maximum":5},"style":{"type":["integer","null"],"minimum":1,"maximum":5}}});},"correct"|"revoke"=>{required.extend(["root_id","operation_key","expected_revision"]);props["root_id"]=json!({"type":"string"});props["operation_key"]=json!({"type":"string"});props["expected_revision"]=json!({"type":"integer","minimum":1});if op=="revoke"{required.push("reason");props["reason"]=json!({"type":"string"});}else{props["reaction"]=json!({"enum":["like","dislike","skip"]});props["scores"]=json!({"type":"object","additionalProperties":false,"properties":{"overall":{"type":["integer","null"],"minimum":1,"maximum":5},"comfort":{"type":["integer","null"],"minimum":1,"maximum":5},"style":{"type":["integer","null"],"minimum":1,"maximum":5}}});}},
- "history"=>{required.push("root_id");props["root_id"]=json!({"type":"string"});props["limit"]=json!({"type":"integer","minimum":1,"maximum":100});props["cursor"]=json!({"type":"integer","minimum":0});},
+ "history"=>{required.push("root_id");props["root_id"]=json!({"type":"string"});props["limit"]=json!({"type":"integer","minimum":1,"maximum":100});props["cursor"]=json!({"oneOf":[{"type":"integer","minimum":0},{"type":"string","pattern":"^[1-9][0-9]*:[0-9a-fA-F-]{36}$"}]});},
  "get"=>{required.push("id");props["id"]=json!({"type":"string"});},_=>{props["limit"]=json!({"type":"integer","minimum":1,"maximum":100});props["cursor"]=json!({"type":"string"});props["include_revoked"]=json!({"type":"boolean"});}}
  let output=match op {
             "list"=>json!({"type":"object","required":["schema_version","member_id","items","next_cursor"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"items":{"type":"array","items":event},"next_cursor":{"type":["string","null"]}}}),

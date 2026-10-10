@@ -214,7 +214,7 @@ fn credential(id: &str) -> Result<keyring::Entry, ApiError> {
         .map_err(|_| ApiError::new("credential_store_unavailable", "系统安全存储不可用"))
 }
 mod devices;
-pub(crate) use devices::{WalletStatus, wallet_status};
+pub(crate) use devices::{wallet_status, WalletStatus};
 impl Application {
     pub(crate) fn encryption_operation(&self, op: &str, input: Value) -> Result<Value, ApiError> {
         match op {

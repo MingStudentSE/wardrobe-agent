@@ -1,7 +1,10 @@
+#[path = "provider_text.rs"]
+mod text_transport;
 use crate::{string, ApiError, Application};
 use rusqlite::params;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+pub(crate) use text_transport::read_chat_response;
 use uuid::Uuid;
 const CAPABILITIES: &[&str] = &["text", "vision", "image_generation", "virtual_tryon"];
 impl Application {
@@ -96,12 +99,14 @@ impl Application {
             request = request.bearer_auth(key);
         }
         // 供应商请求事件（#44）：同步验证走当前调用链路（线程局部 trace 上下文）
-        let provider_request =
-            crate::diagnostics::ProviderRequestLog::from_current_call(p["model"].as_str().unwrap_or(""));
+        let provider_request = crate::diagnostics::ProviderRequestLog::from_current_call(
+            p["model"].as_str().unwrap_or(""),
+        );
+        provider_request.begin_send();
         let response = match request.send() {
             Ok(response) => response,
             Err(error) => {
-                provider_request.record(self,"chat_completions","error",None);
+                provider_request.record(self, "chat_completions", "error", None);
                 return Err(if error.is_timeout() {
                     ApiError::new("connection_timeout", "连接超时，请检查端点或网络")
                 } else {
@@ -111,7 +116,12 @@ impl Application {
         };
         let status = response.status();
         if !status.is_success() {
-            provider_request.record(self,"chat_completions","http_error",Some(status.as_u16()));
+            provider_request.record(
+                self,
+                "chat_completions",
+                "http_error",
+                Some(status.as_u16()),
+            );
             return Err(match status.as_u16() {
                 401 | 403 => ApiError::new(
                     "provider_authentication",
@@ -149,10 +159,15 @@ impl Application {
             .as_str()
             .is_none_or(|s| s.trim().is_empty())
         {
-            provider_request.record(self,"chat_completions","outcome_unknown",Some(status.as_u16()));
+            provider_request.record(
+                self,
+                "chat_completions",
+                "outcome_unknown",
+                Some(status.as_u16()),
+            );
             return Err(ApiError::new("provider_response", "供应商响应缺少文本结果"));
         }
-        provider_request.record(self,"chat_completions","ok",None);
+        provider_request.record(self, "chat_completions", "ok", None);
         let mut usage = json!({});
         for field in ["prompt_tokens", "completion_tokens", "total_tokens"] {
             if let Some(count) = result["usage"][field].as_u64() {
@@ -302,13 +317,10 @@ impl Application {
         }
         Ok(json!({"schema_version":1,"items":items}))
     }
-
     /// #48 基础检查的凭据口径（provider.credential.status 同一 keyring 查询）：
     /// 返回（模型总数、缺密钥的模型数、本地免密模型数、安全存储不可用）。
     /// 只计数，绝不读取或返回密钥内容。
-    pub(crate) fn credential_check_summary(
-        &self,
-    ) -> Result<(usize, usize, usize, bool), ApiError> {
+    pub(crate) fn credential_check_summary(&self) -> Result<(usize, usize, usize, bool), ApiError> {
         let mut statement = self
             .connection
             .prepare("SELECT document FROM providers ORDER BY id")?;

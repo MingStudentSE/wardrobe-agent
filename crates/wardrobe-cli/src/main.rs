@@ -32,6 +32,7 @@ fn main() {
         args::Parsed::Profile(command) => run_profile(command),
         args::Parsed::Logs(command) => run_logs(command),
         args::Parsed::Doctor(command) => run_doctor(command),
+        args::Parsed::Scheduler { db, once } => run_scheduler(db, once),
         args::Parsed::Execute(execution) => execute(execution),
     }
 }
@@ -59,10 +60,7 @@ fn write_line(line: impl fmt::Display) -> io::Result<()> {
     let mut out = stdout.lock();
     writeln!(out, "{line}").and_then(|()| out.flush())
 }
-fn resolve_db(
-    db: Option<PathBuf>,
-    profile: Option<String>,
-) -> Result<PathBuf, ApiError> {
+fn resolve_db(db: Option<PathBuf>, profile: Option<String>) -> Result<PathBuf, ApiError> {
     if let Some(db) = db {
         return Ok(db);
     }
@@ -86,8 +84,15 @@ fn resolve_db_or_exit(db: Option<PathBuf>, profile: Option<String>) -> PathBuf {
 
 fn run_profile(command: args::ProfileCommand) {
     use args::ProfileAction;
-    let result = match (command.action, command.name.as_deref(), command.data_dir.as_deref(), command.force) {
-        (ProfileAction::Add, Some(name), Some(dir), force) => wardrobe_core::profiles::upsert(name, dir, force),
+    let result = match (
+        command.action,
+        command.name.as_deref(),
+        command.data_dir.as_deref(),
+        command.force,
+    ) {
+        (ProfileAction::Add, Some(name), Some(dir), force) => {
+            wardrobe_core::profiles::upsert(name, dir, force)
+        }
         (ProfileAction::Remove, Some(name), _, _) => wardrobe_core::profiles::remove(name),
         (ProfileAction::List, _, _, _) => wardrobe_core::profiles::list(),
         (ProfileAction::Use, Some(name), _, _) => wardrobe_core::profiles::set_default(name),
@@ -148,6 +153,52 @@ fn run_doctor(command: args::DoctorCommand) {
     print_line(json!({"schema_version":1,"result":wardrobe_core::diagnostics::doctor_report(&db)}));
 }
 
+/// `wardrobe-cli scheduler`（定时计划执行器，development 线功能）：
+/// 周期推进本机到期计划；--once 单次推进后退出。
+/// 输出为增量进度行（非单 JSON 信封），管道语义与 print_line 不同，独立处理。
+fn run_scheduler(db: Option<PathBuf>, once: bool) {
+    let db = db.unwrap_or_else(wardrobe_core::default_database_path);
+    println!(
+        "{}",
+        json!({"service":"scheduler","state":"running","notifications":"native_host_required","pid":std::process::id()})
+    );
+    let _ = io::stdout().flush();
+    loop {
+        match Application::open(&db).and_then(|app| {
+            if !app.schedule_host_should_run(false)? {
+                return Ok(json!({"queued":[],"results":[],"paused":true}));
+            }
+            let due = app.schedule_tick_at(chrono::Utc::now())?;
+            let pending = app.schedule_pending_jobs()?;
+            let mut results = vec![];
+            for job in pending {
+                let value = app.execute(
+                    "schedule.worker.run",
+                    json!({"member_id":job["member_id"],"id":job["id"]}),
+                );
+                results.push(match value {
+                    Ok(job) => json!({"id":job["id"],"state":job["state"]}),
+                    Err(error) => json!({"id":job["id"],"error":error}),
+                });
+            }
+            Ok(json!({"queued":due["queued"],"results":results}))
+        }) {
+            Ok(value) => {
+                if !value["queued"].as_array().unwrap().is_empty()
+                    || !value["results"].as_array().unwrap().is_empty()
+                {
+                    println!("{value}");
+                }
+            }
+            Err(error) => println!("{}", json!({"error":error})),
+        }
+        let _ = io::stdout().flush();
+        if once {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    }
+}
 fn run_mcp(db: PathBuf) {
     let app = match Application::open(&db) {
         Ok(app) => app,
@@ -205,7 +256,10 @@ fn execute(execution: args::Execution) {
                 .is_err()
                 || body.len() > 1_048_576
             {
-                fail(ApiError::custom("invalid_input", "无法读取标准输入或输入过大"));
+                fail(ApiError::custom(
+                    "invalid_input",
+                    "无法读取标准输入或输入过大",
+                ));
             }
             Some(body)
         }
@@ -281,6 +335,7 @@ fn help() -> Value {
             "wardrobe-cli [--db <数据库路径>] [--trusted-local] <operation> ['<JSON>' | --input-stdin | --client-stdin]",
             "wardrobe-cli [--db <数据库路径>] logs [过滤参数]",
             "wardrobe-cli [--db <数据库路径>] doctor",
+            "wardrobe-cli [--db <数据库路径>] scheduler [--once]",
             "wardrobe-cli [--db <数据库路径>] mcp"
         ],
         "flags": {

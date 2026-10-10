@@ -361,6 +361,9 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             tx.execute("DELETE FROM encryption_state", [])?;
             tx.execute("DELETE FROM encryption_pairings", [])?;
             tx.commit()?;
+            // #31：解除配对同时清理同步目标的传输凭据与按目标键的传输状态
+            // （此前 wardrobe-agent.sync 条目按 target_key 累积、unpair 不清理）。
+            crate::sync::drop_target_state(app)?;
             Ok(status(None))
         }
         "encryption.pair.offer" => {
@@ -731,5 +734,132 @@ pub(super) fn execute(app: &Application, op: &str, input: Value) -> Result<Value
             )
         }
         _ => Err(ApiError::new("unsupported_operation", "此加密操作尚不可用")),
+    }
+}
+
+impl Application {
+    pub(crate) fn sync_object_key(&self, identity: &str) -> Result<String, ApiError> {
+        let (s, w) = existing(self)?;
+        let epoch = s["epoch"].as_u64().ok_or_else(invalid)?;
+        let master = master(&w, epoch)?;
+        let key = derive(
+            master.as_ref(),
+            string(&s, "space_id")?,
+            epoch,
+            &format!("object-name:{identity}"),
+        )?;
+        Ok(key.iter().map(|b| format!("{b:02x}")).collect())
+    }
+    pub(crate) fn sync_identity(&self) -> Result<Value, ApiError> {
+        let (mut s, w) = existing(self)?;
+        if s["pending"] == true || s["revoked"] == true {
+            return Err(ApiError::new("device_revoked", "设备未确认或已撤销"));
+        }
+        if s["manifest"].is_null() {
+            assert_owner(&s)?;
+            s["manifest"] = signed_manifest(&s, &w)?;
+            let tx = self.begin_write()?;
+            update(&tx, &s, &w)?;
+            tx.commit()?;
+        }
+        Ok(
+            json!({"space_id":s["space_id"],"device_id":s["device_id"],"epoch":s["epoch"],"manifest":s["manifest"]}),
+        )
+    }
+    pub(crate) fn sync_encrypt(&self, kind: &str, value: &Value) -> Result<Value, ApiError> {
+        let identity = self.sync_identity()?;
+        let (s, w) = existing(self)?;
+        let epoch = s["epoch"].as_u64().ok_or_else(invalid)?;
+        let master = master(&w, epoch)?;
+        let key = derive(master.as_ref(), string(&s, "space_id")?, epoch, kind)?;
+        let plain = Zeroizing::new(value.to_string());
+        if plain.len() > 1024 * 1024 {
+            return Err(ApiError::new("sync_too_large", "同步日志对象超出分片大小"));
+        }
+        Ok(
+            json!({"protocol_version":1,"identity":identity,"envelope":seal(key.as_ref(),string(&s,"space_id")?,epoch,kind,plain.as_bytes())?}),
+        )
+    }
+    pub(crate) fn sync_decrypt(&self, kind: &str, value: &Value) -> Result<Value, ApiError> {
+        self.sync_identity()?;
+        let (s, w) = existing(self)?;
+        let i = &value["identity"];
+        if value["protocol_version"] != 1
+            || i["space_id"] != s["space_id"]
+            || i["epoch"] != s["epoch"]
+        {
+            return Err(ApiError::new(
+                "sync_state_required",
+                "请先更新已验证设备状态",
+            ));
+        }
+        // Sync logs outlive pairing-list revisions within an epoch. Validate the
+        // original owner signature and publisher membership without weakening
+        // snapshot-package inspection's exact-current-manifest requirement.
+        let supplied = &i["manifest"];
+        fields(supplied, &["payload_base64", "signature"])?;
+        let raw = bytes(supplied, "payload_base64", MAX_BYTES)?;
+        let owner =
+            VerifyingKey::from_bytes(&exact::<32>(&s, "owner_public")?).map_err(|_| error())?;
+        owner
+            .verify_strict(
+                &raw,
+                &Signature::from_bytes(&exact::<64>(supplied, "signature")?),
+            )
+            .map_err(|_| error())?;
+        let manifest: Value = serde_json::from_slice(&raw).map_err(|_| invalid())?;
+        fields(
+            &manifest,
+            &[
+                "protocol_version",
+                "space_id",
+                "epoch",
+                "revision",
+                "owner_public",
+                "devices",
+                "recipients",
+            ],
+        )?;
+        if manifest["protocol_version"] != 1
+            || manifest["space_id"] != s["space_id"]
+            || manifest["epoch"] != s["epoch"]
+            || manifest["owner_public"] != s["owner_public"]
+            || !manifest["revision"]
+                .as_u64()
+                .is_some_and(|r| r > 0 && r <= s["revision"].as_u64().unwrap_or(0))
+            || !manifest["devices"].as_array().is_some_and(|devices| {
+                devices.iter().any(|d| {
+                    d["device_id"] == i["device_id"]
+                        && s["devices"]
+                            .as_array()
+                            .is_some_and(|current| current.iter().any(|c| c == d))
+                })
+            })
+        {
+            return Err(ApiError::new(
+                "device_state_required",
+                "同步发布者需要已验证的设备状态",
+            ));
+        }
+
+        if !s["devices"]
+            .as_array()
+            .ok_or_else(invalid)?
+            .iter()
+            .any(|d| d["device_id"] == i["device_id"])
+        {
+            return Err(error());
+        }
+        let epoch = s["epoch"].as_u64().ok_or_else(invalid)?;
+        let master = master(&w, epoch)?;
+        let key = derive(master.as_ref(), string(&s, "space_id")?, epoch, kind)?;
+        let plain = open(
+            key.as_ref(),
+            string(&s, "space_id")?,
+            epoch,
+            kind,
+            &value["envelope"],
+        )?;
+        serde_json::from_slice(&plain).map_err(|_| invalid())
     }
 }

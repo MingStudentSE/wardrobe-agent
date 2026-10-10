@@ -14,21 +14,29 @@ async function fits(page:Page,label:string){
 test('all workspaces and settings fit intermediate and small windows',async({page})=>{
  execFileSync(process.env.WARDROBE_CLI_BIN??fileURLToPath(new URL('../../../target/debug/wardrobe-cli',import.meta.url)),['--trusted-local','clothing.create',JSON.stringify({member_id:'default',name:'长名称验收衣物春秋宽松休闲纯棉连帽外套适合日常出门通勤穿着',category:'top'})],{env:{...process.env,WARDROBE_DATA_DIR:process.env.WARDROBE_TEST_DATA_DIR}});
  await page.emulateMedia({reducedMotion:'reduce'});await page.goto('/');
+ // 同套件内 pairing 规格会把选中成员持久化为「配对成员乙」；本规格创建与断言都基于默认成员，
+ // 与 pairing.spec 的做法一致：先显式切回「我」，等默认成员衣橱真实加载（种子≥24 件）。
+ // 记录弹窗的衣物列表独立拉取（clothing.list limit 100），不依赖首屏分页是否包含新建单品。
+ await page.getByText('当前衣橱').click();
+ await page.getByRole('combobox',{name:/^当前成员/}).selectOption({label:'我'});
+ await expect.poll(async()=>await page.locator('.collection .grid article').count(),{timeout:15000}).toBeGreaterThanOrEqual(24);
  for(const [width,height] of [[375,900],[667,900],[768,900],[900,900],[1024,900],[1440,900],[900,500]]){
  await page.setViewportSize({width,height});
  for(const name of ['衣橱','穿搭','记录','设置']){await nav(page,name).click();await fits(page,`${name} ${width}`);}
- await nav(page,'穿搭').click();await page.getByRole('button',{name:'帮我搭配',exact:true}).click();await fits(page,`搭配推荐 ${width}`);
+ // 全部穿搭页签：穿搭库、帮我搭配、单品配对、问问衣橱、场景计划、购买分析。
+ await nav(page,'穿搭').click();
+ for(const tab of ['穿搭库','帮我搭配','单品配对','问问衣橱','场景计划','购买分析']){await page.getByRole('button',{name:tab,exact:true}).click();await fits(page,`${tab} ${width}`);}
  await nav(page,'记录').click();for(const tab of ['衣橱洞察','洗护记录','穿着记录']){await page.getByRole('button',{name:tab,exact:true}).click();await fits(page,`${tab} ${width}`);}
  await page.getByRole('button',{name:'＋ 记录穿着',exact:true}).click();await page.getByRole('dialog').getByLabel('搜索衣物').fill('长名称验收');await expect(page.getByRole('dialog').getByRole('button',{name:'选择 长名称验收衣物春秋宽松休闲纯棉连帽外套适合日常出门通勤穿着',exact:true})).toBeVisible();await fits(page,`记录弹窗 ${width}`);await page.getByRole('dialog').getByRole('button',{name:'关闭单品窗口'}).click();
  await nav(page,'衣橱').click();
  await page.getByRole('button',{name:'地点',exact:true}).click();await fits(page,`地点弹窗 ${width}`);await page.getByRole('button',{name:'手填坐标',exact:true}).click();await fits(page,`地点坐标 ${width}`);await page.getByRole('button',{name:'关闭地点选择'}).click();
- await page.getByRole('button',{name:'筛选',exact:true}).click();await page.getByText('更多条件',{exact:false}).click();await fits(page,`筛选弹窗 ${width}`);await page.getByRole('button',{name:'关闭筛选'}).click();
+ await page.getByRole('button',{name:/^筛选( \d+)?$/}).click();await page.getByText('更多条件',{exact:false}).click();await fits(page,`筛选弹窗 ${width}`);await page.getByRole('button',{name:'关闭筛选'}).click();
  await page.getByRole('button',{name:'＋ 管理分类',exact:true}).click();await fits(page,`分类管理 ${width}`);await page.getByRole('button',{name:'关闭分类管理'}).click();
  await page.getByRole('button',{name:'＋ 新增衣物',exact:true}).click();await fits(page,`新增弹窗 ${width}`);await page.getByRole('dialog').getByRole('button',{name:'关闭单品窗口'}).click();
  await page.locator('.garment-open').first().click();await fits(page,`单品详情 ${width}`);await page.getByRole('dialog').getByRole('button',{name:'编辑衣物',exact:true}).click();for(const tab of ['基本资料','照片管理','历史与管理']){await page.getByRole('dialog').getByRole('button',{name:tab,exact:true}).click();await fits(page,`编辑${tab} ${width}`);}await page.getByRole('dialog').getByRole('button',{name:'关闭单品窗口'}).click();
  await nav(page,'设置').click();
  const hub=page.getByRole('region',{name:'设置目录'});
- for(const name of ['穿衣偏好','模型与连接','任务中心','备份与恢复','加密与设备','CLI / MCP','诊断']){await hub.getByRole('button',{name:new RegExp(name)}).click();await fits(page,`${name} ${width}`);
+ for(const name of ['穿衣偏好','模型与连接','定时计划与通知','任务中心','备份与恢复','加密与设备','同步','CLI / MCP']){await hub.getByRole('button',{name:new RegExp(name)}).click();await fits(page,`${name} ${width}`);
  if(['备份与恢复','加密与设备','CLI / MCP'].includes(name)){for(const summary of await page.locator('.view-panel:not([hidden]) details:not([open])>summary').all()){if(await summary.isVisible())await summary.click();}await fits(page,`${name}展开 ${width}`);}
  if(name==='模型与连接'||name==='穿衣偏好'){await page.getByRole('button',{name:name==='模型与连接'?'＋ 添加模型':'＋ 添加偏好',exact:true}).click();await fits(page,`${name}弹窗 ${width}`);await page.getByRole('dialog').getByRole('button',{name:'关闭单品窗口'}).click();}
  await page.getByRole('button',{name:'← 返回设置'}).click();}

@@ -88,7 +88,8 @@ impl Application {
         let mut pending_events: Vec<crate::jobs::PendingJobEvent> = vec![];
         for (index, (name, source)) in staged.into_iter().enumerate() {
             let payload = json!({"batch_id":id,"index":index,"filename":name,"source_path":if Path::new(paths[index].as_str().unwrap()).is_absolute(){Path::new(paths[index].as_str().unwrap()).to_path_buf()}else{std::env::current_dir().map_err(|_|ApiError::new("storage_error","无法定位当前文件目录"))?.join(paths[index].as_str().unwrap())},"local_path":source.as_ref().ok(),"asset_id":uuid::Uuid::now_v7().to_string()});
-            let (mut job, enqueue) = self.insert_job(&tx, &member, "import", &format!("{id}/{index}"), payload)?;
+            let (mut job, enqueue) =
+                self.insert_job(&tx, &member, "import", &format!("{id}/{index}"), payload)?;
             if let Some(enqueue) = enqueue {
                 pending_events.push(enqueue);
             }

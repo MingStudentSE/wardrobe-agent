@@ -1,7 +1,8 @@
 /* Hallmark · pre-emit critique: P4 H4 E4 S5 R4 V4. Atelier component scope. */
 import {useEffect,useRef,useState} from 'react';
 import {api} from './api';
-import {open as chooseFile} from '@tauri-apps/plugin-dialog';
+import {isTauriRuntime,pickImagePaths,pickFiles} from './platform';
+import {uploadPhoto} from './api';
 import {ImagePreview} from './ImagePreview';
 import './ImageEditor.css';
 import {ProductDisplay} from './ProductDisplay';
@@ -19,7 +20,7 @@ export function ImageEditor({memberId,clothingId,assetId,disabled,onBusy,onChang
  async function transform(operation:string,input:object={}){await run(async()=>{const result=await api<Derived>(operation,{member_id:memberId,asset_id:assetId,...input});if(alive.current){setPreview(result);setNotice('检查预览后替换；旧图与原图保留。');}});}
  async function process(job:Job){const done=await api<Job>('images.worker.run',{member_id:memberId,job_id:job.id});if(alive.current){if(done.state==='succeeded'){if(done.kind==='local_cutout'&&done.result)setPreview(done.result);setNotice(done.kind==='local_model_download'?'模型已校验，可离线使用。':'本地抠图完成，请检查预览。');}else if(done.error)setError(done.error.message??'任务未完成。');}}
  async function enqueue(operation:string){await run(async()=>{const job=await api<Job>(operation,{member_id:memberId,...(operation==='images.cutout'?{asset_id:assetId}:{}),operation_key:crypto.randomUUID()});await refresh();await process(job);});}
- async function replacementFile(){await run(async()=>{const path=await chooseFile({multiple:false,filters:[{name:'衣物图片',extensions:['jpg','jpeg','png','webp','heic','heif']}]});if(!path)return;const selected=Array.isArray(path)?path[0]:path;const imported=await api<Derived>('assets.import',{member_id:memberId,path:selected});if(alive.current){setPreview(imported);setNotice('新图片已导入，检查后替换；旧图片与原图保留。');}});}
+ async function replacementFile(){await run(async()=>{let imported:Derived;if(isTauriRuntime){const paths=await pickImagePaths({multiple:false});if(!paths?.length)return;imported=await api<Derived>('assets.import',{member_id:memberId,path:paths[0]});}else{const files=await pickFiles();if(!files?.length)return;imported=await uploadPhoto(memberId,files[0]);}if(alive.current){setPreview(imported);setNotice('新图片已导入，检查后替换；旧图片与原图保留。');}});}
  async function replace(){if(!preview)return;await run(async()=>{await api('images.replace',{member_id:memberId,clothing_id:clothingId,asset_id:assetId,replacement_id:preview.id});await onChanged();if(alive.current){setPreview(null);setNotice('图片已替换；旧图与历史保留。');}});}
  async function cancel(job:Job){try{await api('jobs.cancel',{member_id:memberId,id:job.id});await refresh();setNotice('任务已取消，旧展示图保留。');}catch(e){setError(message(e));}}
  const blocked=busy||disabled;

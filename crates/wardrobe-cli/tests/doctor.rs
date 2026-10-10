@@ -39,7 +39,11 @@ fn doctor_outputs_the_same_summary_and_checks_as_the_diagnostics_operations() {
         json!({"member_id":"default","name":"体检上衣","category":"top"}),
     );
 
-    let output = run(&["--db".to_string(), db.to_str().unwrap().to_string(), "doctor".to_string()]);
+    let output = run(&[
+        "--db".to_string(),
+        db.to_str().unwrap().to_string(),
+        "doctor".to_string(),
+    ]);
     assert_eq!(output.status.code(), Some(0), "doctor 应成功");
     let stdout = String::from_utf8_lossy(&output.stdout);
     // stdout 恰好一个 {"schema_version":1,...} 封套（from_slice 拒绝任何额外字节）
@@ -60,7 +64,10 @@ fn doctor_outputs_the_same_summary_and_checks_as_the_diagnostics_operations() {
     assert_eq!(doctor_items.len(), direct_items.len(), "检查项数量同源");
     for (doctor_item, direct_item) in doctor_items.iter().zip(direct_items.iter()) {
         if doctor_item["id"] == "disk_space" {
-            assert_eq!(doctor_item["id"], direct_item["id"], "disk_space 存在且同源");
+            assert_eq!(
+                doctor_item["id"], direct_item["id"],
+                "disk_space 存在且同源"
+            );
             continue;
         }
         assert_eq!(doctor_item, direct_item, "doctor 与 checks 操作同源");
@@ -98,11 +105,23 @@ fn doctor_degrades_to_filesystem_checks_when_database_cannot_open() {
     {
         let connection = rusqlite::Connection::open(&db).unwrap();
         connection
-            .pragma_update(None, "user_version", wardrobe_core::DATABASE_SCHEMA_VERSION + 1)
+            .pragma_update(
+                None,
+                "user_version",
+                wardrobe_core::DATABASE_SCHEMA_VERSION + 1,
+            )
             .unwrap();
     }
-    let output = run(&["--db".to_string(), db.to_str().unwrap().to_string(), "doctor".to_string()]);
-    assert_eq!(output.status.code(), Some(0), "降级报告也是成功的 doctor 运行");
+    let output = run(&[
+        "--db".to_string(),
+        db.to_str().unwrap().to_string(),
+        "doctor".to_string(),
+    ]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "降级报告也是成功的 doctor 运行"
+    );
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     let report = &response["result"];
     assert_eq!(report["error"]["code"], "unsupported_schema", "{report}");
@@ -136,7 +155,9 @@ fn help_documents_the_doctor_subcommand() {
     let response = cli_json(&["help"]);
     let usage = response["result"]["usage"].as_array().unwrap();
     assert!(
-        usage.iter().any(|u| u.as_str().unwrap_or("").contains("doctor")),
+        usage
+            .iter()
+            .any(|u| u.as_str().unwrap_or("").contains("doctor")),
         "usage 应包含 doctor：{usage:?}"
     );
     let doctor = &response["result"]["doctor"];
