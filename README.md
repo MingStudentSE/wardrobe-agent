@@ -98,6 +98,54 @@ cargo test -p wardrobe-core -p wardrobe-cli
 
 > **开发注意**:开发构建、测试运行和 GUI dev 会话必须使用隔离的 `WARDROBE_DATA_DIR`。schema 迁移只向前、不可逆,用默认数据目录打开数据库会把生产库迁移到未发布版本,导致正式应用无法打开。参见 [docs/agents/build-storage.md](docs/agents/build-storage.md) 第 8 条。
 
+## Web 端部署(内测)
+
+桌面端与 Web 共用同一数据目录和同一套 React 界面:Web 由本机服务 `wardrobe-web` 提供,只绑定 `127.0.0.1:17838`(设计上不接受非回环绑定,局域网/远程访问需先走单独决策,见 [ADR 0029](docs/adr/0029-local-web-service.md));浏览器里看到的就是本机数据库里的数据。浏览器基线:Chrome/Edge ≥ 120、Firefox ≥ 121、Safari ≥ 17。
+
+### 构建与打包
+
+```bash
+# 1) 服务二进制(仓库根)
+cargo build --release -p wardrobe-web
+
+# 2) 前端产物
+cd apps/desktop && npm install && npm run build && cd ../..   # 产物在 apps/desktop/dist
+
+# 3) 打包为版本化部署目录(自动维护 current 软链,产物落你指定的打包根)
+scripts/web/pack-web-release.sh --worktree . --out <打包根> \
+  --bin target/release/wardrobe-web --dist apps/desktop/dist \
+  --cli target/release/wardrobe-cli
+```
+
+打包产出 `<打包根>/releases/v<版本>-<时间戳>/`,内含 `bin/`、`lib/`(macOS 媒体动态库)、`web-dist/`、运行脚本与 `VERSION`,并把 `<打包根>/current` 软链指向它。
+
+### 启动与首次登录
+
+```bash
+scripts/web/start-web.sh --pack <打包根> --port 17838 --data-dir <数据目录>
+```
+
+- `--data-dir` 必须显式给出(否则拒绝启动,避免误用默认目录);与桌面/CLI 指到同一目录,就是同一份衣橱数据。
+- 启动后访问 `http://127.0.0.1:17838/`;首次登录的引导令牌在 `<数据目录>/web-bootstrap-token`(权限 0600,仅限本机操作员读取)。
+- 停止:`scripts/web/stop-web.sh --data-dir <数据目录>`。
+
+### 升级与回滚
+
+重新执行"构建与打包"得到新版本目录后:
+
+```bash
+scripts/web/upgrade-web.sh --pack <打包根> --data-dir <数据目录>                # 升级到最新打包版本
+scripts/web/upgrade-web.sh --pack <打包根> --data-dir <数据目录> --rollback     # 回滚到上一版本
+```
+
+升级会切换 current 软链并重启服务,数据目录与端口不变;可加 `--backup-dir` 在升级前对数据库做一次快照拷贝。注意:数据库 schema 单向迁移,若新版本已升级过 schema 则无法回滚到旧版本(脚本会如实检测)。
+
+### 边界须知
+
+- 服务只监听本机回环,内测请在本机浏览器使用;会话不持久化,服务重启后需用令牌重新登录。
+- 特权操作(客户端授权、模型凭据、加密空间、定时运行配置)不开放给浏览器会话,仍在桌面端或 CLI 的可信本机入口管理。
+- 媒体边界与桌面一致:原图、中间图、试穿与 AI 搭配图不出本机;上传临时文件在数据目录 `web-uploads-tmp/` 下随请求结束清理。
+
 ## 设计参考
 
 功能与交互以 `references/` 中三个开源项目的固定提交源码审计为依据([审计报告](docs/00-阅读入口与结论.md)逐条核对到源码行),吸收其验证过的设计,修正其失败模式:
