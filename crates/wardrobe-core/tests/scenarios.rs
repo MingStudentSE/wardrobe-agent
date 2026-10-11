@@ -1245,7 +1245,10 @@ fn ai_model_send_logs_provider_request_event_on_the_job_trace() {
         .unwrap();
     let job_id = receipt["job_id"].as_str().unwrap().to_string();
     let job = app
-        .execute("scenario.worker.run", json!({"member_id":member,"id":job_id}))
+        .execute(
+            "scenario.worker.run",
+            json!({"member_id":member,"id":job_id}),
+        )
         .unwrap();
     assert_eq!(job["state"], "succeeded", "{job}");
     assert_eq!(model.post_count(), 1, "恰好一次真实模型发送");
@@ -1269,13 +1272,21 @@ fn ai_model_send_logs_provider_request_event_on_the_job_trace() {
         .iter()
         .filter(|e| e["event_type"] == "provider_request")
         .collect();
-    assert_eq!(events.len(), 1, "真实模型发送记一条事件（此前为零）：{queried}");
+    assert_eq!(
+        events.len(),
+        1,
+        "真实模型发送记一条事件（此前为零）：{queried}"
+    );
     let event = events[0];
     assert_eq!(event["operation"], "provider.request");
     assert_eq!(event["endpoint_kind"], "chat_completions");
     assert_eq!(event["model"], "fixture-text");
     assert_eq!(event["outcome"], "ok");
-    assert_eq!(event["trace_id"], json!(trace), "事件落在任务文档的 trace 上");
+    assert_eq!(
+        event["trace_id"],
+        json!(trace),
+        "事件落在任务文档的 trace 上"
+    );
     assert!(event["duration_ms"].is_number());
     let allowed = [
         "ts",

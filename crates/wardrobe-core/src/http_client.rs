@@ -48,6 +48,8 @@ pub(crate) fn build(profile: OutboundProfile) -> Result<reqwest::blocking::Clien
             .timeout(std::time::Duration::from_secs(60))
             .redirect(reqwest::redirect::Policy::none())
             .build(),
-        OutboundProfile::WebDav { timeout } => builder.connect_timeout(timeout).timeout(timeout).build(),
+        OutboundProfile::WebDav { timeout } => {
+            builder.connect_timeout(timeout).timeout(timeout).build()
+        }
     }
 }

@@ -86,7 +86,11 @@ impl ScriptedModel {
                     // Counted and captured, then closed with zero response bytes.
                     ScriptedTurn::CloseWithoutResponse => drop(stream),
                     ScriptedTurn::Status(code) => {
-                        let reason = if code == 429 { "Too Many Requests" } else { "Error" };
+                        let reason = if code == 429 {
+                            "Too Many Requests"
+                        } else {
+                            "Error"
+                        };
                         let _ = write!(
                             stream,
                             "HTTP/1.1 {code} {reason}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -1380,7 +1384,11 @@ fn real_model_sends_log_provider_request_events_on_the_job_trace() {
         assert_eq!(event["endpoint_kind"], "chat_completions");
         assert_eq!(event["model"], "fixture-text");
         assert_eq!(event["outcome"], "ok");
-        assert_eq!(event["trace_id"], json!(trace), "事件落在任务文档的 trace 上");
+        assert_eq!(
+            event["trace_id"],
+            json!(trace),
+            "事件落在任务文档的 trace 上"
+        );
         assert!(event["duration_ms"].is_number());
         // 脱敏按构造：事件只含白名单字段，密钥/请求头/请求与响应体没有容身之处
         let allowed = [
@@ -1426,7 +1434,10 @@ fn rate_limited_model_send_logs_http_error_event_before_deferring() {
     let job = app
         .execute("stylist.worker.run", json!({"member_id":member,"id":id}))
         .unwrap();
-    assert_eq!(job["state"], "queued", "首次 429 按 Retry-After 排队：{job}");
+    assert_eq!(
+        job["state"], "queued",
+        "首次 429 按 Retry-After 排队：{job}"
+    );
     assert_eq!(model.post_count(), 1, "恰好一次真实发送");
 
     let trace = job["trace_id"]

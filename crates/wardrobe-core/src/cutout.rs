@@ -169,13 +169,14 @@ impl Application {
         )?;
         let mut retry_after_ms = None;
         let result = (|| {
-            let client = crate::http_client::build(crate::http_client::OutboundProfile::ModelDownload)
-                .map_err(|_| {
-                    ApiError::new(
-                        "download_offline",
-                        "无法连接模型下载服务；已缓存模型仍可离线使用",
-                    )
-                })?;
+            let client =
+                crate::http_client::build(crate::http_client::OutboundProfile::ModelDownload)
+                    .map_err(|_| {
+                        ApiError::new(
+                            "download_offline",
+                            "无法连接模型下载服务；已缓存模型仍可离线使用",
+                        )
+                    })?;
             let mut response = client
                 .get(MODEL_URL)
                 .send()
