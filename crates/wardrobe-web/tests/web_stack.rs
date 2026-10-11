@@ -552,6 +552,54 @@ fn s2_limited_grant_member_isolation_over_http() {
     );
 }
 
+// ---------- S2.5：业务错误信封保留 trace_id，浏览器端可回查日志链路（#74） ----------
+
+#[test]
+fn s2_business_error_envelope_keeps_trace_id_and_traces_back_to_logs() {
+    let data = tempfile::tempdir().unwrap();
+    let port = start(0, data.path(), None);
+    let (cookie, csrf, _token) = bootstrap_and_login(port, data.path());
+    let denied = session_post(
+        port,
+        &cookie,
+        Some(&csrf),
+        "/api",
+        serde_json::json!({"operation":"clothing.get","input":{"member_id":"default","id":"no-such-item"}})
+            .to_string(),
+    );
+    assert_eq!(denied.status, 200, "业务错误按信封语义返回：{}", denied.text());
+    let error = denied.json()["error"].clone();
+    assert_eq!(
+        error["code"],
+        serde_json::json!("not_found"),
+        "{}",
+        denied.text()
+    );
+    let trace_id = error["trace_id"]
+        .as_str()
+        .expect("业务错误信封必须携带 trace_id，浏览器端才能按它追日志")
+        .to_string();
+    // 响应里的 trace_id 能在诊断日志里查到同一次调用的事件（诊断页「按 trace_id 追错误」的前提）。
+    let app = wardrobe_core::Application::open(&data.path().join("wardrobe.sqlite")).unwrap();
+    let logs = app
+        .execute(
+            "diagnostics.logs.query",
+            serde_json::json!({"trace_id":trace_id,"limit":50}),
+        )
+        .expect("trace_id 应能回查日志");
+    let items = logs["items"].as_array().expect("日志应返回事件列表");
+    assert!(
+        !items.is_empty(),
+        "按响应 trace_id={trace_id} 应查到至少一条日志事件"
+    );
+    assert!(
+        items
+            .iter()
+            .all(|event| event["trace_id"] == serde_json::json!(trace_id)),
+        "查到的每条事件都应属于同一链路"
+    );
+}
+
 #[test]
 fn s3_missing_or_forged_origin_and_csrf_are_rejected() {
     let data = tempfile::tempdir().unwrap();

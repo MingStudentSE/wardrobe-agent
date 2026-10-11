@@ -1,5 +1,5 @@
-use serde_json::json;
-use wardrobe_core::Application;
+use serde_json::{json, Value};
+use wardrobe_core::{operations, Application};
 #[test]
 fn durable_batch_keeps_source_and_idempotent_identity_across_restart() {
     let dir = tempfile::tempdir().unwrap();
@@ -363,4 +363,155 @@ fn version_eight_lookbook_gains_batch_tables_without_losing_versions_after_resta
             .unwrap(),
         wardrobe_core::DATABASE_SCHEMA_VERSION
     );
+}
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+fn assert_result_matches_schema(schema: &Value, result: &Value, context: &str) {
+    assert_eq!(
+        schema["type"].as_str(),
+        Some("object"),
+        "{context}: outputSchema 须为 object"
+    );
+    let props = schema["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("{context}: outputSchema 须声明 properties"));
+    let required: Vec<&str> = schema["required"]
+        .as_array()
+        .map(|r| r.iter().map(|v| v.as_str().unwrap()).collect())
+        .unwrap_or_default();
+    let actual = result
+        .as_object()
+        .unwrap_or_else(|| panic!("{context} 结果须为对象"));
+    for (key, value) in actual {
+        let prop = props
+            .get(key)
+            .unwrap_or_else(|| panic!("{context}: 实际结果字段 {key} 未在 outputSchema 声明"));
+        if let Some(const_value) = prop.get("const") {
+            assert_eq!(value, const_value, "{context}: 字段 {key} 须等于 const");
+        }
+        if let Some(allowed) = prop["enum"].as_array() {
+            assert!(allowed.contains(value), "{context}: 字段 {key} 须为枚举值");
+        }
+        let declared_types: Vec<String> = match prop.get("type") {
+            Some(Value::String(t)) => vec![t.clone()],
+            Some(Value::Array(ts)) => ts.iter().map(|v| v.as_str().unwrap().to_string()).collect(),
+            _ => vec![],
+        };
+        let actual_type = match value {
+            Value::String(_) => "string",
+            Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
+            Value::Number(_) => "number",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+            Value::Bool(_) => "boolean",
+            Value::Null => "null",
+        };
+        assert!(
+            declared_types.is_empty()
+                || declared_types.iter().any(|t| {
+                    t == actual_type
+                        || (t == "number" && value.is_number())
+                        || (t == "integer" && value.as_f64().is_some_and(|n| n.fract() == 0.0))
+                }),
+            "{context}: 字段 {key} 声明类型不符"
+        );
+    }
+    for key in required {
+        assert!(
+            actual.contains_key(key),
+            "{context}: 缺少 required 字段 {key}"
+        );
+    }
+}
+
+
+#[test]
+fn imports_family_effects_examples_and_runtime_output_contract() {
+    // 真实本地文件端到端：create读取图片→process本地派生→group归并→update/commit幂等入库
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("shirt.png");
+    image::RgbImage::from_pixel(4, 6, image::Rgb([245, 245, 245]))
+        .save(&source)
+        .unwrap();
+    let second = dir.path().join("pants.png");
+    image::RgbImage::from_pixel(3, 5, image::Rgb([30, 30, 60]))
+        .save(&second)
+        .unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let batch = app
+        .execute(
+            "imports.create",
+            json!({"member_id":member,"operation_key":"imp-1","paths":[source.to_string_lossy(),second.to_string_lossy()]}),
+        )
+        .unwrap();
+    assert_eq!(batch["items"].as_array().unwrap().len(), 2);
+    assert_result_matches_schema(&schema_of("imports.create"), &batch, "create");
+    let mut processed = Value::Null;
+    for _ in 0..3 {
+        processed = app
+            .execute(
+                "imports.process",
+                json!({"member_id":member,"id":batch["id"]}),
+            )
+            .unwrap();
+    }
+    assert_result_matches_schema(&schema_of("imports.process"), &processed, "process");
+    let item_ids: Vec<&str> = batch["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["id"].as_str().unwrap())
+        .collect();
+    let grouped = app
+        .execute(
+            "imports.group",
+            json!({"member_id":member,"id":batch["id"],"item_ids":item_ids}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("imports.group"), &grouped, "group");
+    let draft_id = grouped["drafts"].as_array().unwrap().last().unwrap()["id"].clone();
+    let got = app
+        .execute("imports.get", json!({"member_id":member,"id":batch["id"]}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("imports.get"), &got, "get");
+    let listed = app
+        .execute("imports.list", json!({"member_id":member}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("imports.list"), &listed, "list");
+    let updated = app
+        .execute(
+            "imports.update",
+            json!({"member_id":member,"id":batch["id"],"draft_id":draft_id,"facts":{"name":"白衬衫","category":"top"}}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("imports.update"), &updated, "update");
+    let committed = app
+        .execute(
+            "imports.commit",
+            json!({"member_id":member,"id":batch["id"],"draft_id":draft_id,"operation_key":"imp-commit-1","facts":{"name":"白衬衫","category":"top"}}),
+        )
+        .unwrap();
+    assert_eq!(committed["name"], json!("白衬衫"), "commit入库真实衣物");
+    assert_result_matches_schema(&schema_of("imports.commit"), &committed, "commit");
+
 }

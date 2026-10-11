@@ -18,6 +18,8 @@ use wardrobe_core::Application;
 enum ScriptedTurn {
     Reply(Value),
     CloseWithoutResponse,
+    /// 带状态码的空响应体回复（如 429 限流）。
+    Status(u16),
 }
 
 /// Bounded localhost chat-completions fixture: replays scripted JSON bodies in order,
@@ -83,6 +85,17 @@ impl ScriptedModel {
                     }
                     // Counted and captured, then closed with zero response bytes.
                     ScriptedTurn::CloseWithoutResponse => drop(stream),
+                    ScriptedTurn::Status(code) => {
+                        let reason = if code == 429 {
+                            "Too Many Requests"
+                        } else {
+                            "Error"
+                        };
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 {code} {reason}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        );
+                    }
                 }
             }
         });
@@ -1307,4 +1320,145 @@ fn answer_citing_unprojected_notes_exhausts_invalid_budget_without_leaking_senti
         "the projected tool result must not carry a notes field at all"
     );
     assert_member_has_no_wear(&app, &member);
+}
+
+// #68：真实模型请求必须产生全链路日志事件——每次发送记一条 provider_request，
+// trace_id 与任务文档一致，字段白名单脱敏（与 diagnostics 的供应商事件同一套构造）。
+#[test]
+fn real_model_sends_log_provider_request_events_on_the_job_trace() {
+    let d = tempfile::tempdir().unwrap();
+    let app = Application::open(&d.path().join("db")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    app.execute(
+        "clothing.create",
+        json!({"member_id":member,"name":"羊毛毛衣","category":"top"}),
+    )
+    .unwrap();
+    let model = ScriptedModel::start(vec![
+        json!({"kind":"tool","operation":"clothing.list","arguments":{"member_id":member,"limit":24}}),
+        json!({"kind":"answer","facts":[{"call_id":0,"path":"/items/0/id"}],"explanation":"以上是当前可用衣物"}),
+    ]);
+    let provider = save_fixture_text_provider(&app, &model.endpoint);
+    let receipt = app
+        .execute(
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"provider-log-loop","provider_id":provider,"question":"今天穿什么","timezone":"UTC"}),
+        )
+        .unwrap();
+    let id = receipt["job_id"].as_str().unwrap().to_owned();
+    let job = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(job["state"], "succeeded", "{job}");
+    assert_eq!(model.post_count(), 2, "两次真实模型发送");
+
+    let stored = app
+        .execute("jobs.get", json!({"member_id":member,"id":id}))
+        .unwrap();
+    let trace = stored["trace_id"]
+        .as_str()
+        .expect("任务文档携带 trace_id")
+        .to_string();
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"trace_id":trace,"operation":"provider.","limit":100}),
+        )
+        .unwrap();
+    let events: Vec<&Value> = queried["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["event_type"] == "provider_request")
+        .collect();
+    assert_eq!(
+        events.len(),
+        2,
+        "每次真实模型发送各记一条事件（此前为零）：{queried}"
+    );
+    for event in &events {
+        assert_eq!(event["operation"], "provider.request");
+        assert_eq!(event["endpoint_kind"], "chat_completions");
+        assert_eq!(event["model"], "fixture-text");
+        assert_eq!(event["outcome"], "ok");
+        assert_eq!(
+            event["trace_id"],
+            json!(trace),
+            "事件落在任务文档的 trace 上"
+        );
+        assert!(event["duration_ms"].is_number());
+        // 脱敏按构造：事件只含白名单字段，密钥/请求头/请求与响应体没有容身之处
+        let allowed = [
+            "ts",
+            "level",
+            "event_type",
+            "run_id",
+            "trace_id",
+            "operation",
+            "endpoint_kind",
+            "model",
+            "outcome",
+            "duration_ms",
+        ];
+        for key in event.as_object().unwrap().keys() {
+            assert!(
+                allowed.contains(&key.as_str()),
+                "供应商请求事件出现白名单外字段 {key}：{event}"
+            );
+        }
+    }
+}
+
+// #68：stylist 限流重试环的每次真实发送同样要留一条事件——429 记 http_error
+// 与 HTTP 状态，任务按 Retry-After 排队等待到期重试。
+#[test]
+fn rate_limited_model_send_logs_http_error_event_before_deferring() {
+    let d = tempfile::tempdir().unwrap();
+    let app = Application::open(&d.path().join("db")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let model = ScriptedModel::start_turns(vec![ScriptedTurn::Status(429)]);
+    let provider = save_fixture_text_provider(&app, &model.endpoint);
+    let receipt = app
+        .execute(
+            "stylist.ask",
+            json!({"member_id":member,"operation_key":"provider-log-rate","provider_id":provider,"question":"今天穿什么","timezone":"UTC"}),
+        )
+        .unwrap();
+    let id = receipt["job_id"].as_str().unwrap().to_owned();
+    let job = app
+        .execute("stylist.worker.run", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(
+        job["state"], "queued",
+        "首次 429 按 Retry-After 排队：{job}"
+    );
+    assert_eq!(model.post_count(), 1, "恰好一次真实发送");
+
+    let trace = job["trace_id"]
+        .as_str()
+        .expect("任务文档携带 trace_id")
+        .to_string();
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"trace_id":trace,"operation":"provider.","limit":100}),
+        )
+        .unwrap();
+    let events: Vec<&Value> = queried["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["event_type"] == "provider_request")
+        .collect();
+    assert_eq!(events.len(), 1, "限流发送也各记一条事件：{queried}");
+    assert_eq!(events[0]["outcome"], "http_error");
+    assert_eq!(events[0]["http_status"], 429);
+    assert_eq!(events[0]["endpoint_kind"], "chat_completions");
+    assert_eq!(events[0]["trace_id"], json!(trace));
 }

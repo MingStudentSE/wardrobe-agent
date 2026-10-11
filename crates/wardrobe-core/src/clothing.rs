@@ -84,15 +84,7 @@ impl Application {
     }
     pub(super) fn clothing_list(&self, input: Value) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
-        let limit = match input.get("limit") {
-            None => 50,
-            Some(value) => value
-                .as_u64()
-                .ok_or_else(|| ApiError::new("invalid_input", "每页数量必须为整数"))?,
-        };
-        if !(1..=100).contains(&limit) {
-            return Err(ApiError::new("invalid_input", "每页数量必须为 1–100"));
-        }
+        let limit = crate::pagination::parse_limit(&input, 50, "每页数量必须为整数", "每页数量必须为 1–100")?;
         let cursor = match input.get("cursor") {
             None => "",
             Some(value) => value
@@ -213,15 +205,7 @@ impl Application {
     }
     pub(super) fn clothing_history(&self, input: Value) -> Result<Value, ApiError> {
         let doc = self.clothing_get(input.clone())?;
-        let limit = input
-            .get("limit")
-            .map(|v| {
-                v.as_u64()
-                    .filter(|v| (1..=100).contains(v))
-                    .ok_or_else(|| ApiError::new("invalid_input", "每页数量必须为 1–100"))
-            })
-            .transpose()?
-            .unwrap_or(50);
+        let limit = crate::pagination::parse_limit(&input, 50, "每页数量必须为 1–100", "每页数量必须为 1–100")?;
         let cursor = input
             .get("cursor")
             .map(|v| {
@@ -328,10 +312,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES (?1,?2,?3)",
             params![doc["id"].as_str(), operation, serialized],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES (?1,?2)",
-            params![doc["id"].as_str(), serialized],
-        )?;
         tx.commit()?;
         Ok(doc)
     }
@@ -410,10 +390,6 @@ impl Application {
         )?;
         tx.execute(
             "INSERT INTO audit(entity_id,operation,document) VALUES (?1,'clothing.create',?2)",
-            params![id, serialized],
-        )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES (?1,?2)",
             params![id, serialized],
         )?;
         tx.commit()?;
@@ -744,17 +720,6 @@ pub(super) fn descriptors() -> Vec<Value> {
         }
         descriptor["outputSchema"] = output_schema(descriptor["name"].as_str().unwrap());
     }
-    let effects = json!({
-        "clothing.create": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "clothing.get": {"kind":"query","network":"none","local_files":false,"async":null},
-        "clothing.list": {"kind":"query","network":"none","local_files":false,"async":null},
-        "clothing.history": {"kind":"query","network":"none","local_files":false,"async":null},
-        "clothing.archive": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "clothing.activate": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "clothing.delete": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "clothing.restore": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "clothing.update": {"kind":"mutation","network":"none","local_files":false,"async":null},
-    });
     let examples = json!({
         "clothing.create": [{"request":{"member_id":"<已授权成员ID>","name":"<单品名称>","category":"<内置类别或已创建分类ID>"},"prerequisites":["space.default 初始化；名称1-120字符"]}],
         "clothing.get": [{"request":{"member_id":"<已授权成员ID>","id":"<clothing.create 返回的ID>"},"prerequisites":["读取当前状态的单品"]}],
@@ -768,7 +733,6 @@ pub(super) fn descriptors() -> Vec<Value> {
     });
     for descriptor in descriptors.as_array_mut().unwrap() {
         let name = descriptor["name"].as_str().unwrap().to_string();
-        descriptor["effect"] = effects[&name].clone();
         descriptor["examples"] = examples[&name].clone();
     }
     descriptors.as_array().unwrap().clone()

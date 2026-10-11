@@ -1,5 +1,5 @@
-use serde_json::json;
-use wardrobe_core::Application;
+use serde_json::{json, Value};
+use wardrobe_core::{operations, Application};
 #[test]
 fn explicit_feedback_persists_idempotently_with_optional_scores_without_wear() {
     let d = tempfile::tempdir().unwrap();
@@ -506,4 +506,212 @@ fn nineteen_repairs_missing_feedback_tables_and_two_clients_cannot_correct_one_r
             .count(),
         1
     );
+}
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+fn assert_result_matches_schema(schema: &Value, result: &Value, context: &str) {
+    assert_eq!(
+        schema["type"].as_str(),
+        Some("object"),
+        "{context}: outputSchema 须为 object"
+    );
+    let props = schema["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("{context}: outputSchema 须声明 properties"));
+    let required: Vec<&str> = schema["required"]
+        .as_array()
+        .map(|r| r.iter().map(|v| v.as_str().unwrap()).collect())
+        .unwrap_or_default();
+    let actual = result
+        .as_object()
+        .unwrap_or_else(|| panic!("{context} 结果须为对象"));
+    for (key, value) in actual {
+        let prop = props
+            .get(key)
+            .unwrap_or_else(|| panic!("{context}: 实际结果字段 {key} 未在 outputSchema 声明"));
+        if let Some(const_value) = prop.get("const") {
+            assert_eq!(value, const_value, "{context}: 字段 {key} 须等于 const");
+        }
+        if let Some(allowed) = prop["enum"].as_array() {
+            assert!(allowed.contains(value), "{context}: 字段 {key} 须为枚举值");
+        }
+        let declared_types: Vec<String> = match prop.get("type") {
+            Some(Value::String(t)) => vec![t.clone()],
+            Some(Value::Array(ts)) => ts.iter().map(|v| v.as_str().unwrap().to_string()).collect(),
+            _ => vec![],
+        };
+        let actual_type = match value {
+            Value::String(_) => "string",
+            Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
+            Value::Number(_) => "number",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+            Value::Bool(_) => "boolean",
+            Value::Null => "null",
+        };
+        assert!(
+            declared_types.is_empty()
+                || declared_types.iter().any(|t| {
+                    t == actual_type
+                        || (t == "number" && value.is_number())
+                        || (t == "integer" && value.as_f64().is_some_and(|n| n.fract() == 0.0))
+                }),
+            "{context}: 字段 {key} 声明类型不符"
+        );
+    }
+    for key in required {
+        assert!(
+            actual.contains_key(key),
+            "{context}: 缺少 required 字段 {key}"
+        );
+    }
+}
+
+
+#[test]
+fn feedback_family_effects_examples_and_runtime_output_contract() {
+    // 真实运行时输出：反馈全生命周期；普通反馈永不产生穿着，actual_wore显式确认才产生
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("fb.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let _top = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"上衣","category":"top"}),
+        )
+        .unwrap();
+    let _bottom = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"裤子","category":"bottom"}),
+        )
+        .unwrap();
+    let generated = app
+        .execute(
+            "recommendation.generate",
+            json!({"member_id":member,"operation_key":"fb-rec-1","timezone":"UTC","strategy":"rules","limit":3,"occasion":"daily"}),
+        )
+        .unwrap();
+    assert!(!generated["proposals"].as_array().unwrap().is_empty());
+    let intent_id = generated["id"].as_str().unwrap().to_string();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let recorded = app
+        .execute(
+            "feedback.record",
+            json!({"member_id":member,"operation_key":"fb-1","intent_id":intent_id,"proposal_index":0,"reaction":"like"}),
+        )
+        .unwrap();
+    assert_eq!(recorded["revoked"], json!(false));
+    assert_eq!(recorded["wear_event_id"], Value::Null, "普通反馈不产生穿着");
+    assert_result_matches_schema(&schema_of("feedback.record"), &recorded, "record");
+    let got = app
+        .execute(
+            "feedback.get",
+            json!({"member_id":member,"id":recorded["id"]}),
+        )
+        .unwrap();
+    assert_eq!(got["id"], recorded["id"]);
+    assert_result_matches_schema(&schema_of("feedback.get"), &got, "get");
+    let listed = app
+        .execute("feedback.list", json!({"member_id":member}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("feedback.list"), &listed, "list");
+    assert_eq!(listed["items"].as_array().unwrap().len(), 1);
+
+    let corrected = app
+        .execute(
+            "feedback.correct",
+            json!({"member_id":member,"root_id":recorded["root_id"],"operation_key":"fb-2","expected_revision":1,"reaction":"skip"}),
+        )
+        .unwrap();
+    assert_eq!(corrected["revision"], json!(2));
+    assert_eq!(corrected["supersedes_event_id"], recorded["id"]);
+    assert_result_matches_schema(&schema_of("feedback.correct"), &corrected, "correct");
+    let history = app
+        .execute(
+            "feedback.history",
+            json!({"member_id":member,"root_id":recorded["root_id"]}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("feedback.history"), &history, "history");
+    assert_eq!(history["items"].as_array().unwrap().len(), 2);
+    assert_eq!(history["next_cursor"], Value::Null);
+    let conflict = app
+        .execute(
+            "feedback.correct",
+            json!({"member_id":member,"root_id":recorded["root_id"],"operation_key":"fb-3","expected_revision":1,"reaction":"like"}),
+        )
+        .unwrap_err();
+    assert_eq!(conflict.code, "version_conflict", "过期修订必须拒绝");
+    let revoked = app
+        .execute(
+            "feedback.revoke",
+            json!({"member_id":member,"root_id":recorded["root_id"],"operation_key":"fb-4","expected_revision":2,"reason":"不再喜欢"}),
+        )
+        .unwrap();
+    assert_eq!(revoked["revoked"], json!(true));
+    assert_eq!(revoked["revision"], json!(3));
+    assert_result_matches_schema(&schema_of("feedback.revoke"), &revoked, "revoke");
+    let listed_after = app
+        .execute("feedback.list", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(
+        listed_after["items"].as_array().unwrap().len(),
+        0,
+        "默认列表不含已撤销反馈"
+    );
+
+    let generated2 = app
+        .execute(
+            "recommendation.generate",
+            json!({"member_id":member,"operation_key":"fb-rec-2","timezone":"UTC","strategy":"rules","limit":3,"occasion":"work"}),
+        )
+        .unwrap();
+    let another = app
+        .execute(
+            "feedback.try_another",
+            json!({"member_id":member,"operation_key":"fb-5","intent_id":generated2["id"],"proposal_index":0}),
+        )
+        .unwrap();
+    assert_eq!(another["feedback"]["reaction"], json!("skip"));
+    assert_result_matches_schema(&schema_of("feedback.try_another"), &another, "try_another");
+
+    let wore = app
+        .execute(
+            "feedback.record",
+            json!({"member_id":member,"operation_key":"fb-6","intent_id":intent_id,"proposal_index":0,"reaction":"actual_wore","wear":{"confirmed":true,"local_date":"2026-10-07","timezone":"UTC"}}),
+        )
+        .unwrap();
+    assert!(
+        wore["wear_event_id"].is_string(),
+        "actual_wore显式确认才产生WearEvent"
+    );
+    assert_result_matches_schema(&schema_of("feedback.record"), &wore, "record-actual_wore");
+    let wears = app
+        .execute("wear.list", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(
+        wears["items"].as_array().unwrap().len(),
+        1,
+        "只有实际穿着产生WearEvent"
+    );
+
 }

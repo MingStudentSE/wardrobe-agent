@@ -52,30 +52,16 @@ impl Application {
         let id = string(&input, "id")?;
         let existing = self.job_get(input.clone())?;
         if existing["kind"] != kind {
-            return Err(ApiError::new("invalid_input", "此任务不是商品图生成"));
+            return Err(ApiError::new(
+                "invalid_input",
+                &format!(
+                    "此任务不是{}生成任务",
+                    crate::submission::image_task_label(kind)
+                ),
+            ));
         }
-        if existing["submitted_at"].is_string() {
-            if existing["state"] == "running"
-                && existing["lease_expires"].as_i64().unwrap_or(0)
-                    <= chrono::Utc::now().timestamp_millis()
-            {
-                let tx = self.begin_write()?;
-                let mut doc = self.job_get(input)?;
-                if doc["state"] != "running"
-                    || doc["lease_expires"].as_i64().unwrap_or(0)
-                        > chrono::Utc::now().timestamp_millis()
-                {
-                    return Ok(doc);
-                }
-                doc["state"] = json!("waiting_input");
-                doc["lease_token"] = Value::Null;
-                doc["error"] = json!({"code":"provider_outcome_unknown","message":"请求已提交且结果未知；供应商无查询接口，请检查供应商记录，不能重发此任务","retryable":false});
-                let pending = self.save_job(&tx, &doc)?;
-                tx.commit()?;
-                self.emit_job_event(pending);
-                return Ok(doc);
-            }
-            return Ok(existing);
+        if let Some(doc) = self.image_submission_reconcile(&member, id, &existing)? {
+            return Ok(doc);
         }
         let job = self.job_claim(&member, id, 300)?;
         let lease = job["lease_token"].as_str().unwrap();
@@ -96,7 +82,7 @@ impl Application {
                     &member,
                     id,
                     lease,
-                    if doc["submitted_at"].is_string() {
+                    if crate::submission::is_submitted(&doc) {
                         "waiting_input"
                     } else {
                         "failed"
@@ -129,8 +115,7 @@ impl Application {
         doc["result"] = json!({"asset_id":asset["id"],"request_id":request_id,"verified_capabilities":["image_generation"]});
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &doc)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(doc)
     }
     pub(super) fn ark_generate(
@@ -151,10 +136,7 @@ impl Application {
                 "模型设置已更改，请明确创建新任务",
             ));
         }
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(240))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
+        let client = crate::http_client::build(crate::http_client::OutboundProfile::Image)
             .map_err(|_| ApiError::new("connection_error", "无法创建供应商连接"))?;
         let endpoint = provider["endpoint"].as_str().unwrap();
         let key = if provider["authentication"] == "bearer" {
@@ -247,11 +229,10 @@ impl Application {
             let tx = self.begin_write()?;
             let mut current = self.job_get(json!({"member_id":member,"id":id}))?;
             check_lease(&current, lease)?;
-            current["submitted_at"] = json!(chrono::Utc::now().to_rfc3339());
+            crate::submission::mark_image_submitted(&mut current);
             current["progress"] = json!(25);
             let pending = self.save_job(&tx, &current)?;
-            tx.commit()?;
-            self.emit_job_event(pending);
+            self.commit_job_events(tx, pending)?;
         }
         let mut request = client
             .post(format!("{endpoint}/images/generations"))
@@ -375,15 +356,10 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'product_adopt',?2)",
             rusqlite::params![clothing_id, clothing.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            rusqlite::params![clothing_id, clothing.to_string()],
-        )?;
         job["state"] = json!("succeeded");
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(job)
     }
 }
@@ -450,21 +426,15 @@ fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
 }
 pub(super) fn descriptors() -> Vec<Value> {
     let mut result = vec![
-        json!({"name":"product.generate","description":"明确上传所选单品原图，创建商品展示图任务；可能使用供应商额度，旧图不变","effect":{"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]},"examples":[{"request":{"member_id":"<已授权成员ID>","clothing_id":"<单品ID>","asset_id":"<资产ID>","provider_id":"<已配置图片供应商ID>","operation_key":"<唯一操作标识>","upload_original":true},"prerequisites":["明确上传所选单品原图创建商品图任务；真实提交消耗供应商额度","旧图保持不变直到显式采用；本示例不自动执行"]}],"inputSchema":{"type":"object","required":["member_id","clothing_id","asset_id","provider_id","operation_key","upload_original"],"properties":{"member_id":{"type":"string"},"clothing_id":{"type":"string"},"asset_id":{"type":"string"},"provider_id":{"type":"string"},"operation_key":{"type":"string"},"upload_original":{"const":true}},"additionalProperties":false},"outputSchema":crate::jobs::output_schema()}),
+        json!({"name":"product.generate","description":"明确上传所选单品原图，创建商品展示图任务；可能使用供应商额度，旧图不变","examples":[{"request":{"member_id":"<已授权成员ID>","clothing_id":"<单品ID>","asset_id":"<资产ID>","provider_id":"<已配置图片供应商ID>","operation_key":"<唯一操作标识>","upload_original":true},"prerequisites":["明确上传所选单品原图创建商品图任务；真实提交消耗供应商额度","旧图保持不变直到显式采用；本示例不自动执行"]}],"inputSchema":{"type":"object","required":["member_id","clothing_id","asset_id","provider_id","operation_key","upload_original"],"properties":{"member_id":{"type":"string"},"clothing_id":{"type":"string"},"asset_id":{"type":"string"},"provider_id":{"type":"string"},"operation_key":{"type":"string"},"upload_original":{"const":true}},"additionalProperties":false},"outputSchema":crate::jobs::output_schema()}),
     ];
     for name in ["product.process", "product.adopt"] {
-        let (effect, examples) = match name {
-            "product.process" => (
-                json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),
-                json!([{"request":{"member_id":"<已授权成员ID>","id":"<商品图任务ID>"},"prerequisites":["推进已入队商品图任务；首次真实提交消耗供应商额度","未知结果先查询不盲重发；本示例不自动执行"]}]),
-            ),
-            "product.adopt" => (
-                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>","id":"<商品图任务ID>"},"prerequisites":["显式采用后压缩展示图成为当前图；拒绝/取消/失败保留旧图","仅最终采用的商品图具备同步资格"]}]),
-            ),
+        let examples = match name {
+            "product.process" =>json!([{"request":{"member_id":"<已授权成员ID>","id":"<商品图任务ID>"},"prerequisites":["推进已入队商品图任务；首次真实提交消耗供应商额度","未知结果先查询不盲重发；本示例不自动执行"]}]),
+            "product.adopt" =>json!([{"request":{"member_id":"<已授权成员ID>","id":"<商品图任务ID>"},"prerequisites":["显式采用后压缩展示图成为当前图；拒绝/取消/失败保留旧图","仅最终采用的商品图具备同步资格"]}]),
             _ => unreachable!(),
         };
-        result.push(json!({"name":name,"effect":effect,"examples":examples,"description":"处理或明确采用商品图，保持旧图直到采用","inputSchema":{"type":"object","required":["member_id","id"],"properties":{"member_id":{"type":"string"},"id":{"type":"string"}},"additionalProperties":false},"outputSchema":crate::jobs::output_schema()}));
+        result.push(json!({"name":name,"examples":examples,"description":"处理或明确采用商品图，保持旧图直到采用","inputSchema":{"type":"object","required":["member_id","id"],"properties":{"member_id":{"type":"string"},"id":{"type":"string"}},"additionalProperties":false},"outputSchema":crate::jobs::output_schema()}));
     }
     result
 }

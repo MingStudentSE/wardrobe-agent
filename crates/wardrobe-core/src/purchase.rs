@@ -244,8 +244,7 @@ impl Application {
             "submission":"not_submitted",
         });
         let (job, pending) = self.insert_job(&tx, &member, "purchase_recognition", key, payload)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(job)
     }
 
@@ -268,8 +267,8 @@ impl Application {
         }
         let mut job = self.job_claim(&member, id, 120)?;
         let lease = job["lease_token"].as_str().unwrap().to_string();
-        if job["payload"]["submission"] != "not_submitted" {
-            return self.job_finish(&member, id, &lease, "waiting_input", Value::Null, json!({"code":"submission_unknown","message":"上次提交结果未知，请核实供应商后另建明确任务","retryable":false}));
+        if crate::submission::is_submitted(&job) {
+            return self.vision_submission_unknown(&member, id, &lease);
         }
         let mut transferred = vec![];
         let prepare = (|| -> Result<reqwest::blocking::RequestBuilder, ApiError> {
@@ -312,10 +311,7 @@ impl Application {
                 transferred.push(json!({"asset_id":snap["asset_id"],"source_role":snap["role"],"source_blob_hash":snap["blob_hash"],"sha256":Sha256::digest(&encoded).iter().map(|b|format!("{b:02x}")).collect::<String>(),"mime":"image/png","width":normalized.width(),"height":normalized.height(),"bytes":encoded.len(),"transform":"orientation-aware-fit-512-png"}));
                 content.push(json!({"type":"image_url","image_url":{"url":format!("data:image/png;base64,{}",base64::engine::general_purpose::STANDARD.encode(encoded))}}));
             }
-            let client = reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(60))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
+            let client = crate::http_client::build(crate::http_client::OutboundProfile::Chat)
                 .map_err(|_| ApiError::new("connection_error", "无法创建HTTP客户端"))?;
             let mut request = client
                 .post(format!(
@@ -344,8 +340,7 @@ impl Application {
                 )
             }
         };
-        job["payload"]["submission"] = json!("submitted");
-        job["payload"]["transferred_images"] = json!(transferred);
+        crate::submission::mark_vision_submitted(&mut job, json!(transferred));
         let tx = self.begin_write()?;
         let current = self.job_get(json!({"member_id":member,"id":id}))?;
         if current["state"] != "running"
@@ -359,8 +354,7 @@ impl Application {
             ));
         }
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         // 供应商请求事件（#44）：trace 取自任务文档——worker 可能运行在另一进程
         let provider_request = crate::diagnostics::ProviderRequestLog::from_job(&job, "");
         provider_request.begin_send();
@@ -396,7 +390,7 @@ impl Application {
                 .and_then(|s| s.parse::<i64>().ok())
                 .unwrap_or(2)
                 .saturating_mul(1000);
-            job["payload"]["submission"] = json!("not_submitted");
+            crate::submission::reset_vision_submission(&mut job);
             let tx = self.begin_write()?;
             let current = self.job_get(json!({"member_id":member,"id":id}))?;
             if current["state"] != "running"
@@ -407,8 +401,7 @@ impl Application {
                 return Err(ApiError::new("lease_lost", "任务已取消或过期，不恢复队列"));
             }
             let pending = self.save_job(&tx, &job)?;
-            tx.commit()?;
-            self.emit_job_event(pending);
+            self.commit_job_events(tx, pending)?;
             return self.job_finish(&member, id, &lease, "failed", Value::Null, json!({"code":if retry{"provider_rate_limit"}else{"provider_rejected"},"message":"供应商拒绝请求，候选仍可手工填写","http_status":status.as_u16(),"retryable":retry,"retry_after_ms":delay}));
         }
         let mut bytes = vec![];
@@ -483,14 +476,13 @@ impl Application {
         job["progress"] = json!(100);
         job["lease_token"] = Value::Null;
         job["lease_expires"] = json!(0);
-        job["payload"]["submission"] = json!("received");
+        crate::submission::mark_vision_received(&mut job);
         job["result"] = json!({"candidate_id":candidate["id"]});
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         // 响应完整可解析：HTTP 层成功（后续内容校验失败属任务失败，非请求层事件）
         provider_request.record(self, "image_submission", "ok", None);
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(job)
     }
 
@@ -1112,7 +1104,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "创建购买候选草稿：候选域独立身份，不计入库存/穿着/洞察，不同步",
             json!({"type":"object","required":["member_id","name","category"],"additionalProperties":false,"properties":candidate_input_properties(vec!["member_id","name","category"], true)}),
             candidate_output.clone(),
-            json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","name":"<候选商品名称>","category":"<类别ID>"},"prerequisites":["候选存放在候选域：不占衣物身份、不入库存或统计","未知事实保持 null；不自动购买"]}]),
         ),
         op(
@@ -1120,7 +1111,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "为购买候选提交商品图识别：先持久化任务收据，确认上传后才发送所选图片",
             json!({"type":"object","required":["member_id","operation_key","candidate_id","provider_id","asset_ids","upload_role","confirm_upload"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"operation_key":{"type":"string","minLength":1,"maxLength":200},"candidate_id":{"type":"string"},"provider_id":{"type":"string"},"asset_ids":{"type":"array","minItems":1,"maxItems":20,"uniqueItems":true,"items":{"type":"string"}},"upload_role":{"enum":["original","product_display"]},"confirm_upload":{"const":true}}}),
             job_output.clone(),
-            json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"job_state":"after_real_submission"},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),
             json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","candidate_id":"<候选ID>","provider_id":"<已配置视觉供应商ID>","asset_ids":["<资产ID>"],"upload_role":"product_display","confirm_upload":true},"prerequisites":["仅上传明确确认的图片；视觉调用真实消耗供应商额度","建议写入候选provenance，不自动覆盖人工事实","本示例不自动执行"]}]),
         ),
         op(
@@ -1128,7 +1118,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "推进已入队候选识别任务；提交未知不盲重发，失败如实反馈",
             json!({"type":"object","required":["member_id","id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}}),
             job_output.clone(),
-            json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),
             json!([{"request":{"member_id":"<已授权成员ID>","id":"<识别任务ID>"},"prerequisites":["首次执行真实提交时消耗供应商额度","提交结果未知时持久化 waiting_input，不自动重发","失败时候选保持原样并如实说明不确定性"]}]),
         ),
         op(
@@ -1136,7 +1125,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "读取购买候选：候选事实、识别建议、不确定性与来源",
             json!({"type":"object","required":["member_id","id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}}),
             candidate_output.clone(),
-            json!({"kind":"query","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","id":"<候选ID>"},"prerequisites":["候选属于候选域；建议值未经核实需人工纠错"]}]),
         ),
         op(
@@ -1144,7 +1132,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "按成员列出购买候选（可按状态筛选，按ID倒序）",
             json!({"type":"object","required":["member_id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"state":{"enum":["draft","dismissed"]}}}),
             json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":candidate_output.clone()}}}),
-            json!({"kind":"query","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["仅返回当前成员的候选；不包含库存单品"]}]),
         ),
         op(
@@ -1152,7 +1139,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "人工纠错候选事实：人工值优先，识别建议保留在 provenance 对照",
             json!({"type":"object","required":["member_id","id","facts","confirm_correction"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"},"facts":{"type":"object","minProperties":1},"confirm_correction":{"const":true}}}),
             candidate_output.clone(),
-            json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","id":"<候选ID>","facts":{"category":"top"},"confirm_correction":true},"prerequisites":["人工纠错显式发生；类别须在分类字典内","未知尺码/价格保持未知，不编造"]}]),
         ),
         op(
@@ -1160,7 +1146,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "弃置候选草稿：保留记录，不再分析",
             json!({"type":"object","required":["member_id","id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}}),
             candidate_output,
-            json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","id":"<候选ID>"},"prerequisites":["弃置不删除记录；已弃置候选不可纠错或分析"]}]),
         ),
         op(
@@ -1168,7 +1153,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "运行购买适配分析：搭配潜力/重复购买/缺口，全部来自当前可用真实库存的确定性计算；结果版本化保留",
             json!({"type":"object","required":["member_id","candidate_id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"candidate_id":{"type":"string"}}}),
             analysis_schema(),
-            json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","candidate_id":"<候选ID>"},"prerequisites":["数字来自确定性查询；候选不计入库存或穿着","每次运行生成新版本并保留历史；缺失事实如实列为不确定性","不自动购买"]}]),
         ),
         op(
@@ -1176,7 +1160,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "读取一次购买适配分析结果",
             json!({"type":"object","required":["member_id","id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}}),
             analysis_schema(),
-            json!({"kind":"query","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","id":"<分析ID>"},"prerequisites":["读取版本化分析；引用的库存ID可交叉核对"]}]),
         ),
         op(
@@ -1184,7 +1167,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "列出购买适配分析历史（可按候选筛选，按ID倒序）",
             json!({"type":"object","required":["member_id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"candidate_id":{"type":"string"}}}),
             json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":analysis_schema()}}}),
-            json!({"kind":"query","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["返回版本化历史；候选与真实库存严格区分"]}]),
         ),
     ];
@@ -1291,7 +1273,6 @@ fn op(
     description: &str,
     input: Value,
     output: Value,
-    effect: Value,
     examples: Value,
 ) -> Value {
     json!({
@@ -1299,7 +1280,7 @@ fn op(
         "description":description,
         "inputSchema":input,
         "outputSchema":output,
-        "effect":effect,
+        
         "examples":examples,
     })
 }

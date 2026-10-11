@@ -229,7 +229,7 @@ impl Application {
         let mut failures: Vec<String> = vec![];
         let first_attempt = claimed["output_attempt"].as_u64().unwrap_or(0).max(1);
         for attempt in first_attempt..=MODEL_ATTEMPTS {
-            match self.scenario_model_turn(&provider, &prompt, member, &id, &lease, attempt) {
+            match self.scenario_model_turn(&provider, &prompt, claimed, attempt) {
                 Ok(draft) => match self.scenario_validate_days(request, rule_plan, &draft) {
                     Ok(days) => return Ok(Some(days)),
                     Err(_) => failures.push("model_invalid_output".to_owned()),
@@ -259,11 +259,24 @@ impl Application {
         &self,
         provider: &Value,
         prompt: &Value,
-        member: &str,
-        id: &str,
-        lease: &str,
+        claimed: &Value,
         attempt: u64,
     ) -> Result<Value, ApiError> {
+        let member = claimed["member_id"]
+            .as_str()
+            .ok_or_else(|| ApiError::new("storage_error", "任务记录损坏"))?;
+        let id = claimed["id"]
+            .as_str()
+            .ok_or_else(|| ApiError::new("storage_error", "任务记录损坏"))?;
+        let lease = claimed["lease_token"]
+            .as_str()
+            .ok_or_else(|| ApiError::new("storage_error", "任务记录损坏"))?;
+        // 供应商请求事件（#44/#68）：trace 取自任务文档；每次真实发送的记账在
+        // 共享文本通道内完成，限流重试的每次发送各记一条。
+        let provider_request = crate::diagnostics::ProviderRequestLog::from_job(
+            claimed,
+            provider["model"].as_str().unwrap_or(""),
+        );
         let body = json!({
             "model":provider["model"],
             "messages":[
@@ -276,13 +289,7 @@ impl Application {
         let request = self.provider_text_request(provider, &body)?;
         let response = loop {
             self.scenario_submitted(member, id, lease, attempt)?;
-            let response = request
-                .try_clone()
-                .ok_or_else(|| ApiError::new("provider_error", "无法建立模型请求"))?
-                .send()
-                .map_err(|_| {
-                    ApiError::new("provider_network", "模型连接失败，结果未知，不盲重发")
-                })?;
+            let response = request.send(self, &provider_request)?;
             if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS {
                 break response;
             }
@@ -467,7 +474,8 @@ impl Application {
     }
 
     // ------------------------------------------------------------------
-    // 提交账本：与 text_recommendation 同语义的持久化提交记录。
+    // 提交账本：与 text_recommendation 同一份提交台账（闸门与登记在
+    // submission.rs），模型尝试上限按场景计划的预算放宽。
     // ------------------------------------------------------------------
     fn scenario_submitted(
         &self,
@@ -480,30 +488,10 @@ impl Application {
         let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
         crate::ai_recommendations::text_lease(&job, lease)?;
         crate::schedules::validate_related_job(&tx, &job)?;
-        if job["submitted_at"].is_string() {
-            let invalid = job["last_outcome"] == "invalid_output"
-                && attempt == job["output_attempt"].as_u64().unwrap_or(1) + 1
-                && attempt <= MODEL_ATTEMPTS;
-            let limited = job["last_outcome"] == "rate_limited"
-                && attempt == job["output_attempt"].as_u64().unwrap_or(1)
-                && job["rate_retries"].as_u64().unwrap_or(0) < 2
-                && job["next_due"].as_i64().unwrap_or(0) <= chrono::Utc::now().timestamp_millis();
-            if !invalid && !limited {
-                return Err(ApiError::new(
-                    "submission_already_sent",
-                    "结果未知或重试预算已耗尽，不能盲重发",
-                ));
-            }
-            if limited {
-                job["rate_retries"] = json!(job["rate_retries"].as_u64().unwrap_or(0) + 1);
-            }
+        if crate::submission::text_retry_gate(&job, attempt, MODEL_ATTEMPTS)? {
+            job["rate_retries"] = json!(job["rate_retries"].as_u64().unwrap_or(0) + 1);
         }
-        job["submitted_at"] = json!(chrono::Utc::now().to_rfc3339());
-        job["submission_count"] = json!(job["submission_count"].as_u64().unwrap_or(0) + 1);
-        job["output_attempt"] = json!(attempt);
-        job["next_due"] = json!(0);
-        job["last_outcome"] = json!("unknown");
-        job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
+        crate::submission::mark_text_submitted(&mut job, attempt);
         crate::jobs::save(&tx, &job)?;
         tx.commit()?;
         Ok(())

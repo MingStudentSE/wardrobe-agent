@@ -115,10 +115,7 @@ impl Application {
                 params![draft_id, id, member, draft.to_string()],
             )?;
         }
-        tx.commit()?;
-        for pending in pending_events {
-            self.emit_job_event(Some(pending));
-        }
+        self.commit_job_events(tx, pending_events)?;
         self.imports_get(json!({"member_id":member,"id":id}))
     }
     pub(super) fn imports_get(&self, input: Value) -> Result<Value, ApiError> {
@@ -355,10 +352,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'imports.commit',?2)",
             params![clothing_id, serialized],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![clothing_id, serialized],
-        )?;
         draft["state"] = json!("committed");
         draft["clothing_id"] = clothing["id"].clone();
         draft["commit_key"] = json!(key);
@@ -367,10 +360,7 @@ impl Application {
             "UPDATE import_drafts SET document=?1 WHERE id=?2",
             params![draft.to_string(), draft_id],
         )?;
-        tx.commit()?;
-        for pending in pending_events {
-            self.emit_job_event(Some(pending));
-        }
+        self.commit_job_events(tx, pending_events)?;
         Ok(clothing)
     }
     pub(super) fn imports_process(&self, input: Value) -> Result<Value, ApiError> {
@@ -402,8 +392,7 @@ impl Application {
                         return Err(ApiError::new("lease_lost", "任务已取消"));
                     }
                     let pending = self.save_job(&tx, &job)?;
-                    tx.commit()?;
-                    self.emit_job_event(pending);
+                    self.commit_job_events(tx, pending)?;
                 }
                 self.asset_import_with_id(
                     json!({"member_id":member,"path":job["payload"]["local_path"]}),
@@ -448,6 +437,6 @@ fn output_schema() -> Value {
     json!({"type":"object","required":["schema_version","id","job_ids","member_id","operation_key","paths","item_ids","items","drafts","created_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"job_ids":{"type":"array","items":{"type":"string"}},"member_id":{"type":"string"},"operation_key":{"type":"string"},"paths":{"type":"array","maxItems":100,"items":{"type":"string"}},"created_at":{"type":"string"},"item_ids":{"type":"array","maxItems":100,"items":{"type":"string"}},"items":{"type":"array","maxItems":100,"items":item},"drafts":{"type":"array","items":{"type":"object","required":["id","member_id","batch_id","item_ids","name","category","state","clothing_id","commit_key"],"properties":{"id":{"type":"string"},"member_id":{"type":"string"},"batch_id":{"type":"string"},"item_ids":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"type":"string"}},"name":{"type":"string"},"category":{"type":"string"},"state":{"enum":["draft","committed"]},"clothing_id":{"type":["string","null"]},"commit_key":{"type":["string","null"]},"facts":{"type":"object"}}}}}})
 }
 pub(super) fn descriptors() -> Vec<Value> {
-    ["create","get","list","process","group","commit","update"].iter().map(|action|{let mut properties=json!({"member_id":{"type":"string"}});let fields=match *action{"create"=>vec!["operation_key","paths"],"list"=>vec![],"process"=>vec!["id","item_id"],"group"=>vec!["id","item_ids"],"commit"=>vec!["id","draft_id","operation_key","facts"],"update"=>vec!["id","draft_id","facts"],_=>vec!["id"]};for field in fields{properties[field]=match field{"paths"=>json!({"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}),"item_ids"=>json!({"type":"array","minItems":2,"maxItems":20,"uniqueItems":true,"items":{"type":"string"}}),"facts"=>json!({"type":"object"}),_=>json!({"type":"string"})};}let required=match *action{"list"=>vec!["member_id"],"create"=>vec!["member_id","operation_key","paths"],"group"=>vec!["member_id","id","item_ids"],"commit"=>vec!["member_id","id","draft_id","operation_key"],"update"=>vec!["member_id","id","draft_id","facts"],_=>vec!["member_id","id"]};let output=match *action{"commit"=>crate::clothing::output_schema("clothing.get"),"list"=>json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":output_schema()}}}),_=>output_schema()};let (effect,examples)=match *action {
-            "create"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","paths":["</绝对/本地/图片路径>"]},"prerequisites":["读取提供的本地图片并复制进本机受管存储；原文件不受影响","每文件一个草稿项，可归并；一批最多100个文件","同operation_key幂等返回同一批次"]}])),"get"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<imports.create返回的批次ID>"},"prerequisites":["读取批次与逐项处理状态"]}])),"list"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["返回当前成员全部导入批次"]}])),"process"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<批次ID>"},"prerequisites":["本地解码并规范方向/压缩派生图；原图字节不变","单项失败不影响其他项，可重试；处理结果为待采用预览","不发送网络"]}])),"group"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<批次ID>","item_ids":["<批次单项ID一>","<批次单项ID二>"]},"prerequisites":["把2-20张图归并为同一草稿（同一单品的多个视图）","多件衣物照片不会自动分割实体"]}])),"commit"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<批次ID>","draft_id":"<草稿ID>","operation_key":"<唯一操作标识>","facts":{"name":"白衬衫","category":"top"}},"prerequisites":["草稿幂等入库为真实衣物；重复提交返回同一结果","必填名称与类别须合法，不捏造未知字段"]}])),"update"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<批次ID>","draft_id":"<草稿ID>","facts":{"category":"top"}},"prerequisites":["更新草稿事实；不写入真实库存","类别须为分类字典合法值"]}])),_=>unreachable!()};json!({"name":format!("imports.{action}"),"description":"持久化批量导入，单项处理、归并草稿及幂等入库","effect":effect,"examples":examples,"inputSchema":{"type":"object","required":required,"additionalProperties":false,"properties":properties},"outputSchema":output})}).collect()
+    ["create","get","list","process","group","commit","update"].iter().map(|action|{let mut properties=json!({"member_id":{"type":"string"}});let fields=match *action{"create"=>vec!["operation_key","paths"],"list"=>vec![],"process"=>vec!["id","item_id"],"group"=>vec!["id","item_ids"],"commit"=>vec!["id","draft_id","operation_key","facts"],"update"=>vec!["id","draft_id","facts"],_=>vec!["id"]};for field in fields{properties[field]=match field{"paths"=>json!({"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}),"item_ids"=>json!({"type":"array","minItems":2,"maxItems":20,"uniqueItems":true,"items":{"type":"string"}}),"facts"=>json!({"type":"object"}),_=>json!({"type":"string"})};}let required=match *action{"list"=>vec!["member_id"],"create"=>vec!["member_id","operation_key","paths"],"group"=>vec!["member_id","id","item_ids"],"commit"=>vec!["member_id","id","draft_id","operation_key"],"update"=>vec!["member_id","id","draft_id","facts"],_=>vec!["member_id","id"]};let output=match *action{"commit"=>crate::clothing::output_schema("clothing.get"),"list"=>json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":output_schema()}}}),_=>output_schema()};let examples=match *action {
+            "create"=>json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","paths":["</绝对/本地/图片路径>"]},"prerequisites":["读取提供的本地图片并复制进本机受管存储；原文件不受影响","每文件一个草稿项，可归并；一批最多100个文件","同operation_key幂等返回同一批次"]}]),"get"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<imports.create返回的批次ID>"},"prerequisites":["读取批次与逐项处理状态"]}]),"list"=>json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["返回当前成员全部导入批次"]}]),"process"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<批次ID>"},"prerequisites":["本地解码并规范方向/压缩派生图；原图字节不变","单项失败不影响其他项，可重试；处理结果为待采用预览","不发送网络"]}]),"group"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<批次ID>","item_ids":["<批次单项ID一>","<批次单项ID二>"]},"prerequisites":["把2-20张图归并为同一草稿（同一单品的多个视图）","多件衣物照片不会自动分割实体"]}]),"commit"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<批次ID>","draft_id":"<草稿ID>","operation_key":"<唯一操作标识>","facts":{"name":"白衬衫","category":"top"}},"prerequisites":["草稿幂等入库为真实衣物；重复提交返回同一结果","必填名称与类别须合法，不捏造未知字段"]}]),"update"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<批次ID>","draft_id":"<草稿ID>","facts":{"category":"top"}},"prerequisites":["更新草稿事实；不写入真实库存","类别须为分类字典合法值"]}]),_=>unreachable!()};json!({"name":format!("imports.{action}"),"description":"持久化批量导入，单项处理、归并草稿及幂等入库","examples":examples,"inputSchema":{"type":"object","required":required,"additionalProperties":false,"properties":properties},"outputSchema":output})}).collect()
 }

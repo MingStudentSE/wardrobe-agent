@@ -5,6 +5,7 @@ import {useCategories} from '../useCategories';
 import React,{useEffect,useRef,useState} from 'react';
 import {WearIntent} from './WearHistory';
 import {api} from '../api';
+import {fetchPage} from '../pagination';
 import {Flatlay} from './Flatlay';
 import {Tryon} from './Tryon';
 import {Clothing,message} from '../ItemEditor';
@@ -17,8 +18,8 @@ export function Lookbook({member,disabled,onBusy,canMutate,onWear,onCompose}:{me
  const [editing,setEditing]=useState<Outfit|null>(null),[name,setName]=useState(''),[items,setItems]=useState<Item[]>([]),[busy,setBusy]=useState(false),[listLoading,setListLoading]=useState(true),[error,setError]=useState(''),[success,setSuccess]=useState(''),[confirm,setConfirm]=useState(false),[collage,setCollage]=useState<{data_url:string;missing_images:number}|null>(null);
  const pending=useRef(false),epoch=useRef(0),listSequence=useRef(0);
  function edit(o:Outfit|null){setEditorOpen(true);setEditing(o);setName(o?.name??'');setItems(o?.items??[]);setCollage(null);setConfirm(false);setError('');setSuccess('');}
- async function load(after?:string){const e=epoch.current,seq=++listSequence.current;setListLoading(true);try{const r=await api<{items:Outfit[];next_cursor:string|null}>('outfit.list',{member_id:member,status,...(after?{cursor:after}:{})});if(e===epoch.current&&seq===listSequence.current){setOutfits(old=>after?[...old,...r.items]:r.items);setCursor(r.next_cursor);}}finally{if(e===epoch.current&&seq===listSequence.current)setListLoading(false);}}
- async function clothes(after?:string){const e=epoch.current;const r=await api<{items:Clothing[];next_cursor:string|null}>('clothing.list',{member_id:member,limit:100,...(query?{query}:{}),...(after?{cursor:after}:{})});if(e===epoch.current){setAvailable(old=>after?[...old,...r.items]:r.items);setClothesCursor(r.next_cursor);}}
+ async function load(after?:string){const e=epoch.current,seq=++listSequence.current;setListLoading(true);try{const r=await fetchPage<Outfit,string>('outfit.list',{member_id:member,status},after);if(e===epoch.current&&seq===listSequence.current){setOutfits(old=>after?[...old,...r.items]:r.items);setCursor(r.next_cursor);}}finally{if(e===epoch.current&&seq===listSequence.current)setListLoading(false);}}
+ async function clothes(after?:string){const e=epoch.current;const r=await fetchPage<Clothing,string>('clothing.list',{member_id:member,limit:100,...(query?{query}:{})},after);if(e===epoch.current){setAvailable(old=>after?[...old,...r.items]:r.items);setClothesCursor(r.next_cursor);}}
  useEffect(()=>{epoch.current++;edit(null);setEditorOpen(false);setAvailable([]);setOutfits([]);if(member)void Promise.all([load(),clothes()]).catch(e=>setError(message(e)));return()=>{epoch.current++;};},[member]);
  useEffect(()=>{if(member)void load().catch(e=>setError(message(e)));},[status]);
  async function run(action:()=>Promise<void>){if(disabled||pending.current||!canMutate())return;pending.current=true;setBusy(true);onBusy(true);setError('');setSuccess('');try{await action();}catch(e){setError(message(e));}finally{pending.current=false;setBusy(false);onBusy(false);}}

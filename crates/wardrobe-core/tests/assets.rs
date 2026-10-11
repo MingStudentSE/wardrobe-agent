@@ -1,5 +1,6 @@
+use std::path::Path;
 use serde_json::json;
-use wardrobe_core::Application;
+use wardrobe_core::{operations, Application};
 
 #[test]
 fn imported_png_survives_restart_with_a_local_original_and_display() {
@@ -322,4 +323,124 @@ fn image_capabilities_describe_required_references_and_real_preview_output() {
         .as_array()
         .unwrap()
         .contains(&json!("data_url")));
+}
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+#[test]
+fn assets_effects_and_examples_match_actual_local_file_semantics() {
+    let descriptors = operations().as_array().unwrap().clone();
+    // sync_manifest 仅 SELECT 重算清单，不落库（root 独立审查）
+    let manifest = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("assets.sync_manifest"))
+        .unwrap();
+    assert_eq!(manifest["effect"]["kind"], json!("query"));
+    // preview 条件性变更：缩略图缺失时同步重建（本地 blob 写 + 文档更新）
+    let preview = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("assets.preview"))
+        .unwrap();
+    let conditional = preview["effect"]["conditional_effects"]
+        .as_array()
+        .expect("preview 须声明条件性 effect");
+    assert!(conditional.iter().any(|c| {
+        c["when"]["variant"] == json!("thumbnail")
+            && c["when"]["thumbnail_file_missing"] == json!(true)
+            && c["effect"]["kind"] == json!("mutation")
+            && c["effect"]["local_files"] == json!(true)
+    }));
+    let text = preview["examples"][0]["prerequisites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect::<String>();
+    assert!(
+        text.contains("重建"),
+        "preview 示例须说明缩略图缺失时同步重建: {text}"
+    );
+    // 语义前置：导入读本地文件写受管字节；采纳仅压缩展示图参与同步，原图保持本地
+    let import = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("assets.import"))
+        .unwrap();
+    let text = import["examples"][0]["prerequisites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect::<String>();
+    assert!(text.contains("本地") && text.contains("受管"), "{text}");
+    let adopt = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("assets.adopt"))
+        .unwrap();
+    let text = adopt["examples"][0]["prerequisites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect::<String>();
+    assert!(
+        text.contains("原图保持本地") && text.contains("压缩"),
+        "{text}"
+    );
+}
+
+#[test]
+fn preview_rebuilds_missing_thumbnail_for_temporary_generated_asset() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("w.sqlite");
+    let app = Application::open(&db).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let source = dir.path().join("generated-colors.png");
+    std::fs::write(
+        &source,
+        include_bytes!("../tests/fixtures/generated-colors.png"),
+    )
+    .unwrap();
+    let imported = app
+        .execute("assets.import", json!({"member_id":member,"path":source}))
+        .unwrap();
+    let id = imported["id"].as_str().unwrap().to_string();
+    let doc = app
+        .execute("assets.get", json!({"member_id":member,"id":id}))
+        .unwrap();
+    let original_thumbnail = doc["thumbnail"]["local_path"].as_str().unwrap().to_string();
+    assert!(Path::new(&original_thumbnail).is_file(), "导入即生成缩略图");
+    // 仅删除测试临时受管缩略图，制造缺失条件（不动用户文件）
+    std::fs::remove_file(&original_thumbnail).unwrap();
+    let preview = app
+        .execute(
+            "assets.preview",
+            json!({"member_id":member,"id":id,"variant":"thumbnail"}),
+        )
+        .unwrap();
+    assert!(preview["data_url"]
+        .as_str()
+        .unwrap()
+        .starts_with("data:image/webp;base64,"));
+    let doc = app
+        .execute("assets.get", json!({"member_id":member,"id":id}))
+        .unwrap();
+    let rebuilt = doc["thumbnail"]["local_path"].as_str().unwrap();
+    assert!(
+        Path::new(rebuilt).is_file(),
+        "preview 条件性重建缩略图并持久化"
+    );
+    // 默认 display 读取语义保持
+    let display = app
+        .execute(
+            "assets.preview",
+            json!({"member_id":member,"id":id,"variant":"display"}),
+        )
+        .unwrap();
+    assert!(display["data_url"]
+        .as_str()
+        .unwrap()
+        .starts_with("data:image/webp;base64,"));
 }

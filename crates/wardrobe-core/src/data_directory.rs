@@ -350,8 +350,8 @@ impl Application {
 }
 pub(super) fn descriptors() -> Vec<Value> {
     vec![
-        json!({"name":"data_directory.status","effect":{"kind":"query","network":"none","local_files":false,"async":null},"examples":[{"request":{},"prerequisites":["读取当前本机数据目录位置；只读不改"]}],"outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":1}}},"inputSchema":{"type":"object","additionalProperties":false,"properties":{}}}),
-        json!({"name":"data_directory.move","effect":{"kind":"mutation","network":"none","local_files":true,"async":{"job_kind":"data_directory_move","process":"maintenance.worker.run","terminal_states":["succeeded","failed","cancelled","waiting_input"]}},"examples":[{"request":{"directory":"</绝对/本地/新数据目录>","operation_key":"<唯一操作标识>"},"prerequisites":["校验目标完整副本后切换并保留旧源；由maintenance.worker.run本地执行","本示例不自动执行"]}],"outputSchema":crate::maintenance::job_schema(),"inputSchema":{"type":"object","additionalProperties":false,"required":["directory"],"properties":{"directory":{"type":"string"},"operation_key":{"type":"string","minLength":1,"maxLength":200}}}}),
+        json!({"name":"data_directory.status","examples":[{"request":{},"prerequisites":["读取当前本机数据目录位置；只读不改"]}],"outputSchema":{"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":1}}},"inputSchema":{"type":"object","additionalProperties":false,"properties":{}}}),
+        json!({"name":"data_directory.move","examples":[{"request":{"directory":"</绝对/本地/新数据目录>","operation_key":"<唯一操作标识>"},"prerequisites":["校验目标完整副本后切换并保留旧源；由maintenance.worker.run本地执行","本示例不自动执行"]}],"outputSchema":crate::maintenance::job_schema(),"inputSchema":{"type":"object","additionalProperties":false,"required":["directory"],"properties":{"directory":{"type":"string"},"operation_key":{"type":"string","minLength":1,"maxLength":200}}}}),
     ]
 }
 

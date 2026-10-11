@@ -1,5 +1,5 @@
 use serde_json::json;
-use wardrobe_core::Application;
+use wardrobe_core::{operations, Application};
 #[test]
 fn no_key_first_entry_survives_restart_with_unknown_values() {
     let dir = tempfile::tempdir().unwrap();
@@ -231,4 +231,127 @@ fn open_client_refuses_operations_after_newer_client_upgrades_database() {
         .query_row("SELECT count(*) FROM clothing", [], |row| row.get(0))
         .unwrap();
     assert_eq!(count, 0);
+}
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+#[test]
+fn capabilities_is_grant_exempt_and_filtered_for_limited_clients() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("cap.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let grant = app
+        .execute(
+            "client.authorize",
+            json!({"name":"仅衣物列表","mode":"limited","operations":["clothing.list"],"member_ids":null,"expires_at":null}),
+        )
+        .unwrap();
+    let token = grant["token"].as_str().unwrap();
+    // 与授权无关的 capabilities 调用成功（primary 豁免）
+    let capabilities = app
+        .execute_as_client(token, "capabilities", json!({}))
+        .unwrap();
+    let names: Vec<&str> = capabilities["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"capabilities"));
+    assert!(names.contains(&"clothing.list"), "授权内操作必须出现");
+    assert!(
+        !names.contains(&"clothing.create"),
+        "授权外业务操作不得出现"
+    );
+    assert!(
+        !names.contains(&"client.authorize"),
+        "仅本机可信入口的操作不得出现"
+    );
+    // 描述符 scope 与公开发现一致
+    let listed = capabilities["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["name"] == json!("clothing.list"))
+        .unwrap();
+    assert_eq!(listed["scope"]["primary_grant_required"], json!(true));
+}
+
+#[test]
+fn member_grant_semantics_match_enforcement_and_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("member.sqlite")).unwrap();
+    let space = app.execute("space.default", json!({})).unwrap();
+    let member = space["member_id"].as_str().unwrap().to_string();
+    // 有效输入拒绝注入 member_id（root 公开探针一致）
+    let injected = app.execute("space.default", json!({"member_id":member}));
+    assert_eq!(injected.unwrap_err().code, "invalid_input");
+
+    // 受限成员的 full 授权：space.default 无法执行（有效输入无 member_id）
+    let grant = app
+        .execute(
+            "client.authorize",
+            json!({"name":"单成员完整","mode":"full","operations":[],"member_ids":[member],"expires_at":null}),
+        )
+        .unwrap();
+    let token = grant["token"].as_str().unwrap();
+    assert_eq!(
+        app.execute_as_client(token, "space.default", json!({}))
+            .unwrap_err()
+            .code,
+        "member_denied",
+        "无 member_id 输入的操作对受限成员授权必须 member_denied"
+    );
+    let descriptors = operations().as_array().unwrap().clone();
+    let scope_of = |name: &str| {
+        descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(
+        scope_of("space.default")["scope"]["member"]["grant"],
+        json!("all-members"),
+        "space.default 元数据须与执行一致"
+    );
+    // per-member_id 操作：授权内成员可执行
+    let created = app
+        .execute_as_client(
+            token,
+            "clothing.create",
+            json!({"member_id":member,"name":"受限可写","category":"top"}),
+        )
+        .unwrap();
+    assert!(created.get("error").is_none(), "{created}");
+    assert_eq!(
+        scope_of("clothing.create")["scope"]["member"]["grant"],
+        json!("per-member_id")
+    );
+    // 授权范围外成员被拒
+    let other = app
+        .execute("member.create", json!({"name":"其他成员"}))
+        .unwrap();
+    let other_member = other["member_id"].as_str().unwrap().to_string();
+    assert_eq!(
+        app.execute_as_client(
+            token,
+            "clothing.create",
+            json!({"member_id":other_member,"name":"越权","category":"top"})
+        )
+        .unwrap_err()
+        .code,
+        "member_denied"
+    );
+}
+
+#[test]
+fn initialization_is_an_open_precondition_not_a_space_default_dispatch_effect() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("fresh.sqlite")).unwrap();
+    // 公开边界：open 迁移已完成初始化，无需任何 space.default 调度
+    let space = app.execute("space.default", json!({})).unwrap();
+    assert!(space["member_id"].is_string(), "{space}");
+    let second = app.execute("space.default", json!({})).unwrap();
+    assert_eq!(space, second, "再次调用为纯查询");
 }

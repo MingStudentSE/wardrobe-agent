@@ -88,7 +88,28 @@ fn sync_s3_credentials(target_key: &str) -> Result<S3Credentials, ApiError> {
         secret_access_key: string(&value, "secret_access_key")?.to_string(),
     })
 }
-const TABLES: [&str; 12] = [
+/// 同步范围的唯一声明（#71）：下列 12 张领域表由 migrate 建立的
+/// sync_{table}_{INSERT,UPDATE} 触发器写入 sync_journal，是全部进同步的持久业务事实。
+/// 除此之外的同步通道只有两处：资产二进制走 sync/assets.rs 的 blob 通道，
+/// 冲突解决回执落 sync_resolution_receipts。
+///
+/// 明确不进同步的持久事实（由 tests/sync_scope.rs 对 sqlite_master 焊住——
+/// 扩大或缩小同步范围必须先改这两份清单）：
+/// - audit：本机操作台账，只进便携备份；
+/// - outbox：历史迁移遗留，#71 起全库停写，表按「schema 迁移只向前」保留；
+/// - recommendation_intents / recommendation_saves：推荐意图与保存记录；
+/// - scenario_plans：场景方案；
+/// - purchase_candidates / purchase_analyses：购物分析只读本地库存，不同步
+///   也不进便携备份（purchase.rs 模块注释）；
+/// - learning_* 五张与 schedule_plans / schedule_executions：只进便携备份；
+///   学习画像由各端从已同步的 wear/care/feedback 事件重算收敛；
+/// - weather_preferences 的 document 中 config.endpoint / cache / last_error
+///   三个安装本地产物在触发器内剥离，其余进同步；
+/// - 任务与队列类表（jobs、各任务收据、sync 运行状态表）是本机执行事实。
+///
+/// 便携备份范围是另一份清单（backup.rs TABLES）：含 audit / outbox 历史行与
+/// learning / schedule 数据，不含 purchase / scenarios，与同步范围刻意不同。
+pub const SYNCED_TABLES: [&str; 12] = [
     "members",
     "clothing",
     "outfits",
@@ -101,6 +122,24 @@ const TABLES: [&str; 12] = [
     "feedback_events",
     "feedback_receipts",
     "categories",
+];
+
+/// 明确排除在同步之外的持久事实表。仅作声明与测试引用，不参与运行时逻辑。
+pub const SYNC_EXCLUDED_TABLES: &[&str] = &[
+    "audit",
+    "outbox",
+    "recommendation_intents",
+    "recommendation_saves",
+    "scenario_plans",
+    "purchase_candidates",
+    "purchase_analyses",
+    "learning_memories",
+    "learning_profiles",
+    "learning_state",
+    "learning_history",
+    "learning_receipts",
+    "schedule_plans",
+    "schedule_executions",
 ];
 // The category registry is keyed by the exact string clothing.category uses;
 // sync fields have no member column, so the wire entity is member-scoped.
@@ -448,7 +487,7 @@ pub(crate) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     if !has_local_receipt_flag {
         tx.execute_batch("ALTER TABLE sync_publications ADD COLUMN locally_published INTEGER NOT NULL DEFAULT 1 CHECK(locally_published IN (0,1))")?;
     }
-    for table in TABLES {
+    for table in SYNCED_TABLES {
         for kind in ["INSERT", "UPDATE"] {
             let key = entity_key(table, "NEW");
             let after = if table == "weather_preferences" {
@@ -540,7 +579,7 @@ impl Application {
         }
         schema::validate_operation(op)?;
         let table = string(op, "entity_type")?;
-        if !TABLES.contains(&table) {
+        if !SYNCED_TABLES.contains(&table) {
             return Err(error("sync_invalid"));
         }
         let entity = string(op, "entity_id")?;
@@ -770,7 +809,7 @@ impl Application {
                 let identity = self.sync_identity()?;
                 let space = string(&identity, "space_id")?;
                 let tx = self.begin_write()?;
-                for table in TABLES {
+                for table in SYNCED_TABLES {
                     tx.execute(
                         "INSERT OR IGNORE INTO sync_bootstrap(space_id,table_name) VALUES(?1,?2)",
                         params![space, table],

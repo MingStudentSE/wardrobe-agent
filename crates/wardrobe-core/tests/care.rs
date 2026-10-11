@@ -419,3 +419,37 @@ fn availability_reads_atomic_config_cohorts_on_one_snapshot_during_external_writ
     // The read transaction is closed; subsequent public writes still work.
     a.execute("care.configure",json!({"member_id":"default","clothing_id":c["id"],"wash_after_wears":null,"expected_revision":1,"operation_key":"after-read"})).unwrap();
 }
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+#[test]
+fn care_effects_and_examples_match_actual_completion_semantics() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("c.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let clothing = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"洗护衫","category":"top"}),
+        )
+        .unwrap();
+    let cid = clothing["id"].as_str().unwrap().to_string();
+    app.execute("care.configure", json!({"member_id":member,"clothing_id":cid,"wash_after_wears":1,"expected_revision":0,"operation_key":"cfg"})).unwrap();
+    app.execute("wear.record", json!({"member_id":member,"operation_key":"w1","local_date":"2020-01-01","timezone":"UTC","clothing_ids":[cid]})).unwrap();
+    let status = app
+        .execute("care.status", json!({"member_id":member,"clothing_id":cid}))
+        .unwrap();
+    assert_eq!(status["dirty"], json!(true), "达到阈值后待洗");
+    let recorded = app
+        .execute("care.record", json!({"member_id":member,"clothing_id":cid,"operation_key":"wash-1","local_date":"2020-01-02","timezone":"UTC","action":"wash"}))
+        .unwrap();
+    assert!(recorded.get("error").is_none(), "{recorded}");
+    let status = app
+        .execute("care.status", json!({"member_id":member,"clothing_id":cid}))
+        .unwrap();
+    assert_eq!(status["wears_since_clean"], json!(0), "洗护完成即重置计数");
+
+}

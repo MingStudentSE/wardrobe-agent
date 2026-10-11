@@ -360,10 +360,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,?2,?3)",
             params![id, operation, document],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![id, document],
-        )?;
         Ok(())
     }
     fn wear_history(&self, member: &str, root: &str) -> Result<Value, ApiError> {
@@ -390,15 +386,7 @@ impl Application {
             .get("clothing_id")
             .map(|v| v.as_str().ok_or_else(|| invalid("单品筛选须为字符串")))
             .transpose()?;
-        let limit = input
-            .get("limit")
-            .map(|v| {
-                v.as_u64()
-                    .filter(|n| (1..=100).contains(n))
-                    .ok_or_else(|| invalid("每页数量须为1–100"))
-            })
-            .transpose()?
-            .unwrap_or(24) as usize;
+        let limit = crate::pagination::parse_limit(&input, 24, "每页数量须为1–100", "每页数量须为1–100")? as usize;
         let cursor = input
             .get("cursor")
             .map(|v| v.as_str().ok_or_else(|| invalid("游标须为字符串")))
@@ -479,10 +467,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({"name":format!("wear.{op}"),"description":format!("真实穿着 {op}"),"inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties},"outputSchema":if ["record","correct","revoke","get"].contains(&op){json!({"type":"object","required":["schema_version","id","member_id","root_event_id","revision","kind","items","source_outfit","local_date","timezone","local_time","time_precision","occurred_at","created_at","notes","supersedes_event_id"],"properties":{"schema_version":{"const":1},"revision":{"type":"integer","minimum":1},"kind":{"enum":["record","correction","revocation"]},"items":{"type":"array","minItems":1},"source_outfit":{"type":["object","null"]}}})}else{json!({"type":"object","required":["schema_version","member_id","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array"}}})}})
     }).map(|mut descriptor|{
         let op=descriptor["name"].as_str().unwrap().strip_prefix("wear.").unwrap().to_string();
-        descriptor["effect"]=match op.as_str() {
-            "record"|"correct"|"revoke"=>json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
-            _=>json!({"kind":"query","network":"none","local_files":false,"async":null}),
-        };
+
         let mid=json!("<已授权成员ID>");
         descriptor["examples"]=match op.as_str() {
             "record"=>json!([{"request":{"member_id":mid,"operation_key":"<幂等操作键>","local_date":"2020-01-01","timezone":"UTC","clothing_ids":["<单品ID>"],"source_outfit_id":"<可选搭配ID>"},"prerequisites":["同 operation_key 幂等；可选关联搭配版本"]}]),

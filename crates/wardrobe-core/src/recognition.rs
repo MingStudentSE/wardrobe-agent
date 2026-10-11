@@ -108,14 +108,13 @@ impl Application {
         }
         let payload = json!({"request":input,"provider":provider,"asset_ids":ids,"upload_role":role,"assets":assets,"baseline":clothing,"submission":"not_submitted"});
         let (job, pending) = self.insert_job(&tx, &member, "recognition", key, payload)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(job)
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
     let proposal = json!({"type":"object","required":["schema_version","id","job_id","member_id","state","target","baseline","raw_text","suggested_facts","uncertainties","provenance"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"state":{"enum":["pending_review","reviewed","dismissed"]},"raw_text":{"type":"string"}}});
-    ["create","process","get","list","review","dismiss"].iter().map(|action|{let mut properties=json!({"member_id":{"type":"string"}});let required=match *action{"create"=>{properties["operation_key"]=json!({"type":"string","minLength":1,"maxLength":200});properties["provider_id"]=json!({"type":"string"});properties["asset_ids"]=json!({"type":"array","minItems":1,"maxItems":20,"uniqueItems":true,"items":{"type":"string"}});properties["upload_role"]=json!({"enum":["original","product_display"]});properties["confirm_upload"]=json!({"const":true});vec!["member_id","operation_key","provider_id","asset_ids","upload_role","confirm_upload"]},"list"=>vec!["member_id"],"review"=>{properties["facts"]=json!({"type":"object","minProperties":1});properties["confirm_review"]=json!({"const":true});vec!["member_id","id","facts","confirm_review"]},_=>vec!["member_id","id"]};if ["create","list"].contains(action){for k in ["clothing_id","batch_id","draft_id"]{properties[k]=json!({"type":"string"});}}else{properties["id"]=json!({"type":"string"});}let mut schema=json!({"type":"object","required":required,"additionalProperties":false,"properties":properties});if *action=="create"{schema["oneOf"]=json!([{"required":["clothing_id"],"not":{"anyOf":[{"required":["batch_id"]},{"required":["draft_id"]}]}},{"required":["batch_id","draft_id"],"not":{"required":["clothing_id"]}}]);}let output=match *action{"create"|"process"=>jobs::output_schema(),"list"=>json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":proposal}}}),_=>proposal.clone()};let (effect,examples)=match *action {"create"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"job_state":"after_real_submission"},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","provider_id":"<已配置视觉供应商ID>","clothing_id":"<单品ID>","asset_ids":["<资产ID>"],"upload_role":"product_display","confirm_upload":true},"prerequisites":["仅上传明确确认的选择图片；视觉调用真实消耗供应商额度","上传先持久化任务收据；结果进入人工审核不自动覆盖人工值","本示例不自动执行"]}])),"process"=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<识别任务ID>"},"prerequisites":["推进已入队识别任务；首次执行真实提交时消耗供应商额度","重启后不盲重发；截断/未知结果持久化并进入待核对","本示例不自动执行"]}])),"get"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<建议ID>"},"prerequisites":["读取识别建议：建议值、基线、来源与不确定性说明"]}])),"list"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按建议ID倒序列出识别建议"]}])),"review"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<建议ID>","facts":{"description":"白衬衫"},"confirm_review":true},"prerequisites":["人工逐项审核后确认；仅可观察字段，类别须在分类字典内","人工值优先且不自动覆盖；审核写入真实衣物事实"]}])),"dismiss"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<建议ID>"},"prerequisites":["放弃建议，不改变任何衣物事实"]}])),_=>unreachable!()};json!({"name":format!("recognition.{action}"),"effect":effect,"examples":examples,"description":"识别建议及明确人工审核；只发送选择的图片，人工值不自动覆盖","inputSchema":schema,"outputSchema":output})}).collect()
+    ["create","process","get","list","review","dismiss"].iter().map(|action|{let mut properties=json!({"member_id":{"type":"string"}});let required=match *action{"create"=>{properties["operation_key"]=json!({"type":"string","minLength":1,"maxLength":200});properties["provider_id"]=json!({"type":"string"});properties["asset_ids"]=json!({"type":"array","minItems":1,"maxItems":20,"uniqueItems":true,"items":{"type":"string"}});properties["upload_role"]=json!({"enum":["original","product_display"]});properties["confirm_upload"]=json!({"const":true});vec!["member_id","operation_key","provider_id","asset_ids","upload_role","confirm_upload"]},"list"=>vec!["member_id"],"review"=>{properties["facts"]=json!({"type":"object","minProperties":1});properties["confirm_review"]=json!({"const":true});vec!["member_id","id","facts","confirm_review"]},_=>vec!["member_id","id"]};if ["create","list"].contains(action){for k in ["clothing_id","batch_id","draft_id"]{properties[k]=json!({"type":"string"});}}else{properties["id"]=json!({"type":"string"});}let mut schema=json!({"type":"object","required":required,"additionalProperties":false,"properties":properties});if *action=="create"{schema["oneOf"]=json!([{"required":["clothing_id"],"not":{"anyOf":[{"required":["batch_id"]},{"required":["draft_id"]}]}},{"required":["batch_id","draft_id"],"not":{"required":["clothing_id"]}}]);}let output=match *action{"create"|"process"=>jobs::output_schema(),"list"=>json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":proposal}}}),_=>proposal.clone()};let examples=match *action {"create"=>json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","provider_id":"<已配置视觉供应商ID>","clothing_id":"<单品ID>","asset_ids":["<资产ID>"],"upload_role":"product_display","confirm_upload":true},"prerequisites":["仅上传明确确认的选择图片；视觉调用真实消耗供应商额度","上传先持久化任务收据；结果进入人工审核不自动覆盖人工值","本示例不自动执行"]}]),"process"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<识别任务ID>"},"prerequisites":["推进已入队识别任务；首次执行真实提交时消耗供应商额度","重启后不盲重发；截断/未知结果持久化并进入待核对","本示例不自动执行"]}]),"get"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<建议ID>"},"prerequisites":["读取识别建议：建议值、基线、来源与不确定性说明"]}]),"list"=>json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按建议ID倒序列出识别建议"]}]),"review"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<建议ID>","facts":{"description":"白衬衫"},"confirm_review":true},"prerequisites":["人工逐项审核后确认；仅可观察字段，类别须在分类字典内","人工值优先且不自动覆盖；审核写入真实衣物事实"]}]),"dismiss"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<建议ID>"},"prerequisites":["放弃建议，不改变任何衣物事实"]}]),_=>unreachable!()};json!({"name":format!("recognition.{action}"),"examples":examples,"description":"识别建议及明确人工审核；只发送选择的图片，人工值不自动覆盖","inputSchema":schema,"outputSchema":output})}).collect()
 }
 const PROMPT: &str = "Describe only the visible garment type and main colors in this image. Say which details are uncertain. Do not guess brand, size, material, price, season or hidden features. This is an unverified visual suggestion for a person to review.";
 fn fields(input: &Value, allowed: &[&str]) -> Result<(), ApiError> {
@@ -354,10 +353,6 @@ impl Application {
                     params![text, clothing["id"].as_str(), doc["member_id"].as_str()],
                 )?;
                 tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'recognition.review',?2)",params![clothing["id"].as_str(),text])?;
-                tx.execute(
-                    "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-                    params![clothing["id"].as_str(), text],
-                )?;
             } else {
                 let mut merged = clothing
                     .get("facts")
@@ -408,8 +403,8 @@ impl Application {
         }
         let mut job = self.job_claim(&member, id, 120)?;
         let lease = job["lease_token"].as_str().unwrap().to_string();
-        if job["payload"]["submission"] != "not_submitted" {
-            return self.job_finish(&member,id,&lease,"waiting_input",Value::Null,json!({"code":"submission_unknown","message":"上次提交结果未知，请核实供应商后另建明确任务","retryable":false}));
+        if crate::submission::is_submitted(&job) {
+            return self.vision_submission_unknown(&member, id, &lease);
         }
         let mut transferred = vec![];
         let prepare = (|| -> Result<reqwest::blocking::RequestBuilder, ApiError> {
@@ -452,10 +447,7 @@ impl Application {
                 transferred.push(json!({"asset_id":snap["asset_id"],"source_role":snap["role"],"source_blob_hash":snap["blob_hash"],"sha256":Sha256::digest(&encoded).iter().map(|b|format!("{b:02x}")).collect::<String>(),"mime":"image/png","width":normalized.width(),"height":normalized.height(),"bytes":encoded.len(),"transform":"orientation-aware-fit-512-png"}));
                 content.push(json!({"type":"image_url","image_url":{"url":format!("data:image/png;base64,{}",base64::engine::general_purpose::STANDARD.encode(encoded))}}));
             }
-            let client = reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(60))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
+            let client = crate::http_client::build(crate::http_client::OutboundProfile::Chat)
                 .map_err(|_| ApiError::new("connection_error", "无法创建HTTP客户端"))?;
             let mut request=client.post(format!("{}/chat/completions",p["endpoint"].as_str().unwrap())).json(&json!({"model":p["model"],"messages":[{"role":"user","content":content}],"max_tokens":512,"temperature":0}));
             if p["authentication"] == "bearer" {
@@ -479,8 +471,7 @@ impl Application {
                 )
             }
         };
-        job["payload"]["submission"] = json!("submitted");
-        job["payload"]["transferred_images"] = json!(transferred);
+        crate::submission::mark_vision_submitted(&mut job, json!(transferred));
         let tx = self.begin_write()?;
         let current = self.job_get(json!({"member_id":member,"id":id}))?;
         if current["state"] != "running"
@@ -494,8 +485,7 @@ impl Application {
             ));
         }
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         // 供应商请求事件（#44）：trace 取自任务文档——worker 可能运行在另一进程
         let provider_request = crate::diagnostics::ProviderRequestLog::from_job(
             &job,
@@ -534,7 +524,7 @@ impl Application {
                 .and_then(|s| s.parse::<i64>().ok())
                 .unwrap_or(2)
                 .saturating_mul(1000);
-            job["payload"]["submission"] = json!("not_submitted");
+            crate::submission::reset_vision_submission(&mut job);
             let tx = self.begin_write()?;
             let current = self.job_get(json!({"member_id":member,"id":id}))?;
             if current["state"] != "running"
@@ -545,8 +535,7 @@ impl Application {
                 return Err(ApiError::new("lease_lost", "任务已取消或过期，不恢复队列"));
             }
             let pending = self.save_job(&tx, &job)?;
-            tx.commit()?;
-            self.emit_job_event(pending);
+            self.commit_job_events(tx, pending)?;
             return self.job_finish(&member,id,&lease,"failed",Value::Null,json!({"code":if retry{"provider_rate_limit"}else{"provider_rejected"},"message":"供应商拒绝请求，仍可手工保存","http_status":status.as_u16(),"retryable":retry,"retry_after_ms":delay}));
         }
         let mut bytes = vec![];
@@ -603,12 +592,11 @@ impl Application {
         job["progress"] = json!(100);
         job["lease_token"] = Value::Null;
         job["lease_expires"] = json!(0);
-        job["payload"]["submission"] = json!("received");
+        crate::submission::mark_vision_received(&mut job);
         job["result"] = json!({"suggestion_id":proposal["id"]});
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(job)
     }
 }

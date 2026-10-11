@@ -310,3 +310,58 @@ fn existing_version_five_inventory_survives_lookbook_migration_and_reopen() {
         old
     );
 }
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+#[test]
+fn outfits_effects_and_examples_match_actual_versioning() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("o.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let clothing = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"外套","category":"outerwear"}),
+        )
+        .unwrap();
+    let items = json!([{"clothing_id":clothing["id"],"role":"outer","layer":2}]);
+    let created = app
+        .execute(
+            "outfit.create",
+            json!({"member_id":member,"name":"通勤","items":items}),
+        )
+        .unwrap();
+    assert_eq!(created["version"], json!(1));
+    let id = created["id"].as_str().unwrap().to_string();
+    let updated = app
+        .execute(
+            "outfit.update",
+            json!({"member_id":member,"id":id,"name":"通勤二","items":items,"expected_version":1}),
+        )
+        .unwrap();
+    assert_eq!(
+        updated["version"],
+        json!(2),
+        "编辑以 expected_version 乐观推进版本"
+    );
+    let v1 = app
+        .execute(
+            "outfit.version",
+            json!({"member_id":member,"id":id,"version":1}),
+        )
+        .unwrap();
+    assert_eq!(v1["name"], json!("通勤"), "版本快照不可变");
+    app.execute("outfit.delete", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(
+        app.execute("outfit.get", json!({"member_id":member,"id":id}))
+            .unwrap()["status"],
+        json!("deleted")
+    );
+    app.execute("outfit.restore", json!({"member_id":member,"id":id}))
+        .unwrap();
+
+}

@@ -369,6 +369,12 @@ fn help() -> Value {
         "data": "数据目录可用 --db 或环境变量 WARDROBE_DATA_DIR 指定；未指定时使用系统应用数据目录，数据库随应用迁移机制移动"
     })
 }
+/// MCP 错误出口（#74）：`data` 直接序列化完整 ApiError（code/message 与核心
+/// 附着的 trace_id），与 tools/call 的 `{"error":e}` 一致；initialize/tools/list
+/// 等处不再手拼丢 trace_id。既有 `data.code` 键保留，其余字段为加法变更。
+fn mcp_error(id: Value, error: &ApiError) -> Value {
+    json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":error.message,"data":error}})
+}
 fn mcp(app: &Application, line: &str, client_token: &mut Option<String>) -> Option<Value> {
     let request: Value = match serde_json::from_str(line) {
         Ok(v) => v,
@@ -383,9 +389,7 @@ fn mcp(app: &Application, line: &str, client_token: &mut Option<String>) -> Opti
         "initialize" => {
             if let Some(token) = request["params"]["authorization_token"].as_str() {
                 if let Err(error) = app.execute_as_client(token, "capabilities", json!({})) {
-                    return Some(
-                        json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":error.message,"data":{"code":error.code}}}),
-                    );
+                    return Some(mcp_error(id, &error));
                 }
                 *client_token = Some(token.to_string());
             }
@@ -398,11 +402,7 @@ fn mcp(app: &Application, line: &str, client_token: &mut Option<String>) -> Opti
             json!({}),
         ) {
             Ok(v) => json!({"tools":v["operations"]}),
-            Err(e) => {
-                return Some(
-                    json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":e.message,"data":{"code":e.code}}}),
-                )
-            }
+            Err(e) => return Some(mcp_error(id, &e)),
         },
         "resources/list" => {
             json!({"resources":[{"uri":"wardrobe://capabilities","name":"Application capabilities","mimeType":"application/json"}]})
@@ -421,11 +421,7 @@ fn mcp(app: &Application, line: &str, client_token: &mut Option<String>) -> Opti
                 Ok(v) => {
                     json!({"contents":[{"uri":"wardrobe://capabilities","mimeType":"application/json","text":v.to_string()}]})
                 }
-                Err(e) => {
-                    return Some(
-                        json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":e.message,"data":{"code":e.code}}}),
-                    )
-                }
+                Err(e) => return Some(mcp_error(id, &e)),
             }
         }
         "tools/call" => match app.execute_as_client(

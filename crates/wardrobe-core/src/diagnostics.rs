@@ -17,11 +17,15 @@
 use serde_json::{json, Value};
 use std::{
     fs,
-    io::{Read, Write},
+    io::Write,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
+
+/// CLI `doctor` 与核心测试经既有路径取用体检报告；实现（十项体检与降级路径）
+/// 在 checks 模块（#73 迁出），attach_checks 与分发均为跨模块调用。
+pub use crate::checks::doctor_report;
 
 /// 日志轮转与保留上限；产品入口用默认值，测试注入极小值驱动轮转与清理。
 #[derive(Clone, Copy, Debug)]
@@ -710,15 +714,7 @@ impl Application {
                 Some(text.to_lowercase())
             }
         };
-        let limit = match input.get("limit") {
-            None => 50,
-            Some(value) => value
-                .as_u64()
-                .ok_or_else(|| ApiError::new("invalid_input", "每页数量必须为整数"))?,
-        };
-        if !(1..=100).contains(&limit) {
-            return Err(ApiError::new("invalid_input", "每页数量必须为 1–100"));
-        }
+        let limit = crate::pagination::parse_limit(&input, 50, "每页数量必须为整数", "每页数量必须为 1–100")?;
         let (cursor_millis, cursor_skip) = match input.get("cursor") {
             None | Some(Value::Null) => (None, 0u64),
             Some(value) => {
@@ -1055,9 +1051,13 @@ impl Application {
                 }
             }
         }
-        // 供应商结果未知：waiting_input 且已提交（口径与恢复守卫的已提交谓词同源，jobs.rs）
+        // 供应商结果未知：waiting_input 且已提交（「已提交」谓词由提交台账导出，
+        // 与恢复守卫同源同份）
         let provider_outcome_unknown: u64 = self.connection.query_row(
-            "SELECT count(*) FROM jobs WHERE json_extract(document,'$.state')='waiting_input' AND (json_type(document,'$.submitted_at')='text' OR (kind='recognition' AND json_extract(document,'$.payload.submission') IN ('submitted','received','unknown')))",
+            &format!(
+                "SELECT count(*) FROM jobs WHERE json_extract(document,'$.state')='waiting_input' AND {}",
+                crate::submission::submitted_sql()
+            ),
             [],
             |row| row.get::<_, i64>(0).map(|count| count as u64),
         )?;
@@ -1077,6 +1077,7 @@ impl Application {
             "provider_outcome_unknown": provider_outcome_unknown,
             "recent_errors": recent_errors,
             "logs": {
+                "directory": self.logger.logs_dir.display().to_string(),
                 "total_bytes": total_bytes,
                 "file_count": file_count,
                 "retention_days": self.logger.limits.retention_days,
@@ -1086,465 +1087,8 @@ impl Application {
         }))
     }
 
-    /// 基础检查（#48）：只读体检，返回固定十项（id、pass/warn/fail、通俗中文消息、
-    /// 建议去向设置页标识、技术明细）。绝不修改配置或数据、不自动修复；
-    /// 唯一的临时产物是试写探测文件，且无论成败都在返回前删除。
-    pub(super) fn diagnostics_checks(&self, _input: Value) -> Result<Value, ApiError> {
-        let data_dir = self
-            .asset_root
-            .parent()
-            .unwrap_or(Path::new("."))
-            .to_path_buf();
-        let db_path = PathBuf::from(self.connection.path().unwrap_or_default());
-        let db_file = db_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("");
-        let mut checks: Vec<Value> = Vec::new();
-        // 1. 数据目录解析与可写（解析失败在 Application 入口即被拒绝；此处验证可写与存在）
-        checks.push(check_data_directory(&data_dir));
-        // 2. 数据库可打开且模式版本与当前应用一致（打开失败在入口已拒绝；过高版本见 doctor 降级路径）
-        let user_version: u32 = self
-            .connection
-            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        checks.push(match user_version.cmp(&crate::DATABASE_SCHEMA_VERSION) {
-            std::cmp::Ordering::Equal => check_item(
-                "database_schema",
-                "pass",
-                "数据库正常，模式版本与当前应用一致",
-                None,
-                &format!(
-                    "user_version={user_version} required={}",
-                    crate::DATABASE_SCHEMA_VERSION
-                ),
-            ),
-            std::cmp::Ordering::Less => check_item(
-                "database_schema",
-                "warn",
-                "数据库模式版本低于当前应用，下次打开时会自动升级",
-                None,
-                &format!(
-                    "user_version={user_version} required={}",
-                    crate::DATABASE_SCHEMA_VERSION
-                ),
-            ),
-            std::cmp::Ordering::Greater => check_item(
-                "database_schema",
-                "fail",
-                "数据库由更新版本的应用创建，请升级应用后再打开",
-                None,
-                &format!(
-                    "user_version={user_version} required={}",
-                    crate::DATABASE_SCHEMA_VERSION
-                ),
-            ),
-        });
-        // 3. WAL 生效（pragma 只读查询）
-        let journal_mode: String = self
-            .connection
-            .query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
-        checks.push(if journal_mode == "wal" {
-            check_item(
-                "database_wal",
-                "pass",
-                "数据库日志模式正常",
-                None,
-                "journal_mode=wal",
-            )
-        } else {
-            check_item(
-                "database_wal",
-                "warn",
-                "数据库未启用 WAL 日志模式，可靠性与并发读取受限",
-                None,
-                &format!("journal_mode={journal_mode}"),
-            )
-        });
-        // 4. 日志目录试写（写失败只降级诊断能力，不阻塞业务，故为 warn）
-        checks.push(check_logs_writable(&data_dir));
-        // 5. 数据卷剩余空间：fail < 100 MiB，warn < 1 GiB（初始阈值，与 ADR 语义一致）
-        checks.push(check_disk_space(&data_dir));
-        // 6. 本机安装代际一致（与其他进程并发恢复/更换后须重启加载）
-        let generation: i64 = self.connection.query_row(
-            "SELECT generation FROM local_installation_state WHERE id=1",
-            [],
-            |row| row.get(0),
-        )?;
-        checks.push(if generation == self.installation_generation {
-            check_item(
-                "installation_generation",
-                "pass",
-                "本机安装状态正常",
-                None,
-                &format!("generation={generation}"),
-            )
-        } else {
-            check_item(
-                "installation_generation",
-                "warn",
-                "检测到数据在本机被恢复或更换，请重启应用后继续使用",
-                None,
-                &format!(
-                    "opened_generation={} current_generation={generation}",
-                    self.installation_generation
-                ),
-            )
-        });
-        // 7. 加密钱包状态：未配置 / 已解锁 / 已锁定（只报状态，绝不触碰密钥材料）
-        checks.push(match crate::encryption::wallet_status(self) {
-            crate::encryption::WalletStatus::NotConfigured => check_item(
-                "encryption_wallet",
-                "pass",
-                "未启用加密；如需保护隐私，可到「加密与设备」开启",
-                None,
-                "wallet=not_configured",
-            ),
-            crate::encryption::WalletStatus::Unlocked => check_item(
-                "encryption_wallet",
-                "pass",
-                "加密空间已解锁，运行正常",
-                None,
-                "wallet=unlocked",
-            ),
-            crate::encryption::WalletStatus::Locked => check_item(
-                "encryption_wallet",
-                "warn",
-                "加密空间存在但本机无法解锁，需要恢复材料；请到「加密与设备」处理",
-                Some("encryption"),
-                "wallet=locked",
-            ),
-        });
-        // 8. 模型凭据是否已配置（只报是/否计数；未配置模型属正常状态）
-        checks.push(match self.credential_check_summary() {
-            Ok((0, _, _, _)) => check_item(
-                "model_credentials",
-                "pass",
-                "尚未配置模型；AI 功能需先到「模型与连接」设置",
-                Some("model"),
-                "providers=0",
-            ),
-            Ok((total, missing, local, false)) if missing == 0 => check_item(
-                "model_credentials",
-                "pass",
-                "模型凭据已配置",
-                None,
-                &format!("providers={total} local_without_key={local}"),
-            ),
-            Ok((total, missing, local, false)) => check_item(
-                "model_credentials",
-                "warn",
-                &format!("{missing} 个模型的 API 密钥未配置，相关功能暂不可用；请到「模型与连接」补全"),
-                Some("model"),
-                &format!("providers={total} credential_missing={missing} local_without_key={local}"),
-            ),
-            Ok((total, missing, local, true)) => check_item(
-                "model_credentials",
-                "warn",
-                "系统安全存储不可用，无法确认模型密钥状态；请解锁系统钥匙串后重试",
-                Some("model"),
-                &format!("providers={total} credential_missing={missing} local_without_key={local} store_unavailable=true"),
-            ),
-            Err(error) => check_item(
-                "model_credentials",
-                "warn",
-                "暂时无法读取模型配置",
-                Some("model"),
-                &format!("error_code={}", error.code),
-            ),
-        });
-        // 9. 卡住任务：租约已过期仍处于 running 的持久任务计数（与 jobs 租约语义同源）
-        let now = chrono::Utc::now().timestamp_millis();
-        let stuck: i64 = self.connection.query_row(
-            "SELECT count(*) FROM jobs WHERE json_extract(document,'$.state')='running' AND json_extract(document,'$.lease_expires') < ?1",
-            [now],
-            |row| row.get(0),
-        )?;
-        checks.push(if stuck == 0 {
-            check_item("stuck_jobs", "pass", "没有卡住的任务", None, "stuck_jobs=0")
-        } else {
-            check_item(
-                "stuck_jobs",
-                "warn",
-                &format!("{stuck} 个任务卡在执行中；请到「任务中心」重试或取消"),
-                Some("tasks"),
-                &format!("stuck_jobs={stuck}"),
-            )
-        });
-        // 10. 待发布数据位置标记残留（.wardrobe-location.json phase=pending）
-        checks.push(check_pending_marker(&data_dir, db_file));
-        Ok(checks_result(checks))
-    }
 }
 
-/// 单个检查项：id、pass/warn/fail、通俗中文消息、建议去向（设置页标识或 null）、技术明细。
-fn check_item(id: &str, status: &str, message: &str, setting: Option<&str>, detail: &str) -> Value {
-    json!({
-        "id": id,
-        "status": status,
-        "message": message,
-        "setting": setting.map(Value::from).unwrap_or(Value::Null),
-        "detail": detail,
-    })
-}
-
-/// 试写探测：新建唯一命名文件写入一字节后立即删除；探测绝不留下文件，也绝不改动既有内容。
-fn probe_writable(dir: &Path) -> std::io::Result<()> {
-    let probe = dir.join(format!(".wardrobe-check-{}.tmp", uuid::Uuid::now_v7()));
-    let result = fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&probe)
-        .and_then(|mut file| file.write_all(b"ok"));
-    let _ = fs::remove_file(&probe);
-    result
-}
-
-/// 数据目录检查（Application 路径与 doctor 降级路径共用同一消息与结构）。
-fn check_data_directory(data_dir: &Path) -> Value {
-    match probe_writable(data_dir) {
-        Ok(()) => check_item(
-            "data_directory",
-            "pass",
-            "数据目录正常",
-            None,
-            &format!("dir={} writable=true", data_dir.display()),
-        ),
-        Err(error) => check_item(
-            "data_directory",
-            "fail",
-            "数据目录无法写入，新数据可能无法保存，请到「备份与恢复」更换数据位置",
-            Some("backup"),
-            &format!("dir={} writable=false error={error}", data_dir.display()),
-        ),
-    }
-}
-
-/// 日志目录试写检查（共用）。
-fn check_logs_writable(data_dir: &Path) -> Value {
-    let logs_dir = data_dir.join("logs");
-    match probe_writable(&logs_dir) {
-        Ok(()) => check_item(
-            "logs_writable",
-            "pass",
-            "日志记录正常",
-            None,
-            &format!("logs={} writable=true", logs_dir.display()),
-        ),
-        Err(error) => check_item(
-            "logs_writable",
-            "warn",
-            "日志无法写入，问题排查能力受限；请到「备份与恢复」检查数据位置所在磁盘",
-            Some("backup"),
-            &format!("logs={} writable=false error={error}", logs_dir.display()),
-        ),
-    }
-}
-
-/// 数据卷剩余空间检查：fail < 100 MiB，warn < 1 GiB（初始阈值，与 ADR 语义一致）。
-fn check_disk_space(data_dir: &Path) -> Value {
-    match available_bytes(data_dir) {
-        Some(free) if free < 100 * 1024 * 1024 => check_item(
-            "disk_space",
-            "fail",
-            "磁盘空间严重不足（不足 100 MB），可能无法保存新数据，请清理或更换数据位置",
-            Some("backup"),
-            &format!("free_bytes={free}"),
-        ),
-        Some(free) if free < 1024 * 1024 * 1024 => check_item(
-            "disk_space",
-            "warn",
-            "磁盘空间不足 1 GB，请尽快清理或到「备份与恢复」更换数据位置",
-            Some("backup"),
-            &format!("free_bytes={free}"),
-        ),
-        Some(free) => check_item(
-            "disk_space",
-            "pass",
-            "磁盘空间充足",
-            None,
-            &format!("free_bytes={free}"),
-        ),
-        None => check_item(
-            "disk_space",
-            "warn",
-            "暂时无法检测磁盘剩余空间",
-            None,
-            "free_space=unknown",
-        ),
-    }
-}
-
-/// 依赖数据库的检查项在降级路径下的占位：如实说明无法检查。
-fn check_unavailable_without_database(id: &str) -> Value {
-    check_item(
-        id,
-        "warn",
-        "数据库未能打开，无法检查此项；请先按 database_schema 项的提示处理",
-        None,
-        "database_unavailable",
-    )
-}
-
-/// 组装检查结果封套（Application 路径与降级路径共用同一 schema）。
-fn checks_result(checks: Vec<Value>) -> Value {
-    let counts = json!({
-        "pass": checks.iter().filter(|c| c["status"] == "pass").count(),
-        "warn": checks.iter().filter(|c| c["status"] == "warn").count(),
-        "fail": checks.iter().filter(|c| c["status"] == "fail").count(),
-    });
-    json!({"schema_version": 1, "checks": checks, "counts": counts})
-}
-
-/// CLI `doctor` 的同源体检报告（#48）：正常路径直接执行 diagnostics.summary 与
-/// diagnostics.checks（与 GUI 诊断页完全同一操作）；数据库无法打开（过高模式版本、
-/// 位置切换锁占用、文件损坏等）时降级为文件系统级检查与 database_schema=fail——
-/// 「打不开」正是最需要体检的场景。产物只读：除打开自身的既有迁移语义外无任何写入。
-pub fn doctor_report(db_path: &Path) -> Value {
-    match Application::open(db_path) {
-        Ok(app) => {
-            let summary = app.execute("diagnostics.summary", json!({})).ok();
-            let checks = app.execute("diagnostics.checks", json!({})).ok();
-            json!({
-                "schema_version": 1,
-                "error": Value::Null,
-                "summary": summary,
-                "checks": checks,
-            })
-        }
-        Err(error) => json!({
-            "schema_version": 1,
-            "error": serde_json::to_value(&error).unwrap_or(Value::Null),
-            "summary": Value::Null,
-            "checks": checks_without_database(db_path, &error),
-        }),
-    }
-}
-
-/// doctor 降级路径：数据库打不开时仍给出十项体检——文件系统级四项照常真实检查，
-/// database_schema 报 fail 并携带打开失败原因，其余依赖数据库的项如实报 warn。
-fn checks_without_database(db_path: &Path, error: &crate::ApiError) -> Value {
-    let data_dir = db_path.parent().unwrap_or(Path::new("."));
-    let db_file = db_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("");
-    let detail = match error.reason() {
-        Some(reason) => format!(
-            "open_failed code={} message={} reason={reason}",
-            error.code, error.message
-        ),
-        None => format!("open_failed code={} message={}", error.code, error.message),
-    };
-    checks_result(vec![
-        check_data_directory(data_dir),
-        check_item(
-            "database_schema",
-            "fail",
-            "数据库无法打开；请按技术明细中的原因处理（例如升级应用）",
-            None,
-            &detail,
-        ),
-        check_unavailable_without_database("database_wal"),
-        check_logs_writable(data_dir),
-        check_disk_space(data_dir),
-        check_unavailable_without_database("installation_generation"),
-        check_unavailable_without_database("encryption_wallet"),
-        check_unavailable_without_database("model_credentials"),
-        check_unavailable_without_database("stuck_jobs"),
-        check_pending_marker(data_dir, db_file),
-    ])
-}
-
-/// 数据卷剩余空间（fdp 需要读取目录本身，不做任何写入）；不可检测时返回 None。
-#[cfg(unix)]
-fn available_bytes(path: &Path) -> Option<u64> {
-    use std::os::unix::ffi::OsStrExt;
-    let target = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
-    let mut volume: libc::statvfs = unsafe { std::mem::zeroed() };
-    // SAFETY：target 是合法的 NUL 结尾 C 字符串，volume 是有效的 statvfs 存储
-    let result = unsafe { libc::statvfs(target.as_ptr(), &mut volume) };
-    if result == 0 {
-        Some(volume.f_bavail as u64 * volume.f_bsize as u64)
-    } else {
-        None
-    }
-}
-#[cfg(not(unix))]
-fn available_bytes(_path: &Path) -> Option<u64> {
-    None
-}
-
-/// 待发布数据位置标记残留检查：与当前数据库同目录的 .wardrobe-location.json。
-/// phase=active 是已完成切换的常态；phase=pending 且 source_file 与当前库不符为残留（warn），
-/// 相符则说明切换未完成（fail，正常应已被打开时的恢复逻辑消费或因迁移锁拒绝打开）。
-fn check_pending_marker(data_dir: &Path, db_file: &str) -> Value {
-    let marker = data_dir.join(".wardrobe-location.json");
-    if !marker.exists() {
-        return check_item(
-            "pending_location_marker",
-            "pass",
-            "数据位置正常",
-            None,
-            "marker=none",
-        );
-    }
-    let parsed: Result<Value, String> = std::fs::File::open(&marker)
-        .map_err(|error| format!("marker_read_error={error}"))
-        .and_then(|file| {
-            let mut bytes = Vec::new();
-            file.take(16385)
-                .read_to_end(&mut bytes)
-                .map_err(|error| format!("marker_read_error={error}"))?;
-            serde_json::from_slice(&bytes).map_err(|error| format!("marker_parse_error={error}"))
-        });
-    match parsed {
-        Ok(record) if record["phase"] == "active" => check_item(
-            "pending_location_marker",
-            "pass",
-            "数据位置正常",
-            None,
-            "marker=active",
-        ),
-        Ok(record) if record["phase"] == "pending" => {
-            let matches_current = record["source_file"].as_str() == Some(db_file);
-            let detail = format!(
-                "marker=pending source_file={} matches_current={matches_current}",
-                record["source_file"].as_str().unwrap_or(""),
-            );
-            if matches_current {
-                check_item(
-                    "pending_location_marker",
-                    "fail",
-                    "数据位置切换未完成，旧目录仍在等待发布；请到「备份与恢复」重新发起或确认数据位置",
-                    Some("backup"),
-                    &detail,
-                )
-            } else {
-                check_item(
-                    "pending_location_marker",
-                    "warn",
-                    "检测到未完成的数据位置切换标记残留；请到「备份与恢复」确认数据位置",
-                    Some("backup"),
-                    &detail,
-                )
-            }
-        }
-        Ok(record) => check_item(
-            "pending_location_marker",
-            "warn",
-            "数据位置标记无法识别；请到「备份与恢复」确认数据位置",
-            Some("backup"),
-            &format!("marker=unknown phase={}", record["phase"]),
-        ),
-        Err(detail) => check_item(
-            "pending_location_marker",
-            "warn",
-            "数据位置标记损坏或不可读；请到「备份与恢复」确认数据位置",
-            Some("backup"),
-            &detail,
-        ),
-    }
-}
 
 fn log_file_name(date: chrono::NaiveDate, seq: u32) -> String {
     if seq == 0 {
@@ -1697,7 +1241,7 @@ fn summary_schema() -> Value {
             "jobs_by_state":{"type":"object","required":["queued","running","waiting_input","succeeded","failed","cancelled"],"properties":{"queued":{"type":"integer"},"running":{"type":"integer"},"waiting_input":{"type":"integer"},"succeeded":{"type":"integer"},"failed":{"type":"integer"},"cancelled":{"type":"integer"}},"additionalProperties":false},
             "provider_outcome_unknown":{"type":"integer","description":"已提交且结果未知的持久任务计数"},
             "recent_errors":{"type":"array","description":"最近错误（时间升序，窗口封顶）","items":recent_error_schema()},
-            "logs":{"type":"object","required":["total_bytes","file_count","retention_days","max_total_bytes","dropped_events"],"properties":{"total_bytes":{"type":"integer","description":"logs/ 目录当前总占用字节"},"file_count":{"type":"integer"},"retention_days":{"type":"integer","description":"保留天数上限"},"max_total_bytes":{"type":"integer","description":"总占用上限字节"},"dropped_events":{"type":"integer","description":"写入失败静默丢弃的事件计数"}},"additionalProperties":false}
+            "logs":{"type":"object","required":["directory","total_bytes","file_count","retention_days","max_total_bytes","dropped_events"],"properties":{"directory":{"type":"string","description":"日志目录实际路径（事件文件所在，与数据目录同源）"},"total_bytes":{"type":"integer","description":"logs/ 目录当前总占用字节"},"file_count":{"type":"integer"},"retention_days":{"type":"integer","description":"保留天数上限"},"max_total_bytes":{"type":"integer","description":"总占用上限字节"},"dropped_events":{"type":"integer","description":"写入失败静默丢弃的事件计数"}},"additionalProperties":false}
         }
     })
 }
@@ -1731,7 +1275,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.summary",
             "description":"仅可信本机入口读取健康摘要：数据库模式版本、本机安装代际、按状态任务计数、供应商结果未知计数、最近错误、日志占用保留信息与丢弃计数",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{"request":{},"prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","只读投影：与持久任务实际状态和日志文件一致，不修改任何数据"]}],
             "inputSchema":{"type":"object","properties":{},"additionalProperties":false},
             "outputSchema":summary_schema()
@@ -1739,7 +1283,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.checks",
             "description":"仅可信本机入口运行基础检查（只读体检，与 CLI doctor 同源）：数据目录可写、数据库模式版本、WAL 生效、日志目录试写、数据卷剩余空间、本机安装代际、加密钱包状态（未配置/已锁定/已解锁）、模型凭据是否已配置（是/否）、卡住任务（租约过期仍 running）计数、待发布数据位置标记残留；不修改配置或数据，不自动修复",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","只读检查：不修改任何配置或数据；唯一临时产物是试写探测文件且返回前删除","warn/fail 项的 setting 为建议去向设置页标识；技术明细按构造不含密钥材料"]
@@ -1750,7 +1294,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.logs.query",
             "description":"仅可信本机入口查询日志事件：按级别、时间范围、trace_id、run_id、操作前缀与关键词过滤，游标分页续页",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{"level":"error","trace_id":"<错误输出携带的链路标识>","limit":50},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","调用方须保留查询条件并以 next_cursor 续页；next_cursor 为 null 表示末页","事件按构造脱敏：不含密钥、令牌、恢复材料与空间密钥"]
@@ -1783,7 +1327,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.export",
             "description":"仅可信本机入口导出诊断文件到指定路径：单文件 JSONL，首行 meta（应用版本、操作系统、数据库模式版本、导出时间、覆盖时间范围、run_id 列表、按级别计数、最近错误摘要；kind=reproduction 时附基础检查结果），其后为按时间排序的日志事件；范围 session（本次启动）/recent（默认，最近 24 小时跨重启）/all（保留期内全部）或显式 from–to 起止时间窗（含端点，与 scope 互斥）",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{"path":"</绝对/本地/诊断文件>.jsonl","scope":"recent"},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","产物只来自日志文件与摘要投影：不含数据库、图片与凭据（脱敏与普通日志同一构造）","scope 缺省为 recent；显式 from/to 须成对提供且含端点","kind 缺省 diagnostics；kind=reproduction 与 attach_checks=true 用于记录复现的窗口导出","写入目标文件（已存在则覆盖）；保存对话框与 dev 回退路径由桌面端入口负责"]
@@ -1806,7 +1350,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.ui_event",
             "description":"仅可信本机入口把前端关键交互写入同一日志流形成用户操作时间线（记录复现期间由桌面端调用）：封闭白名单事件类型（view_switch 视图切换 / dialog_open 对话框打开 / dialog_submit 对话框提交）加简短界面文案标签；白名单外类型与超长标签拒绝且不落盘，不接受自由文本",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{"type":"view_switch","label":"穿搭库"},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","type 须为封闭白名单之一；label 须为 1–40 字符的前端固定界面文案（如「穿搭库」），不是用户输入内容","事件只含 type 与 label：脱敏按构造不变，不引入旁路"]
@@ -1825,7 +1369,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.reproduction.start",
             "description":"仅可信本机入口写入复现记录的开始标记事件并返回标记时刻（记录复现流程由桌面端调用）；核心不持有录制状态，最长时长与自动停止由前端计时负责",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","写入一条 event_type=reproduction、phase=start 的标记事件，返回的 started_at 与落盘 ts 一致，可作导出窗口起点（含端点）","不接受任何输入字段"]
@@ -1836,7 +1380,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.reproduction.stop",
             "description":"仅可信本机入口写入复现记录的停止标记事件并返回标记时刻；随后桌面端以窗口起止为界调用 diagnostics.export（kind=reproduction、attach_checks=true）得到单文件复现记录",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","写入一条 event_type=reproduction、phase=stop 的标记事件，返回的 stopped_at 与落盘 ts 一致，可作导出窗口终点（含端点）","不接受任何输入字段"]

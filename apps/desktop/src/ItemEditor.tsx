@@ -2,6 +2,7 @@ import {useCategories} from './useCategories';
 import React, {useState,useEffect,useRef} from 'react';
 import {WearIntent} from './components/WearHistory';
 import {api} from './api';
+import {errorMessage} from './errorMessage';
 import {uiEvent} from './components/reproduction';
 import {Recognition} from './components/Recognition';
 import {ImageImport} from './ImageImport';
@@ -10,7 +11,7 @@ import './item-editor.css';
 export type Clothing={id:string;member_id:string;name:string;category:string;seasons:string[];purchase_price_minor:number|null;price_exponent:number|null;currency:string|null;status:string;favorite:boolean;[key:string]:unknown};
 export const categories:Record<string,string>={top:'上装',bottom:'下装',outerwear:'外套',dress:'连衣裙',one_piece:'连体',shoes:'鞋',bag:'包',accessory:'配饰',underwear:'内衣',sportswear:'运动服',other:'其他'};
 export const seasons:Record<string,string>={spring:'春',summer:'夏',autumn:'秋',winter:'冬'};
-export function message(e:unknown){return typeof e==='object'&&e!==null&&'message'in e?String(e.message):'本地衣橱操作失败，请重试。';}
+export const message=(e:unknown)=>errorMessage(e,'本地衣橱操作失败，请重试。');
 function exponent(currency:string){try{return new Intl.NumberFormat('zh-CN',{style:'currency',currency}).resolvedOptions().maximumFractionDigits??2;}catch{throw new Error('请输入有效的 ISO 币种。');}}
 export function minor(price:string,currency:string){const n=exponent(currency),[whole,fraction='']=price.split('.');if(!/^\d+$/.test(whole)||!/^\d*$/.test(fraction)||fraction.length>n)throw new Error(`该币种价格最多保留 ${n} 位小数，请修改价格。`);const value=Number(whole+fraction.padEnd(n,'0'));if(!Number.isSafeInteger(value))throw new Error('价格超出可录入范围，请检查金额。');return value;}
 export const colorLabels:Record<string,string>={white:'白',black:'黑',grey:'灰',beige:'米色',brown:'棕',red:'红',orange:'橙',yellow:'黄',green:'绿',blue:'蓝',purple:'紫',pink:'粉',silver:'银',gold:'金',multicolor:'多色',other:'其他'};

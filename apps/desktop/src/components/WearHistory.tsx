@@ -3,6 +3,7 @@ import {EditorDialog} from './EditorDialog';
 import './journal-settings.css';
 import React,{useEffect,useRef,useState} from 'react';
 import {api} from '../api';
+import {fetchPage} from '../pagination';
 import {uiEvent} from './reproduction';
 import {Clothing,message} from '../ItemEditor';
 export type WearIntent={clothing_ids?:string[];source_outfit_id?:string;source_version?:number;label:string;names?:Record<string,string>};
@@ -18,8 +19,8 @@ export function WearHistory({member,disabled,canMutate,onBusy,intent}:{member:st
  const epoch=useRef(0),pending=useRef(false),key=useRef(crypto.randomUUID()),listSequence=useRef(0);
  function altered(){key.current=crypto.randomUUID();setSuccess('');setDirty(true);}
  function fresh(next:WearIntent|null=null){setFormOpen(!!next);setQuery('');setEditing(null);setSelected(next?.clothing_ids??[]);setSource(next);setSelectionChanged(false);setDate(today());setZone(Intl.DateTimeFormat().resolvedOptions().timeZone);setTime('');setNotes('');setRevoking(null);setHistory(null);setError('');altered();setDirty(false);}
- async function load(after?:string){const e=epoch.current,seq=++listSequence.current;setLoading(true);try{const [r,s]=await Promise.all([api<{items:Wear[];next_cursor:string|null}>('wear.list',{member_id:member,include_revoked:includeRevoked,...(after?{cursor:after}:{})}),api<{items:Summary[]}>('wear.summary',{member_id:member})]);if(e!==epoch.current||seq!==listSequence.current)return;setEvents(old=>after?[...old,...r.items]:r.items);setCursor(r.next_cursor);setSummary(s.items);}finally{if(e===epoch.current&&seq===listSequence.current)setLoading(false);}}
- async function clothes(after?:string){const e=epoch.current;const r=await api<{items:Clothing[];next_cursor:string|null}>('clothing.list',{member_id:member,limit:100,...(after?{cursor:after}:{})});if(e===epoch.current){setAvailable(old=>after?[...old,...r.items]:r.items);setClothesCursor(r.next_cursor);}}
+ async function load(after?:string){const e=epoch.current,seq=++listSequence.current;setLoading(true);try{const [r,s]=await Promise.all([fetchPage<Wear,string>('wear.list',{member_id:member,include_revoked:includeRevoked},after),api<{items:Summary[]}>('wear.summary',{member_id:member})]);if(e!==epoch.current||seq!==listSequence.current)return;setEvents(old=>after?[...old,...r.items]:r.items);setCursor(r.next_cursor);setSummary(s.items);}finally{if(e===epoch.current&&seq===listSequence.current)setLoading(false);}}
+ async function clothes(after?:string){const e=epoch.current;const r=await fetchPage<Clothing,string>('clothing.list',{member_id:member,limit:100},after);if(e===epoch.current){setAvailable(old=>after?[...old,...r.items]:r.items);setClothesCursor(r.next_cursor);}}
  useEffect(()=>{epoch.current++;fresh();setAvailable([]);setEvents([]);setSummary([]);if(member)void Promise.all([load(),clothes()]).catch(e=>setError(message(e)));return()=>{epoch.current++;};},[member]);
  useEffect(()=>{if(intent)fresh(intent);},[intent]);
  useEffect(()=>{if(member)void load().catch(e=>setError(message(e)));},[includeRevoked]);

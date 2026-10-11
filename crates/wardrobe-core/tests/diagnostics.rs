@@ -4,7 +4,7 @@
 use serde_json::{json, Value};
 use std::os::unix::fs::PermissionsExt;
 use std::sync::{Arc, Mutex, MutexGuard};
-use wardrobe_core::Application;
+use wardrobe_core::{operations, Application};
 
 /// panic 钩子是进程级的：触发时向本进程注册过的全部日志汇写 panic 事件，
 /// 进而驱动其他测试 logger 的轮转与惰性清理（删旧文件）。用进程内互斥把
@@ -646,6 +646,68 @@ fn diagnostics_summary_matches_persisted_job_states_and_reports_log_health() {
     assert_eq!(logs["retention_days"], 14);
     assert_eq!(logs["max_total_bytes"], json!(256 * 1024 * 1024));
     assert_eq!(logs["dropped_events"], 0, "可写目录下无丢弃");
+}
+
+/// logs.directory（#73）：摘要直接报告日志引擎实际写入的 logs/ 目录，
+/// 前端不再由 data_directory.status 手拼路径；目录真实存在且有事件落盘。
+#[test]
+fn diagnostics_summary_reports_the_logs_directory_events_are_written_to() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let summary = app.execute("diagnostics.summary", json!({})).unwrap();
+    let directory = summary["logs"]["directory"].as_str().expect("{summary}");
+    assert_eq!(
+        std::path::Path::new(directory),
+        &dir.path().join("logs"),
+        "日志目录与数据目录同源（resolved 数据目录 + logs）：{summary}"
+    );
+    // run_start 是进程级一次（首个日志汇）；这里断言本应用自己写的事件落在报告的目录里
+    assert!(
+        log_events(dir.path()).iter().any(|event| {
+            event["event_type"] == "operation" && event["operation"] == "diagnostics.summary"
+        }),
+        "报告的目录正是事件写入的目录：{directory}"
+    );
+}
+
+#[test]
+fn provider_outcome_unknown_projection_covers_every_vision_submission_kind() {
+    // 诊断投影的「已提交」谓词与恢复守卫同源（提交台账）：视觉提交类任务
+    // 不论 recognition 还是 purchase_recognition 都计入，台账字段在提交载荷里。
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("wardrobe.sqlite");
+    let app = Application::open(&db).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let vision = app
+        .job_enqueue(&member, "purchase_recognition", "vision-unknown", json!({}))
+        .unwrap();
+    // 直连 SQL 接缝（先例 mark_provider_outcome_unknown）：持久化「已提交、
+    // 结果未知」的视觉任务形态（无 submitted_at，台账在提交载荷里）。
+    {
+        let connection = rusqlite::Connection::open(&db).unwrap();
+        let id = vision["id"].as_str().unwrap();
+        let raw: String = connection
+            .query_row("SELECT document FROM jobs WHERE id=?1", [id], |r| r.get(0))
+            .unwrap();
+        let mut job: Value = serde_json::from_str(&raw).unwrap();
+        job["state"] = json!("waiting_input");
+        job["payload"]["submission"] = json!("submitted");
+        connection
+            .execute(
+                "UPDATE jobs SET document=?1 WHERE id=?2",
+                rusqlite::params![job.to_string(), id],
+            )
+            .unwrap();
+    }
+    let summary = app.execute("diagnostics.summary", json!({})).unwrap();
+    assert_eq!(
+        summary["provider_outcome_unknown"], 1,
+        "购买候选识别的已提交未知任务同样计入：{summary}"
+    );
 }
 
 #[test]
@@ -2586,4 +2648,269 @@ fn doctor_report_flags_an_incomplete_switch_while_the_move_lock_is_held() {
         .clone();
     assert_eq!(item["status"], "fail", "{item}");
     assert_eq!(item["setting"], "backup", "{item}");
+}
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+fn assert_result_matches_schema(schema: &Value, result: &Value, context: &str) {
+    assert_eq!(
+        schema["type"].as_str(),
+        Some("object"),
+        "{context}: outputSchema 须为 object"
+    );
+    let props = schema["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("{context}: outputSchema 须声明 properties"));
+    let required: Vec<&str> = schema["required"]
+        .as_array()
+        .map(|r| r.iter().map(|v| v.as_str().unwrap()).collect())
+        .unwrap_or_default();
+    let actual = result
+        .as_object()
+        .unwrap_or_else(|| panic!("{context} 结果须为对象"));
+    for (key, value) in actual {
+        let prop = props
+            .get(key)
+            .unwrap_or_else(|| panic!("{context}: 实际结果字段 {key} 未在 outputSchema 声明"));
+        if let Some(const_value) = prop.get("const") {
+            assert_eq!(value, const_value, "{context}: 字段 {key} 须等于 const");
+        }
+        if let Some(allowed) = prop["enum"].as_array() {
+            assert!(allowed.contains(value), "{context}: 字段 {key} 须为枚举值");
+        }
+        let declared_types: Vec<String> = match prop.get("type") {
+            Some(Value::String(t)) => vec![t.clone()],
+            Some(Value::Array(ts)) => ts.iter().map(|v| v.as_str().unwrap().to_string()).collect(),
+            _ => vec![],
+        };
+        let actual_type = match value {
+            Value::String(_) => "string",
+            Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
+            Value::Number(_) => "number",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+            Value::Bool(_) => "boolean",
+            Value::Null => "null",
+        };
+        assert!(
+            declared_types.is_empty()
+                || declared_types.iter().any(|t| {
+                    t == actual_type
+                        || (t == "number" && value.is_number())
+                        || (t == "integer" && value.as_f64().is_some_and(|n| n.fract() == 0.0))
+                }),
+            "{context}: 字段 {key} 声明类型不符"
+        );
+    }
+    for key in required {
+        assert!(
+            actual.contains_key(key),
+            "{context}: 缺少 required 字段 {key}"
+        );
+    }
+}
+
+#[test]
+fn diagnostics_family_contract_trusted_local_only_with_strict_schemas() {
+    // 真实运行时输出钉住 outputSchema；scope 元数据与授权执行一致由上方
+    // scope_metadata_reflects… 与 capabilities 过滤（privileged 家族）共同钉住
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("diag.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let summary = app.execute("diagnostics.summary", json!({})).unwrap();
+    assert_eq!(summary["schema_version"], 1);
+    assert_eq!(
+        summary["database_schema_version"],
+        json!(wardrobe_core::DATABASE_SCHEMA_VERSION)
+    );
+    assert_result_matches_schema(
+        &schema_of("diagnostics.summary"),
+        &summary,
+        "diagnostics.summary",
+    );
+    // 输入严格：未知字段拒绝
+    let error = app
+        .execute("diagnostics.summary", json!({"member_id":"x"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+
+    // 基础检查：真实运行时输出钉住 outputSchema；scope 同为仅本机可信入口
+    let checks = app.execute("diagnostics.checks", json!({})).unwrap();
+    assert_eq!(checks["schema_version"], 1);
+    assert_result_matches_schema(
+        &schema_of("diagnostics.checks"),
+        &checks,
+        "diagnostics.checks",
+    );
+    let items = checks["checks"].as_array().unwrap();
+    assert_eq!(items.len(), 10, "固定十项：{checks}");
+    for item in items {
+        assert!(
+            item["message"].is_string() && item["detail"].is_string(),
+            "{item}"
+        );
+        assert!(
+            item["setting"].is_null() || item["setting"].is_string(),
+            "{item}"
+        );
+    }
+    // 输入严格：未知字段拒绝
+    let error = app
+        .execute("diagnostics.checks", json!({"repair":true}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+
+    // 日志查询：过滤条件与游标严格声明，运行时输出钉住 outputSchema
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"space.","limit":1}),
+        )
+        .unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.logs.query"),
+        &queried,
+        "diagnostics.logs.query",
+    );
+    assert!(
+        !queried["items"].as_array().unwrap().is_empty(),
+        "{queried}"
+    );
+    let item = &queried["items"][0];
+    for key in ["ts", "level", "event_type", "run_id"] {
+        assert!(
+            item[key].is_string(),
+            "事件公共字段 {key} 须为字符串：{item}"
+        );
+    }
+    let empty = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"operation":"space.","until":"2020-01-01T00:00:00Z"}),
+        )
+        .unwrap();
+    assert!(empty["items"].as_array().unwrap().is_empty());
+    assert!(empty["next_cursor"].is_null(), "末页游标为 null：{empty}");
+    let error = app
+        .execute("diagnostics.logs.query", json!({"level":"verbose"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input");
+
+    // 诊断导出：真实导出钉住 outputSchema；scope 元数据同为仅本机可信入口
+    let export_dir = tempfile::tempdir().unwrap();
+    let target = export_dir.path().join("contract-export.jsonl");
+    let exported = app
+        .execute(
+            "diagnostics.export",
+            json!({"path": target.to_string_lossy(), "scope":"recent"}),
+        )
+        .unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.export"),
+        &exported,
+        "diagnostics.export",
+    );
+    assert!(target.exists(), "导出文件应已写入");
+    // 输入严格：未知字段拒绝
+    let error = app
+        .execute(
+            "diagnostics.export",
+            json!({"path":"x.jsonl","member_id":"x"}),
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+    // 范围参数互斥与校验
+    for bad in [
+        json!({"path":"x.jsonl","scope":"today"}),
+        json!({"path":"x.jsonl","from":"2026-01-01T00:00:00Z"}),
+        json!({"path":"x.jsonl","scope":"all","to":"2026-01-01T00:00:00Z"}),
+    ] {
+        let error = app.execute("diagnostics.export", bad.clone()).unwrap_err();
+        assert_eq!(error.code, "invalid_input", "{bad}: {error:?}");
+    }
+
+    // #50 记录复现：ui_event 白名单拒绝、reproduction 标记与复现导出扩展的运行时契约
+    let ui = app
+        .execute(
+            "diagnostics.ui_event",
+            json!({"type":"view_switch","label":"穿搭库"}),
+        )
+        .unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.ui_event"),
+        &ui,
+        "diagnostics.ui_event",
+    );
+    let error = app
+        .execute(
+            "diagnostics.ui_event",
+            json!({"type":"free_text","label":"任意"}),
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+    let start = app
+        .execute("diagnostics.reproduction.start", json!({}))
+        .unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.reproduction.start"),
+        &start,
+        "diagnostics.reproduction.start",
+    );
+    assert!(start["started_at"].is_string(), "{start}");
+    let stop = app
+        .execute("diagnostics.reproduction.stop", json!({}))
+        .unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.reproduction.stop"),
+        &stop,
+        "diagnostics.reproduction.stop",
+    );
+    assert!(stop["stopped_at"].is_string(), "{stop}");
+    let error = app
+        .execute("diagnostics.reproduction.start", json!({"phase":"forged"}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input", "{error:?}");
+    // 复现导出（kind=reproduction + attach_checks）：输出契约与普通导出同形
+    let reproduction_target = export_dir.path().join("contract-reproduction.jsonl");
+    let reproduction = app
+        .execute(
+            "diagnostics.export",
+            json!({
+                "path": reproduction_target.to_string_lossy(),
+                "from": start["started_at"],
+                "to": stop["stopped_at"],
+                "kind":"reproduction",
+                "attach_checks":true,
+            }),
+        )
+        .unwrap();
+    assert_result_matches_schema(
+        &schema_of("diagnostics.export"),
+        &reproduction,
+        "diagnostics.export(reproduction)",
+    );
+    let first_line = std::fs::read_to_string(&reproduction_target)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_string();
+    let meta: Value = serde_json::from_str(&first_line).unwrap();
+    assert_eq!(meta["kind"], json!("reproduction"), "{meta}");
+    assert_eq!(meta["checks"]["schema_version"], json!(1), "{meta}");
+
 }

@@ -3,8 +3,9 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
 /// 已保存、等待提交成功后发出的任务事件：事件内容在保存时定格（字段与既有事件逐字
-/// 一致），由调用方在事务 commit 成功后经 `emit_job_event` 发出——commit 失败即不发出，
-/// 日志不残留未发生的事件。
+/// 一致），只能经 `commit_job_events`（事务出口）随 commit 成功发出——commit 失败即
+/// 不发出，日志不残留未发生的事件。
+#[must_use]
 #[derive(Debug)]
 pub(super) struct PendingJobEvent {
     doc: Value,
@@ -33,27 +34,29 @@ impl PendingJobEvent {
 pub(super) fn is_space_job(kind: &str) -> bool {
     kind == "sync"
 }
+/// 租约过期的单一判定（jobs 的租约语义）：running 中且租约时刻已到。
+/// `<=`：到期毫秒即视为过期，与 job_claim 的接管资格同一口径；诊断体检的
+/// stuck_jobs 计数与 worker 接管共用这一份，不再各处手抄口径。
+pub(super) fn lease_expired(doc: &Value, now: i64) -> bool {
+    doc["state"] == "running" && doc["lease_expires"].as_i64().unwrap_or(0) <= now
+}
+/// 同一判定的 SQL 投影（`?1` 绑定时刻毫秒）：与 lease_expired 同语义、同处维护。
+pub(super) fn lease_expired_sql() -> String {
+    "(json_extract(document,'$.state')='running' AND json_extract(document,'$.lease_expires') <= ?1)"
+        .to_string()
+}
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),kind TEXT NOT NULL,operation_key TEXT NOT NULL,document TEXT NOT NULL,UNIQUE(member_id,kind,operation_key)); CREATE INDEX IF NOT EXISTS jobs_member ON jobs(member_id,id);")?;
     Ok(())
 }
-fn submission_hash(mut payload: Value, kind: &str) -> String {
-    use sha2::{Digest, Sha256};
-    if kind == "recognition" || kind == "purchase_recognition" {
-        if let Some(object) = payload.as_object_mut() {
-            object.remove("submission");
-            object.remove("transferred_images");
-        }
-    }
-    Sha256::digest(payload.to_string().as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
 /// Installation-local metadata only; never copied into portable facts.
 pub(super) fn retain_submission_guards(tx: &Transaction<'_>) -> Result<(), ApiError> {
     let space: String = tx.query_row("SELECT id FROM workspace", [], |row| row.get(0))?;
-    let mut statement=tx.prepare("SELECT document FROM jobs WHERE json_type(document,'$.submitted_at')='text' OR (kind IN ('recognition','purchase_recognition') AND json_extract(document,'$.payload.submission') IN ('submitted','received','unknown'))")?;
+    // 「已提交」谓词从提交台账导出：kind 列表不再在此手抄。
+    let mut statement = tx.prepare(&format!(
+        "SELECT document FROM jobs WHERE {}",
+        crate::submission::submitted_sql()
+    ))?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         let raw: String = row.get(0)?;
@@ -62,7 +65,7 @@ pub(super) fn retain_submission_guards(tx: &Transaction<'_>) -> Result<(), ApiEr
         let kind = doc["kind"]
             .as_str()
             .ok_or_else(|| ApiError::new("storage_error", "提交类型损坏"))?;
-        let hash = submission_hash(doc["payload"].clone(), kind);
+        let hash = crate::submission::submission_hash(doc["payload"].clone(), kind);
         let submitted = doc["submitted_at"]
             .as_str()
             .or_else(|| doc["updated_at"].as_str())
@@ -98,7 +101,7 @@ pub(super) fn insert(
     }
     let guard:Option<String>=tx.query_row("SELECT payload_hash FROM local_submission_guards WHERE space_id=(SELECT id FROM workspace) AND member_id=?1 AND kind=?2 AND operation_key=?3",params![member,kind,key],|row|row.get(0)).optional()?;
     if let Some(hash) = guard {
-        if hash != submission_hash(payload, kind) {
+        if hash != crate::submission::submission_hash(payload, kind) {
             return Err(ApiError::new(
                 "idempotency_conflict",
                 "恢复前已提交的同一意图不能改变输入；请先核实供应商并明确创建新意图",
@@ -124,14 +127,28 @@ pub(super) fn save(tx: &Transaction<'_>, doc: &Value) -> Result<(), ApiError> {
     Ok(())
 }
 impl Application {
-    /// commit 成功后发出保存期间定格的任务事件；None 表示本次保存无事件。
-    pub(super) fn emit_job_event(&self, pending: Option<PendingJobEvent>) {
+    /// 任务事务出口：唯一的「提交 + 发射」入口。先提交事务，成功后才发出保存期间
+    /// 定格的事件；commit 失败（Err）则事件随回滚一起消亡。提交权随 `tx` 移入本函数，
+    /// 事件发射没有绕过它的入口——顺序由结构保证，不靠每个调用点记得。
+    pub(super) fn commit_job_events(
+        &self,
+        tx: Transaction<'_>,
+        pending: impl IntoIterator<Item = PendingJobEvent>,
+    ) -> Result<(), ApiError> {
+        tx.commit()?;
+        for event in pending {
+            self.emit_job_event(Some(event));
+        }
+        Ok(())
+    }
+    /// 仅事务出口（`commit_job_events`）可调用；其余代码没有直接发射任务事件的能力。
+    fn emit_job_event(&self, pending: Option<PendingJobEvent>) {
         if let Some(pending) = pending {
             self.log_job_transition(&pending.doc, pending.action, pending.state_from.as_deref());
         }
     }
-    /// 创建任务文档并按需返回 `job.enqueue` 事件；调用方在同一事务上 commit，
-    /// 并在 commit 成功后发出事件。
+    /// 创建任务文档并按需返回 `job.enqueue` 事件凭据；凭据经 `commit_job_events`
+    /// 随同一事务的 commit 成功发出。
     pub(super) fn insert_job(
         &self,
         tx: &Transaction<'_>,
@@ -149,7 +166,8 @@ impl Application {
         Ok((doc, pending))
     }
     /// 保存任务文档；状态发生变化时以任务文档里的 trace_id 发迁移事件（#44）。
-    /// 事件在调用方 commit 成功后发出：commit 失败不残留未发生的事件。
+    /// 事件凭据在返回时定格，经 `commit_job_events` 随 commit 成功发出：
+    /// commit 失败不残留未发生的事件。
     pub(super) fn save_job(
         &self,
         tx: &Transaction<'_>,
@@ -223,8 +241,7 @@ impl Application {
     ) -> Result<Value, ApiError> {
         let tx = self.begin_write()?;
         let (doc, pending) = self.insert_job(&tx, member, kind, key, payload)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(doc)
     }
     pub(super) fn job_get(&self, input: Value) -> Result<Value, ApiError> {
@@ -260,8 +277,7 @@ impl Application {
         let tx = self.begin_write()?;
         let mut doc = self.job_get(json!({"member_id":member,"id":id}))?;
         let now = chrono::Utc::now().timestamp_millis();
-        let eligible = doc["state"] == "queued"
-            || (doc["state"] == "running" && doc["lease_expires"].as_i64().unwrap_or(0) <= now);
+        let eligible = doc["state"] == "queued" || lease_expired(&doc, now);
         if !eligible || doc["next_due"].as_i64().unwrap_or(0) > now {
             return Err(ApiError::new(
                 "job_unavailable",
@@ -275,8 +291,7 @@ impl Application {
         doc["attempts"] = json!(doc["attempts"].as_u64().unwrap_or(0) + 1);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &doc)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(doc)
     }
     pub fn job_finish(
@@ -319,8 +334,7 @@ impl Application {
         }
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &doc)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(doc)
     }
     pub(super) fn job_action(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
@@ -333,21 +347,8 @@ impl Application {
             }
             doc["state"] = json!("cancelled");
         } else {
-            if ([
-                "product_display",
-                "outfit_flatlay",
-                "virtual_tryon",
-                "text_recommendation",
-                "stylist_query",
-                "scenario_plan",
-            ]
-            .contains(&doc["kind"].as_str().unwrap_or(""))
-                && doc["submitted_at"].is_string())
-                || (matches!(
-                    doc["kind"].as_str(),
-                    Some("recognition") | Some("purchase_recognition")
-                ) && doc["payload"]["submission"] != "not_submitted")
-            {
+            // 重试守卫：已提交的供应商任务拒绝盲重发（谓词从提交台账导出）。
+            if crate::submission::is_submitted(&doc) {
                 return Err(ApiError::new(
                     "submission_already_sent",
                     "此生成任务已经提交，不能盲重发；请检查供应商记录，显式创建新生成意图",
@@ -366,8 +367,7 @@ impl Application {
         doc["lease_expires"] = json!(0);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &doc)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(doc)
     }
 }
@@ -375,6 +375,6 @@ pub(super) fn output_schema() -> Value {
     json!({"type":"object","required":["schema_version","id","member_id","kind","operation_key","state","progress","attempts","next_due","lease_expires","lease_token","payload","result","error","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"kind":{"type":"string"},"operation_key":{"type":"string"},"state":{"enum":["queued","running","waiting_input","succeeded","failed","cancelled"]},"progress":{"type":"integer","minimum":0,"maximum":100},"attempts":{"type":"integer","minimum":0},"next_due":{"type":"integer"},"lease_expires":{"type":"integer"},"lease_token":{"type":["string","null"]},"submitted_at":{"type":"string"},"trace_id":{"type":"string","description":"创建该任务的应用调用链路标识；worker 直接入队的任务缺省"},"payload":{},"result":{},"error":{"type":["object","null"]},"created_at":{"type":"string"},"updated_at":{"type":"string"}}})
 }
 pub(super) fn descriptors() -> Vec<Value> {
-    ["get","list","cancel","retry"].iter().map(|action|{let required=if *action=="list"{vec!["member_id"]}else{vec!["member_id","id"]};let output=if *action=="list"{json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":output_schema()}}})}else{output_schema()};let (effect,examples)=match *action {
-            "get"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<任务收据或任务列表中的任务ID>"},"prerequisites":["读取持久任务文档（含payload/result/error与进度）","任务文档携带创建调用的链路标识 trace_id（worker直接入队的任务缺省）；用 diagnostics.logs.query 按它还原异步链路","查询不重发任务；结果未知时先查询再决定"]}])),"list"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按任务ID倒序返回当前成员全部本机持久任务文档，含创建调用的链路标识 trace_id（worker直接入队的任务缺省）"]}])),"cancel"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<任务ID>"},"prerequisites":["已完成（succeeded）任务不能取消","取消不保证撤回供应商已消耗额度"]}])),"retry"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"member_id":"<已授权成员ID>","id":"<失败或取消的任务ID>"},"prerequisites":["仅failed/cancelled任务可重试并回到queued","已提交供应商的生成/推荐任务拒绝盲重发（submission_already_sent）；请核对供应商记录后显式创建新意图","本示例不自动执行"]}])),_=>unreachable!()};json!({"name":format!("jobs.{action}"),"description":"本机持久任务查询与逐项取消重试","effect":effect,"examples":examples,"inputSchema":{"type":"object","required":required,"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}},"outputSchema":output})}).collect()
+    ["get","list","cancel","retry"].iter().map(|action|{let required=if *action=="list"{vec!["member_id"]}else{vec!["member_id","id"]};let properties=if *action=="list"{json!({"member_id":{"type":"string"}})}else{json!({"member_id":{"type":"string"},"id":{"type":"string"}})};let output=if *action=="list"{json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":output_schema()}}})}else{output_schema()};let examples=match *action {
+            "get"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<任务收据或任务列表中的任务ID>"},"prerequisites":["读取持久任务文档（含payload/result/error与进度）","任务文档携带创建调用的链路标识 trace_id（worker直接入队的任务缺省）；用 diagnostics.logs.query 按它还原异步链路","查询不重发任务；结果未知时先查询再决定"]}]),"list"=>json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按任务ID倒序返回当前成员全部本机持久任务文档，含创建调用的链路标识 trace_id（worker直接入队的任务缺省）"]}]),"cancel"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<任务ID>"},"prerequisites":["已完成（succeeded）任务不能取消","取消不保证撤回供应商已消耗额度"]}]),"retry"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<失败或取消的任务ID>"},"prerequisites":["仅failed/cancelled任务可重试并回到queued","已提交供应商的生成/推荐任务拒绝盲重发（submission_already_sent）；请核对供应商记录后显式创建新意图","本示例不自动执行"]}]),_=>unreachable!()};json!({"name":format!("jobs.{action}"),"description":"本机持久任务查询与逐项取消重试","examples":examples,"inputSchema":{"type":"object","required":required,"additionalProperties":false,"properties":properties},"outputSchema":output})}).collect()
 }
