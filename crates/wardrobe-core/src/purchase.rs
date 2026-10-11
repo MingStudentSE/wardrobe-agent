@@ -244,8 +244,7 @@ impl Application {
             "submission":"not_submitted",
         });
         let (job, pending) = self.insert_job(&tx, &member, "purchase_recognition", key, payload)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(job)
     }
 
@@ -355,8 +354,7 @@ impl Application {
             ));
         }
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         // 供应商请求事件（#44）：trace 取自任务文档——worker 可能运行在另一进程
         let provider_request = crate::diagnostics::ProviderRequestLog::from_job(&job, "");
         provider_request.begin_send();
@@ -403,8 +401,7 @@ impl Application {
                 return Err(ApiError::new("lease_lost", "任务已取消或过期，不恢复队列"));
             }
             let pending = self.save_job(&tx, &job)?;
-            tx.commit()?;
-            self.emit_job_event(pending);
+            self.commit_job_events(tx, pending)?;
             return self.job_finish(&member, id, &lease, "failed", Value::Null, json!({"code":if retry{"provider_rate_limit"}else{"provider_rejected"},"message":"供应商拒绝请求，候选仍可手工填写","http_status":status.as_u16(),"retryable":retry,"retry_after_ms":delay}));
         }
         let mut bytes = vec![];
@@ -485,8 +482,7 @@ impl Application {
         // 响应完整可解析：HTTP 层成功（后续内容校验失败属任务失败，非请求层事件）
         provider_request.record(self, "image_submission", "ok", None);
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(job)
     }
 

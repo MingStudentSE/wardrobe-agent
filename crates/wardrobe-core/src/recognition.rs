@@ -108,8 +108,7 @@ impl Application {
         }
         let payload = json!({"request":input,"provider":provider,"asset_ids":ids,"upload_role":role,"assets":assets,"baseline":clothing,"submission":"not_submitted"});
         let (job, pending) = self.insert_job(&tx, &member, "recognition", key, payload)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(job)
     }
 }
@@ -486,8 +485,7 @@ impl Application {
             ));
         }
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         // 供应商请求事件（#44）：trace 取自任务文档——worker 可能运行在另一进程
         let provider_request = crate::diagnostics::ProviderRequestLog::from_job(
             &job,
@@ -537,8 +535,7 @@ impl Application {
                 return Err(ApiError::new("lease_lost", "任务已取消或过期，不恢复队列"));
             }
             let pending = self.save_job(&tx, &job)?;
-            tx.commit()?;
-            self.emit_job_event(pending);
+            self.commit_job_events(tx, pending)?;
             return self.job_finish(&member,id,&lease,"failed",Value::Null,json!({"code":if retry{"provider_rate_limit"}else{"provider_rejected"},"message":"供应商拒绝请求，仍可手工保存","http_status":status.as_u16(),"retryable":retry,"retry_after_ms":delay}));
         }
         let mut bytes = vec![];
@@ -599,8 +596,7 @@ impl Application {
         job["result"] = json!({"suggestion_id":proposal["id"]});
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(job)
     }
 }

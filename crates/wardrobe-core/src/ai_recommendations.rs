@@ -164,8 +164,7 @@ impl Application {
             job["lease_expires"] = json!(0);
             job["error"] = json!({"code":"provider_outcome_unknown","message":"结果未知，无法查询；请核对供应商或显式选择离线规则","retryable":false});
             let pending = self.save_job(&tx, &job)?;
-            tx.commit()?;
-            self.emit_job_event(pending);
+            self.commit_job_events(tx, pending)?;
             return Ok(job);
         }
         if job["next_due"].as_i64().unwrap_or(0) > now {
@@ -509,8 +508,7 @@ impl Application {
         }
         crate::submission::mark_text_submitted(&mut job, attempt);
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(())
     }
     fn text_usage(
@@ -536,8 +534,7 @@ impl Application {
             job["provider_request_id"] = response["id"].clone();
         }
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(())
     }
     fn text_rate_limited(
@@ -555,8 +552,7 @@ impl Application {
         job["error"] = json!({"code":"provider_rate_limit","message":"供应商限流，遵守Retry-After后重试","retryable":true});
         let retry = job["rate_retries"].as_u64().unwrap_or(0) < 2;
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(retry)
     }
     fn text_defer_rate_limit(&self, member: &str, id: &str, lease: &str) -> Result<(), ApiError> {
@@ -567,8 +563,7 @@ impl Application {
         job["lease_token"] = Value::Null;
         job["lease_expires"] = json!(0);
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(())
     }
     fn text_outcome(
@@ -583,8 +578,7 @@ impl Application {
         text_lease(&job, lease)?;
         job["last_outcome"] = json!(outcome);
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(())
     }
 }

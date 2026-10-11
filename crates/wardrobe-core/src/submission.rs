@@ -216,8 +216,7 @@ impl Application {
             doc["lease_token"] = Value::Null;
             doc["error"] = json!({"code":"provider_outcome_unknown","message":"请求已提交且结果未知；供应商无查询接口，请检查供应商记录，不能重发此任务","retryable":false});
             let pending = self.save_job(&tx, &doc)?;
-            tx.commit()?;
-            self.emit_job_event(pending);
+            self.commit_job_events(tx, pending)?;
             return Ok(Some(doc));
         }
         Ok(Some(existing.clone()))

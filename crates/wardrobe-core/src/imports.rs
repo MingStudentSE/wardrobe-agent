@@ -115,10 +115,7 @@ impl Application {
                 params![draft_id, id, member, draft.to_string()],
             )?;
         }
-        tx.commit()?;
-        for pending in pending_events {
-            self.emit_job_event(Some(pending));
-        }
+        self.commit_job_events(tx, pending_events)?;
         self.imports_get(json!({"member_id":member,"id":id}))
     }
     pub(super) fn imports_get(&self, input: Value) -> Result<Value, ApiError> {
@@ -363,10 +360,7 @@ impl Application {
             "UPDATE import_drafts SET document=?1 WHERE id=?2",
             params![draft.to_string(), draft_id],
         )?;
-        tx.commit()?;
-        for pending in pending_events {
-            self.emit_job_event(Some(pending));
-        }
+        self.commit_job_events(tx, pending_events)?;
         Ok(clothing)
     }
     pub(super) fn imports_process(&self, input: Value) -> Result<Value, ApiError> {
@@ -398,8 +392,7 @@ impl Application {
                         return Err(ApiError::new("lease_lost", "任务已取消"));
                     }
                     let pending = self.save_job(&tx, &job)?;
-                    tx.commit()?;
-                    self.emit_job_event(pending);
+                    self.commit_job_events(tx, pending)?;
                 }
                 self.asset_import_with_id(
                     json!({"member_id":member,"path":job["payload"]["local_path"]}),
