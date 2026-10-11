@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{json, Value};
 use wardrobe_core::Application;
 #[test]
 fn model_configuration_survives_restart_without_a_key_or_blocking_manual_entry() {
@@ -214,4 +214,45 @@ fn vision_only_configuration_sends_a_builtin_multimodal_image() {
         .unwrap();
     assert_eq!(result["verified_capabilities"], json!(["vision"]));
     server.join().unwrap();
+}
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+use wardrobe_core::operations;
+
+
+#[test]
+fn provider_examples_declare_paid_network_semantics_and_stdin_channel() {
+    // 从 registry_contracts 迁入的示例文案契约（#70）：示例是产品对外语义的一部分
+    let descriptors = operations().as_array().unwrap().clone();
+    let find = |name: &str| -> Value {
+        descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"))
+            .clone()
+    };
+    // validate 示例必须声明付费/网络语义，且不自动执行
+    let validate = find("provider.validate");
+    let text = validate["examples"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|e| e["prerequisites"].as_array().unwrap().clone())
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect::<Vec<String>>()
+        .join(" ");
+    assert!(
+        text.contains("额度") && text.contains("不自动执行"),
+        "validate 示例须显式声明额度消耗且不自动执行: {text}"
+    );
+    // credential 示例必须指示 stdin 通道
+    let set = find("provider.credential.set");
+    let text = set["examples"][0]["prerequisites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect::<String>();
+    assert!(text.contains("stdin"), "凭据示例须指示 stdin: {text}");
 }

@@ -1,8 +1,8 @@
 #[path = "support/learning.rs"]
 mod support;
-use serde_json::json;
+use serde_json::{json, Value};
 use support::LearningTestSeam;
-use wardrobe_core::Application;
+use wardrobe_core::{operations, Application};
 #[test]
 fn explicit_preference_is_durable_versioned_and_separate_from_inferred_profile() {
     let d = tempfile::tempdir().unwrap();
@@ -395,5 +395,203 @@ fn same_feature_requires_edit_instead_of_competing_explicit_values_and_cas_is_at
             .filter(|r| r.as_ref().err().is_some_and(|e| e.code == "stale_revision"))
             .count(),
         1
+    );
+}
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+fn assert_result_matches_schema(schema: &Value, result: &Value, context: &str) {
+    assert_eq!(
+        schema["type"].as_str(),
+        Some("object"),
+        "{context}: outputSchema 须为 object"
+    );
+    let props = schema["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("{context}: outputSchema 须声明 properties"));
+    let required: Vec<&str> = schema["required"]
+        .as_array()
+        .map(|r| r.iter().map(|v| v.as_str().unwrap()).collect())
+        .unwrap_or_default();
+    let actual = result
+        .as_object()
+        .unwrap_or_else(|| panic!("{context} 结果须为对象"));
+    for (key, value) in actual {
+        let prop = props
+            .get(key)
+            .unwrap_or_else(|| panic!("{context}: 实际结果字段 {key} 未在 outputSchema 声明"));
+        if let Some(const_value) = prop.get("const") {
+            assert_eq!(value, const_value, "{context}: 字段 {key} 须等于 const");
+        }
+        if let Some(allowed) = prop["enum"].as_array() {
+            assert!(allowed.contains(value), "{context}: 字段 {key} 须为枚举值");
+        }
+        let declared_types: Vec<String> = match prop.get("type") {
+            Some(Value::String(t)) => vec![t.clone()],
+            Some(Value::Array(ts)) => ts.iter().map(|v| v.as_str().unwrap().to_string()).collect(),
+            _ => vec![],
+        };
+        let actual_type = match value {
+            Value::String(_) => "string",
+            Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
+            Value::Number(_) => "number",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+            Value::Bool(_) => "boolean",
+            Value::Null => "null",
+        };
+        assert!(
+            declared_types.is_empty()
+                || declared_types.iter().any(|t| {
+                    t == actual_type
+                        || (t == "number" && value.is_number())
+                        || (t == "integer" && value.as_f64().is_some_and(|n| n.fract() == 0.0))
+                }),
+            "{context}: 字段 {key} 声明类型不符"
+        );
+    }
+    for key in required {
+        assert!(
+            actual.contains_key(key),
+            "{context}: 缺少 required 字段 {key}"
+        );
+    }
+}
+
+
+#[test]
+fn learning_family_effects_examples_and_runtime_output_contract() {
+    // 真实运行时输出：显式偏好全生命周期；recompute异步入队由worker本地完成；事实不变
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("lr.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let top = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"上衣","category":"top"}),
+        )
+        .unwrap();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let set = app
+        .execute(
+            "learning.set",
+            json!({"member_id":member,"operation_key":"lr-1","dimension":"color","value":"藏青","weight":3,"note":"喜欢"}),
+        )
+        .unwrap();
+    assert_eq!(set["source"]["kind"], json!("explicit_user"));
+    assert_result_matches_schema(&schema_of("learning.set"), &set, "set");
+    let dup = app
+        .execute(
+            "learning.set",
+            json!({"member_id":member,"operation_key":"lr-2","dimension":"color","value":"藏青","weight":1}),
+        )
+        .unwrap_err();
+    assert_eq!(dup.code, "preference_exists", "同特征重复须拒绝");
+    let profile = app
+        .execute("learning.get", json!({"member_id":member}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("learning.get"), &profile, "get");
+    assert_eq!(profile["explicit"].as_array().unwrap().len(), 1);
+    let edited = app
+        .execute(
+            "learning.edit",
+            json!({"member_id":member,"operation_key":"lr-3","root_id":set["root_id"],"expected_revision":1,"weight":-1}),
+        )
+        .unwrap();
+    assert_eq!(edited["revision"], json!(2));
+    assert_result_matches_schema(&schema_of("learning.edit"), &edited, "edit");
+    let stale = app
+        .execute(
+            "learning.edit",
+            json!({"member_id":member,"operation_key":"lr-4","root_id":set["root_id"],"expected_revision":1,"weight":2}),
+        )
+        .unwrap_err();
+    assert_eq!(stale.code, "stale_revision", "过期修订必须拒绝");
+    let history = app
+        .execute("learning.history", json!({"member_id":member}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("learning.history"), &history, "history");
+
+    let rec = app
+        .execute(
+            "learning.recompute",
+            json!({"member_id":member,"operation_key":"lr-5"}),
+        )
+        .unwrap();
+    assert_eq!(
+        rec["state"],
+        json!("queued"),
+        "recompute返回任务收据而非画像"
+    );
+    assert_result_matches_schema(&schema_of("learning.recompute"), &rec, "recompute");
+    let job_id = rec["job_id"].as_str().unwrap().to_string();
+    let job = app
+        .execute(
+            "learning.worker.run",
+            json!({"member_id":member,"job_id":job_id}),
+        )
+        .unwrap();
+    assert_eq!(job["kind"], json!("learning_recompute"));
+    assert_eq!(job["state"], json!("succeeded"));
+    assert_result_matches_schema(&schema_of("learning.worker.run"), &job, "worker.run");
+    let profile2 = app
+        .execute("learning.get", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(profile2["source_stale"], json!(false), "重算后画像不再滞后");
+
+    let deleted = app
+        .execute(
+            "learning.delete",
+            json!({"member_id":member,"operation_key":"lr-6","dimension":"color","value":"藏青"}),
+        )
+        .unwrap();
+    assert_eq!(deleted["operation"], json!("learning.delete"));
+    assert_result_matches_schema(&schema_of("learning.delete"), &deleted, "delete");
+    let profile3 = app
+        .execute("learning.get", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(
+        profile3["explicit"].as_array().unwrap().len(),
+        0,
+        "删除后显式偏好消失"
+    );
+    let reset = app
+        .execute(
+            "learning.reset",
+            json!({"member_id":member,"operation_key":"lr-7","scope":"inferred"}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("learning.reset"), &reset, "reset");
+    let unchanged = app
+        .execute("clothing.get", json!({"member_id":member,"id":top["id"]}))
+        .unwrap();
+    assert_eq!(unchanged["name"], json!("上衣"), "学习操作不改变衣物事实");
+
+    let worker = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("learning.worker.run"))
+        .unwrap();
+    assert_eq!(worker["effect"]["kind"], json!("mutation"));
+    assert_eq!(worker["effect"]["network"], json!("none"), "画像重算纯本地");
+    assert_eq!(
+        worker["outputSchema"]["properties"]["kind"]["const"],
+        json!("learning_recompute")
     );
 }

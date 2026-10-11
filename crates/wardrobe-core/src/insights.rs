@@ -205,10 +205,6 @@ impl Application {
     }
 }
 pub(super) fn descriptors() -> Vec<Value> {
-    let effects = json!({
-        "insights.summary": {"kind":"query","network":"none","local_files":false,"async":null},
-        "insights.configure": {"kind":"mutation","network":"none","local_files":false,"async":null},
-    });
     let examples = json!({
         "insights.summary": [{"request":{"member_id":"<已授权成员ID>","as_of_date":"2020-04-01","timezone":"Asia/Shanghai"},"prerequisites":["按有效实际穿着重算统计；读取持久化配置与穿着记录"]}],
         "insights.configure": [{"request":{"member_id":"<已授权成员ID>","stale_days":91,"expected_revision":0},"prerequisites":["expected_revision 乐观锁；null 重置默认90天，不保存派生统计"]}],
@@ -219,7 +215,6 @@ pub(super) fn descriptors() -> Vec<Value> {
     ];
     for descriptor in descriptors.iter_mut() {
         let name = descriptor["name"].as_str().unwrap().to_string();
-        descriptor["effect"] = effects[&name].clone();
         descriptor["examples"] = examples[&name].clone();
     }
     descriptors

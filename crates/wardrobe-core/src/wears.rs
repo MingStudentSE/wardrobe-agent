@@ -475,10 +475,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({"name":format!("wear.{op}"),"description":format!("真实穿着 {op}"),"inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties},"outputSchema":if ["record","correct","revoke","get"].contains(&op){json!({"type":"object","required":["schema_version","id","member_id","root_event_id","revision","kind","items","source_outfit","local_date","timezone","local_time","time_precision","occurred_at","created_at","notes","supersedes_event_id"],"properties":{"schema_version":{"const":1},"revision":{"type":"integer","minimum":1},"kind":{"enum":["record","correction","revocation"]},"items":{"type":"array","minItems":1},"source_outfit":{"type":["object","null"]}}})}else{json!({"type":"object","required":["schema_version","member_id","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array"}}})}})
     }).map(|mut descriptor|{
         let op=descriptor["name"].as_str().unwrap().strip_prefix("wear.").unwrap().to_string();
-        descriptor["effect"]=match op.as_str() {
-            "record"|"correct"|"revoke"=>json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
-            _=>json!({"kind":"query","network":"none","local_files":false,"async":null}),
-        };
+
         let mid=json!("<已授权成员ID>");
         descriptor["examples"]=match op.as_str() {
             "record"=>json!([{"request":{"member_id":mid,"operation_key":"<幂等操作键>","local_date":"2020-01-01","timezone":"UTC","clothing_ids":["<单品ID>"],"source_outfit_id":"<可选搭配ID>"},"prerequisites":["同 operation_key 幂等；可选关联搭配版本"]}]),

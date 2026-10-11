@@ -1735,7 +1735,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.summary",
             "description":"仅可信本机入口读取健康摘要：数据库模式版本、本机安装代际、按状态任务计数、供应商结果未知计数、最近错误、日志占用保留信息与丢弃计数",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{"request":{},"prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","只读投影：与持久任务实际状态和日志文件一致，不修改任何数据"]}],
             "inputSchema":{"type":"object","properties":{},"additionalProperties":false},
             "outputSchema":summary_schema()
@@ -1743,7 +1743,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.checks",
             "description":"仅可信本机入口运行基础检查（只读体检，与 CLI doctor 同源）：数据目录可写、数据库模式版本、WAL 生效、日志目录试写、数据卷剩余空间、本机安装代际、加密钱包状态（未配置/已锁定/已解锁）、模型凭据是否已配置（是/否）、卡住任务（租约过期仍 running）计数、待发布数据位置标记残留；不修改配置或数据，不自动修复",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","只读检查：不修改任何配置或数据；唯一临时产物是试写探测文件且返回前删除","warn/fail 项的 setting 为建议去向设置页标识；技术明细按构造不含密钥材料"]
@@ -1754,7 +1754,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.logs.query",
             "description":"仅可信本机入口查询日志事件：按级别、时间范围、trace_id、run_id、操作前缀与关键词过滤，游标分页续页",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{"level":"error","trace_id":"<错误输出携带的链路标识>","limit":50},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","调用方须保留查询条件并以 next_cursor 续页；next_cursor 为 null 表示末页","事件按构造脱敏：不含密钥、令牌、恢复材料与空间密钥"]
@@ -1787,7 +1787,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.export",
             "description":"仅可信本机入口导出诊断文件到指定路径：单文件 JSONL，首行 meta（应用版本、操作系统、数据库模式版本、导出时间、覆盖时间范围、run_id 列表、按级别计数、最近错误摘要；kind=reproduction 时附基础检查结果），其后为按时间排序的日志事件；范围 session（本次启动）/recent（默认，最近 24 小时跨重启）/all（保留期内全部）或显式 from–to 起止时间窗（含端点，与 scope 互斥）",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{"path":"</绝对/本地/诊断文件>.jsonl","scope":"recent"},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","产物只来自日志文件与摘要投影：不含数据库、图片与凭据（脱敏与普通日志同一构造）","scope 缺省为 recent；显式 from/to 须成对提供且含端点","kind 缺省 diagnostics；kind=reproduction 与 attach_checks=true 用于记录复现的窗口导出","写入目标文件（已存在则覆盖）；保存对话框与 dev 回退路径由桌面端入口负责"]
@@ -1810,7 +1810,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.ui_event",
             "description":"仅可信本机入口把前端关键交互写入同一日志流形成用户操作时间线（记录复现期间由桌面端调用）：封闭白名单事件类型（view_switch 视图切换 / dialog_open 对话框打开 / dialog_submit 对话框提交）加简短界面文案标签；白名单外类型与超长标签拒绝且不落盘，不接受自由文本",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{"type":"view_switch","label":"穿搭库"},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","type 须为封闭白名单之一；label 须为 1–40 字符的前端固定界面文案（如「穿搭库」），不是用户输入内容","事件只含 type 与 label：脱敏按构造不变，不引入旁路"]
@@ -1829,7 +1829,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.reproduction.start",
             "description":"仅可信本机入口写入复现记录的开始标记事件并返回标记时刻（记录复现流程由桌面端调用）；核心不持有录制状态，最长时长与自动停止由前端计时负责",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","写入一条 event_type=reproduction、phase=start 的标记事件，返回的 started_at 与落盘 ts 一致，可作导出窗口起点（含端点）","不接受任何输入字段"]
@@ -1840,7 +1840,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"diagnostics.reproduction.stop",
             "description":"仅可信本机入口写入复现记录的停止标记事件并返回标记时刻；随后桌面端以窗口起止为界调用 diagnostics.export（kind=reproduction、attach_checks=true）得到单文件复现记录",
-            "effect":{"kind":"query","network":"none","local_files":true,"async":null},
+            
             "examples":[{
                 "request":{},
                 "prerequisites":["仅可信本机入口可用；外部客户端授权永远无法获得 diagnostics 操作","写入一条 event_type=reproduction、phase=stop 的标记事件，返回的 stopped_at 与落盘 ts 一致，可作导出窗口终点（含端点）","不接受任何输入字段"]

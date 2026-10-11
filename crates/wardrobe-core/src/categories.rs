@@ -77,6 +77,34 @@ impl Application {
             return Ok(json!({"schema_version":1,"id":id,"name":name,"count":0}));
         }
         let id = string(&input, "id")?;
+        if operation == "category.rename" {
+            // 仅 custom_ 自定义分类可重命名；内置分类与「其他」不可改名
+            if !id.starts_with("custom_") {
+                return Err(ApiError::new("conflict", "内置分类不可重命名"));
+            }
+            let name = string(&input, "name")?.trim();
+            if name.is_empty() || name.chars().count() > 40 {
+                return Err(ApiError::new("invalid_input", "分类名称须为 1–40 个字符"));
+            }
+            let tx = self.begin_write()?;
+            if !self.category_exists(&member, id)? {
+                return Err(ApiError::new("not_found", "分类不存在"));
+            }
+            let duplicate: i64 = tx.query_row("SELECT count(*) FROM wardrobe_categories WHERE member_id=?1 AND name=?2 AND deleted=0 AND id!=?3",params![member,name,id],|r|r.get(0))?;
+            let default_duplicate = DEFAULTS
+                .iter()
+                .any(|(known, n)| *n == name && self.category_exists(&member, known).unwrap_or(true));
+            if duplicate > 0 || default_duplicate {
+                return Err(ApiError::new("conflict", "这个分类名称已存在"));
+            }
+            tx.execute(
+                "UPDATE wardrobe_categories SET name=?1 WHERE member_id=?2 AND id=?3 AND deleted=0",
+                params![name, member, id],
+            )?;
+            tx.commit()?;
+            let count: i64 = self.connection.query_row("SELECT count(*) FROM clothing WHERE member_id=?1 AND json_extract(document,'$.category')=?2",params![member,id],|r|r.get(0))?;
+            return Ok(json!({"schema_version":1,"id":id,"name":name,"count":count}));
+        }
         if id == "other" {
             return Err(ApiError::new(
                 "conflict",
@@ -117,8 +145,9 @@ impl Application {
 }
 pub(super) fn descriptors() -> Vec<Value> {
     vec![
-        json!({"name":"category.list","description":"列出衣橱分类与单品数量","inputSchema":{"type":"object","required":["member_id"],"properties":{"member_id":{"type":"string"}}},"effect":{"kind":"query","network":"none","local_files":false,"async":null},"examples":[{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["先以 space.default 初始化工作空间并取得成员ID"]}],"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":{"type":"object","required":["schema_version","id","name","count"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"name":{"type":"string"},"count":{"type":"integer"}}}}}}}),
-        json!({"name":"category.create","description":"新增自定义衣物分类","inputSchema":{"type":"object","required":["member_id","name"],"properties":{"member_id":{"type":"string"},"name":{"type":"string","minLength":1,"maxLength":40}}},"effect":{"kind":"mutation","network":"none","local_files":false,"async":null},"examples":[{"request":{"member_id":"<已授权成员ID>","name":"<自定义分类名称>"},"prerequisites":["space.default 初始化；名称为1-40字符且不与现有分类重名"]}],"outputSchema":{"type":"object","required":["schema_version","id","name","count"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"name":{"type":"string"},"count":{"type":"integer"}}}}),
-        json!({"name":"category.delete","description":"删除分类，已有单品转入其他；保留穿搭快照","inputSchema":{"type":"object","required":["member_id","id"],"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}},"effect":{"kind":"mutation","network":"none","local_files":false,"async":null},"examples":[{"request":{"member_id":"<已授权成员ID>","id":"<category.create 返回的 custom_ 分类ID>"},"prerequisites":["其他分类不可删除；已有衣物转入其他"]}],"outputSchema":{"type":"object","required":["schema_version","deleted","moved"],"properties":{"schema_version":{"type":"integer","const":1},"deleted":{"type":"string"},"moved":{"type":"integer"}}}}),
+        json!({"name":"category.list","description":"列出衣橱分类与单品数量","inputSchema":{"type":"object","required":["member_id"],"properties":{"member_id":{"type":"string"}}},"examples":[{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["先以 space.default 初始化工作空间并取得成员ID"]}],"outputSchema":{"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"type":"integer","const":1},"items":{"type":"array","items":{"type":"object","required":["schema_version","id","name","count"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"name":{"type":"string"},"count":{"type":"integer"}}}}}}}),
+        json!({"name":"category.create","description":"新增自定义衣物分类","inputSchema":{"type":"object","required":["member_id","name"],"properties":{"member_id":{"type":"string"},"name":{"type":"string","minLength":1,"maxLength":40}}},"examples":[{"request":{"member_id":"<已授权成员ID>","name":"<自定义分类名称>"},"prerequisites":["space.default 初始化；名称为1-40字符且不与现有分类重名"]}],"outputSchema":{"type":"object","required":["schema_version","id","name","count"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"name":{"type":"string"},"count":{"type":"integer"}}}}),
+        json!({"name":"category.delete","description":"删除分类，已有单品转入其他；保留穿搭快照","inputSchema":{"type":"object","required":["member_id","id"],"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}},"examples":[{"request":{"member_id":"<已授权成员ID>","id":"<category.create 返回的 custom_ 分类ID>"},"prerequisites":["其他分类不可删除；已有衣物转入其他"]}],"outputSchema":{"type":"object","required":["schema_version","deleted","moved"],"properties":{"schema_version":{"type":"integer","const":1},"deleted":{"type":"string"},"moved":{"type":"integer"}}}}),
+        json!({"name":"category.rename","description":"重命名自定义衣物分类；内置分类不可重命名","inputSchema":{"type":"object","required":["member_id","id","name"],"properties":{"member_id":{"type":"string"},"id":{"type":"string"},"name":{"type":"string","minLength":1,"maxLength":40}}},"examples":[{"request":{"member_id":"<已授权成员ID>","id":"<category.create 返回的 custom_ 分类ID>","name":"<新分类名称>"},"prerequisites":["仅 custom_ 自定义分类可重命名；名称1-40字符且不与现有分类重名"]}],"outputSchema":{"type":"object","required":["schema_version","id","name","count"],"properties":{"schema_version":{"type":"integer","const":1},"id":{"type":"string"},"name":{"type":"string"},"count":{"type":"integer"}}}}),
     ]
 }

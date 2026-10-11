@@ -736,17 +736,6 @@ pub(super) fn descriptors() -> Vec<Value> {
         }
         descriptor["outputSchema"] = output_schema(descriptor["name"].as_str().unwrap());
     }
-    let effects = json!({
-        "clothing.create": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "clothing.get": {"kind":"query","network":"none","local_files":false,"async":null},
-        "clothing.list": {"kind":"query","network":"none","local_files":false,"async":null},
-        "clothing.history": {"kind":"query","network":"none","local_files":false,"async":null},
-        "clothing.archive": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "clothing.activate": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "clothing.delete": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "clothing.restore": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "clothing.update": {"kind":"mutation","network":"none","local_files":false,"async":null},
-    });
     let examples = json!({
         "clothing.create": [{"request":{"member_id":"<已授权成员ID>","name":"<单品名称>","category":"<内置类别或已创建分类ID>"},"prerequisites":["space.default 初始化；名称1-120字符"]}],
         "clothing.get": [{"request":{"member_id":"<已授权成员ID>","id":"<clothing.create 返回的ID>"},"prerequisites":["读取当前状态的单品"]}],
@@ -760,7 +749,6 @@ pub(super) fn descriptors() -> Vec<Value> {
     });
     for descriptor in descriptors.as_array_mut().unwrap() {
         let name = descriptor["name"].as_str().unwrap().to_string();
-        descriptor["effect"] = effects[&name].clone();
         descriptor["examples"] = examples[&name].clone();
     }
     descriptors.as_array().unwrap().clone()

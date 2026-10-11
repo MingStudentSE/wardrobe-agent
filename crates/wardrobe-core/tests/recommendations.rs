@@ -1,5 +1,5 @@
 use serde_json::{json, Value};
-use wardrobe_core::Application;
+use wardrobe_core::{operations, Application};
 fn item(a: &Application, name: &str, category: &str) -> Value {
     a.execute(
         "clothing.create",
@@ -664,4 +664,172 @@ fn valid_recommendations_respect_template_capacity_without_removing_fixed_items(
     let r=a.execute("recommendation.generate",json!({"member_id":"default","operation_key":"capacity","timezone":"UTC","fixed_ids":fixed,"limit":1})).unwrap();
     assert_eq!(r["actual_count"], 0);
     assert!(r["shortage_reasons"].to_string().contains("100"));
+}
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+fn assert_result_matches_schema(schema: &Value, result: &Value, context: &str) {
+    assert_eq!(
+        schema["type"].as_str(),
+        Some("object"),
+        "{context}: outputSchema 须为 object"
+    );
+    let props = schema["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("{context}: outputSchema 须声明 properties"));
+    let required: Vec<&str> = schema["required"]
+        .as_array()
+        .map(|r| r.iter().map(|v| v.as_str().unwrap()).collect())
+        .unwrap_or_default();
+    let actual = result
+        .as_object()
+        .unwrap_or_else(|| panic!("{context} 结果须为对象"));
+    for (key, value) in actual {
+        let prop = props
+            .get(key)
+            .unwrap_or_else(|| panic!("{context}: 实际结果字段 {key} 未在 outputSchema 声明"));
+        if let Some(const_value) = prop.get("const") {
+            assert_eq!(value, const_value, "{context}: 字段 {key} 须等于 const");
+        }
+        if let Some(allowed) = prop["enum"].as_array() {
+            assert!(allowed.contains(value), "{context}: 字段 {key} 须为枚举值");
+        }
+        let declared_types: Vec<String> = match prop.get("type") {
+            Some(Value::String(t)) => vec![t.clone()],
+            Some(Value::Array(ts)) => ts.iter().map(|v| v.as_str().unwrap().to_string()).collect(),
+            _ => vec![],
+        };
+        let actual_type = match value {
+            Value::String(_) => "string",
+            Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
+            Value::Number(_) => "number",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+            Value::Bool(_) => "boolean",
+            Value::Null => "null",
+        };
+        assert!(
+            declared_types.is_empty()
+                || declared_types.iter().any(|t| {
+                    t == actual_type
+                        || (t == "number" && value.is_number())
+                        || (t == "integer" && value.as_f64().is_some_and(|n| n.fract() == 0.0))
+                }),
+            "{context}: 字段 {key} 声明类型不符"
+        );
+    }
+    for key in required {
+        assert!(
+            actual.contains_key(key),
+            "{context}: 缺少 required 字段 {key}"
+        );
+    }
+}
+
+
+#[test]
+fn recommendation_family_effects_examples_and_runtime_output_contract() {
+    // 真实运行时输出：规则策略同步产出意图；save/change/replace 实际执行；推荐永不产生穿着
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("rec.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let _top = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"上衣","category":"top"}),
+        )
+        .unwrap();
+    let bottom = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"裤子","category":"bottom"}),
+        )
+        .unwrap();
+    let generated = app
+        .execute(
+            "recommendation.generate",
+            json!({"member_id":member,"operation_key":"rec-1","timezone":"UTC","strategy":"rules","limit":5,"occasion":"daily"}),
+        )
+        .unwrap();
+    assert_eq!(generated["creates_wear"], json!(false), "推荐永不产生穿着");
+    let proposals = generated["proposals"]
+        .as_array()
+        .expect("proposals 数组")
+        .clone();
+    assert!(
+        !proposals.is_empty(),
+        "有上下装时规则策略必须产出建议: {generated}"
+    );
+    let intent_id = generated["id"].as_str().unwrap().to_string();
+    let got = app
+        .execute(
+            "recommendation.get",
+            json!({"member_id":member,"id":intent_id}),
+        )
+        .unwrap();
+    let listed = app
+        .execute("recommendation.list", json!({"member_id":member}))
+        .unwrap();
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+    assert_result_matches_schema(
+        &schema_of("recommendation.generate"),
+        &generated,
+        "generate",
+    );
+    assert_result_matches_schema(&schema_of("recommendation.get"), &got, "get");
+    assert_result_matches_schema(&schema_of("recommendation.list"), &listed, "list");
+    // 无条件执行采纳/调整/替换，实际公开输出对照声明 outputSchema
+    let saved = app
+        .execute(
+            "recommendation.save",
+            json!({"member_id":member,"id":intent_id,"name":"采纳搭配","operation_key":"save-1","proposal_index":0}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("recommendation.save"), &saved, "save");
+    let changed = app
+        .execute(
+            "recommendation.change",
+            json!({"member_id":member,"id":intent_id,"operation_key":"change-1","proposal_index":0}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("recommendation.change"), &changed, "change");
+    let replaced = app
+        .execute(
+            "recommendation.replace",
+            json!({"member_id":member,"id":intent_id,"operation_key":"replace-1","proposal_index":0,"clothing_id":bottom["id"]}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("recommendation.replace"), &replaced, "replace");
+    // 推荐与采纳从不产生穿着事实
+    let wears = app
+        .execute("wear.list", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(wears["items"], json!([]), "推荐/采纳不得产生 WearEvent");
+
+    let generate_descriptor = descriptors
+        .iter()
+        .find(|d| d["name"] == json!("recommendation.generate"))
+        .unwrap();
+    let gen_example = generate_descriptor["examples"][0]["request"].clone();
+    assert_eq!(
+        gen_example["strategy"],
+        json!("rules"),
+        "示例默认离线策略，不自动执行付费调用"
+    );
+    // remaining：worker.run(strategy=ai) 真实供应商运行时证明需本地假供应商，未在本测试覆盖
 }

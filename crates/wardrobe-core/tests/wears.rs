@@ -367,3 +367,30 @@ fn wear_snapshot_retains_all_associated_pictures_not_only_selected_display() {
         );
     }
 }
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+#[test]
+fn wears_effects_and_examples_match_actual_event_sourcing() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("w.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let clothing = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"衬衫","category":"top"}),
+        )
+        .unwrap();
+    let record = json!({"member_id":member,"operation_key":"wear-x","local_date":"2020-01-01","timezone":"UTC","clothing_ids":[clothing["id"]]});
+    let event = app.execute("wear.record", record.clone()).unwrap();
+    let again = app.execute("wear.record", record).unwrap();
+    assert_eq!(event["id"], again["id"], "同 operation_key 幂等");
+    let corrected = app
+        .execute("wear.correct", json!({"member_id":member,"operation_key":"wear-c","root_event_id":event["id"],"expected_revision":1,"local_date":"2020-01-02","timezone":"UTC"}))
+        .unwrap();
+    assert_eq!(corrected["revision"], json!(2));
+
+}
