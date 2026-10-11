@@ -28,6 +28,7 @@ mod providers;
 mod purchase;
 mod recognition;
 mod recommendations;
+mod registry;
 mod scenarios;
 mod schedules;
 mod stylist;
@@ -325,48 +326,12 @@ impl Application {
         if !input.is_object() {
             return Err(ApiError::new("invalid_input", "输入必须是 JSON 对象"));
         }
-        if operation.starts_with("images.") {
-            image_editing::validate_input(operation, &input)?;
-        }
-        let allowed: Option<&[&str]> = match operation {
-            "imports.create" => Some(&["member_id", "operation_key", "paths"]),
-            "imports.list" | "jobs.list" => Some(&["member_id"]),
-            "imports.get" | "jobs.get" | "jobs.cancel" | "jobs.retry" => Some(&["member_id", "id"]),
-            "imports.process" => Some(&["member_id", "id", "item_id"]),
-            "imports.group" => Some(&["member_id", "id", "item_ids"]),
-            "imports.update" => Some(&["member_id", "id", "draft_id", "facts"]),
-            "imports.commit" => Some(&["member_id", "id", "draft_id", "operation_key", "facts"]),
-            "space.default" | "member.list" => Some(&[]),
-            "diagnostics.summary" => Some(&[]),
-            "diagnostics.checks" => Some(&[]),
-            "diagnostics.logs.query" => Some(&[
-                "level",
-                "since",
-                "until",
-                "trace_id",
-                "run_id",
-                "operation",
-                "keyword",
-                "limit",
-                "cursor",
-            ]),
-            "diagnostics.export" => Some(&["path", "scope", "from", "to", "kind", "attach_checks"]),
-            "diagnostics.ui_event" => Some(&["type", "label"]),
-            "diagnostics.reproduction.start" | "diagnostics.reproduction.stop" => Some(&[]),
-            "member.create" => Some(&["name"]),
-            "member.update" => Some(&["member_id", "name"]),
-            "member.select" => Some(&["member_id"]),
-            _ => None,
-        };
-        if let Some(allowed) = allowed {
-            if input
-                .as_object()
-                .unwrap()
-                .keys()
-                .any(|key| !allowed.contains(&key.as_str()))
-            {
-                return Err(ApiError::new("invalid_input", "操作包含不支持的字段"));
-            }
+        // 拒绝未知字段是全操作一致的不变量（issue #70）：白名单从操作自己的
+        // inputSchema.properties 派生（registry 单一来源），不再维护平行表。
+        // category.* 等此前从不校验的操作自此开始拒绝未知字段——
+        // 这是本工单唯一允许的对外行为变化，由 operation_registry 测试逐字钉住。
+        if registry::rejects_unknown_fields(operation, &input) {
+            return Err(ApiError::new("invalid_input", "操作包含不支持的字段"));
         }
         match operation {
             name if name.starts_with("sync.") => self.sync_operation(name, input),
@@ -606,8 +571,6 @@ pub fn operations() -> Value {
     {"name":"capabilities","description":"发现当前可用能力","inputSchema":{"type":"object","properties":{}}}
         );
     capabilities["outputSchema"] = json!({"type":"object","required":["schema_version","operations","categories","taxonomy"],"properties":{"schema_version":{"type":"integer","const":1},"operations":{"type":"array","items":{"type":"object","required":["name","description","inputSchema","outputSchema"]}},"categories":{"type":"array","items":{"type":"string"}},"taxonomy":{"type":"object","required":["version","sub_categories","colors"],"properties":{"version":{"type":"integer"},"sub_categories":{"type":"array"},"colors":{"type":"array"}}}}});
-    capabilities["effect"] =
-        json!({"kind":"query","network":"none","local_files":false,"async":null});
     capabilities["examples"] = json!([{"request":{},"prerequisites":["免授权发现全部公开操作契约（名称/描述/输入输出schema）","限定scope客户端仅见其授权范围内操作；本示例只读不执行业务"]}]);
     descriptors.push(capabilities);
     // scope 元数据由授权规则同源派生（authorization::scope_metadata），不是第二套命令表

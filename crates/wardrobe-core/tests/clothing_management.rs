@@ -198,12 +198,11 @@ fn clothing_history_lifecycle_and_edit_are_scoped_to_the_owner_member() {
         "clothing.restore",
     ] {
         assert_eq!(
-            app.execute(
-                operation,
-                json!({"member_id":other,"id":item["id"],"name":"篡改"})
-            )
-            .unwrap_err()
-            .code,
+            // #70 起未知字段在分发前统一拒绝，这里不再注入无关字段；
+            // 成员越权由 member_id 与 id 的归属不匹配本身证明。
+            app.execute(operation, json!({"member_id":other,"id":item["id"]}))
+                .unwrap_err()
+                .code,
             "not_found"
         );
     }
