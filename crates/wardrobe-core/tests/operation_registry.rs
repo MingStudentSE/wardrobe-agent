@@ -89,6 +89,28 @@ fn unknown_fields_are_now_rejected_for_previously_unvalidated_families() {
     assert_eq!(created["name"], json!("围巾"));
 }
 
+/// 未知字段拒绝文案统一为「操作包含不支持的字段」（ADR-0041）：注册表白名单
+/// 在分发前统一拒绝，images.*（曾「图片操作包含不支持字段」）与 care.*
+///（曾「洗护操作包含不支持的字段」）等族专属文案不再可达，错误码不变。
+#[test]
+fn unknown_field_message_is_unified_across_families() {
+    let (_dir, app, member) = app();
+    for (operation, input) in [
+        (
+            "images.rotate",
+            json!({"member_id":member,"asset_id":"a","degrees":90,"surprise":1}),
+        ),
+        (
+            "care.status",
+            json!({"member_id":member,"clothing_id":"c","surprise":1}),
+        ),
+    ] {
+        let error = app.execute(operation, input).unwrap_err();
+        assert_eq!(error.code, "invalid_input", "{operation}");
+        assert_eq!(error.message, "操作包含不支持的字段", "{operation}");
+    }
+}
+
 /// 已有白名单的操作保持既有接受集：合法输入照常、未知字段依旧拒绝。
 #[test]
 fn previously_validated_operations_keep_their_acceptance_sets() {
@@ -109,12 +131,18 @@ fn previously_validated_operations_keep_their_acceptance_sets() {
         .unwrap_err();
     assert_eq!(error.code, "invalid_input");
 
-    // jobs.list：公开 inputSchema 声明 member_id+id，派生白名单随之接受 id
-    //（旧手抄表漏了 id；这是快照冻结下唯一由派生带来的放宽，已记录于 #70 报告）
-    let listed = app
+    // jobs.list：输入面仅 member_id（2026-10-11 code-review 收回 #70 派生放宽：
+    // 描述符 properties 曾声明无语义的 id，实现只读 member_id，带 id 拒绝）
+    let error = app
         .execute("jobs.list", json!({"member_id":member,"id":"ignored"}))
-        .unwrap();
-    assert!(listed["items"].is_array(), "{listed}");
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input");
+    assert_eq!(error.message, "操作包含不支持的字段");
+    // id 在 jobs.get/cancel/retry 有真实语义，不受影响
+    let error = app
+        .execute("jobs.get", json!({"member_id":member,"id":"not-a-job"}))
+        .unwrap_err();
+    assert_eq!(error.code, "not_found");
 }
 
 /// 分发表驱动后（#70 增量4）：

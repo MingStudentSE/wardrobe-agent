@@ -28,6 +28,40 @@ impl Application {
             .map(|deleted| !deleted)
             .unwrap_or(DEFAULTS.iter().any(|(key, _)| *key == id)))
     }
+    /// create 与 rename 共用的分类名称校验：1–40 个字符，且不与现存分类
+    /// （含内置分类）重名。`exclude_id` 供 rename 排除自身（同名自重命名
+    /// 幂等放行）；create 传 None。返回去首尾空白后的名称。
+    fn validate_category_name(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        member: &str,
+        name: &str,
+        exclude_id: Option<&str>,
+    ) -> Result<String, ApiError> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 40 {
+            return Err(ApiError::new("invalid_input", "分类名称须为 1–40 个字符"));
+        }
+        let duplicate: i64 = match exclude_id {
+            Some(id) => tx.query_row(
+                "SELECT count(*) FROM wardrobe_categories WHERE member_id=?1 AND name=?2 AND deleted=0 AND id!=?3",
+                params![member, name, id],
+                |r| r.get(0),
+            )?,
+            None => tx.query_row(
+                "SELECT count(*) FROM wardrobe_categories WHERE member_id=?1 AND name=?2 AND deleted=0",
+                params![member, name],
+                |r| r.get(0),
+            )?,
+        };
+        let default_duplicate = DEFAULTS
+            .iter()
+            .any(|(id, n)| *n == name && self.category_exists(member, id).unwrap_or(true));
+        if duplicate > 0 || default_duplicate {
+            return Err(ApiError::new("conflict", "这个分类名称已存在"));
+        }
+        Ok(name.to_owned())
+    }
     pub(super) fn category_operation(
         &self,
         operation: &str,
@@ -56,18 +90,8 @@ impl Application {
             return Ok(json!({"schema_version":1,"items":rows}));
         }
         if operation == "category.create" {
-            let name = string(&input, "name")?.trim();
-            if name.is_empty() || name.chars().count() > 40 {
-                return Err(ApiError::new("invalid_input", "分类名称须为 1–40 个字符"));
-            }
             let tx = self.begin_write()?;
-            let duplicate:i64=tx.query_row("SELECT count(*) FROM wardrobe_categories WHERE member_id=?1 AND name=?2 AND deleted=0",params![member,name],|r|r.get(0))?;
-            let default_duplicate = DEFAULTS
-                .iter()
-                .any(|(id, n)| *n == name && self.category_exists(&member, id).unwrap_or(true));
-            if duplicate > 0 || default_duplicate {
-                return Err(ApiError::new("conflict", "这个分类名称已存在"));
-            }
+            let name = self.validate_category_name(&tx, &member, string(&input, "name")?, None)?;
             let id = format!("custom_{}", uuid::Uuid::now_v7());
             tx.execute(
                 "INSERT INTO wardrobe_categories(member_id,id,name,deleted) VALUES(?1,?2,?3,0)",
@@ -82,21 +106,12 @@ impl Application {
             if !id.starts_with("custom_") {
                 return Err(ApiError::new("conflict", "内置分类不可重命名"));
             }
-            let name = string(&input, "name")?.trim();
-            if name.is_empty() || name.chars().count() > 40 {
-                return Err(ApiError::new("invalid_input", "分类名称须为 1–40 个字符"));
-            }
             let tx = self.begin_write()?;
             if !self.category_exists(&member, id)? {
                 return Err(ApiError::new("not_found", "分类不存在"));
             }
-            let duplicate: i64 = tx.query_row("SELECT count(*) FROM wardrobe_categories WHERE member_id=?1 AND name=?2 AND deleted=0 AND id!=?3",params![member,name,id],|r|r.get(0))?;
-            let default_duplicate = DEFAULTS
-                .iter()
-                .any(|(known, n)| *n == name && self.category_exists(&member, known).unwrap_or(true));
-            if duplicate > 0 || default_duplicate {
-                return Err(ApiError::new("conflict", "这个分类名称已存在"));
-            }
+            let name =
+                self.validate_category_name(&tx, &member, string(&input, "name")?, Some(id))?;
             tx.execute(
                 "UPDATE wardrobe_categories SET name=?1 WHERE member_id=?2 AND id=?3 AND deleted=0",
                 params![name, member, id],
