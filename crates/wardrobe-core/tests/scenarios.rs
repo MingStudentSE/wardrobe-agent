@@ -1211,3 +1211,88 @@ fn ai_plan_same_key_replays_identical_payload_and_conflicts_on_changed_input() {
     let conflict = app.execute("scenario.plan", changed);
     assert_eq!(conflict.unwrap_err().code, "idempotency_conflict");
 }
+
+// #68：AI 场景计划的真实模型请求必须产生全链路日志事件——每次发送记一条
+// provider_request，trace_id 与任务文档一致，字段与脱敏和诊断页同一套构造。
+#[test]
+fn ai_model_send_logs_provider_request_event_on_the_job_trace() {
+    let d = tempfile::tempdir().unwrap();
+    let app = open_app(d.path());
+    let member = bootstrap_member(&app);
+    let created = seed(
+        &app,
+        &member,
+        &[("礼服", "dress"), ("高跟鞋", "shoes"), ("手包", "bag")],
+    );
+    let dress = created[0]["id"].as_str().unwrap().to_string();
+    let model = ScriptedModel::start(vec![ScriptedTurn::Reply(json!({
+        "days":[{"index":0,"clothing_ids":[dress, created[1]["id"], created[2]["id"]]}],
+        "explanation":"婚礼正装",
+    }))]);
+    let provider = app
+        .execute(
+            "provider.save",
+            json!({"name":"fixture scenario model","endpoint":model.endpoint,"model":"fixture-text","capabilities":["text"],"authentication":"none"}),
+        )
+        .unwrap();
+    let receipt = app
+        .execute(
+            "scenario.plan",
+            json!({"member_id":member,"operation_key":"ai-provider-log","timezone":"UTC","kind":"event",
+                   "occasion":"wedding","start_date":"2026-10-10","strategy":"ai",
+                   "provider_id":provider["id"]}),
+        )
+        .unwrap();
+    let job_id = receipt["job_id"].as_str().unwrap().to_string();
+    let job = app
+        .execute("scenario.worker.run", json!({"member_id":member,"id":job_id}))
+        .unwrap();
+    assert_eq!(job["state"], "succeeded", "{job}");
+    assert_eq!(model.post_count(), 1, "恰好一次真实模型发送");
+
+    let stored = app
+        .execute("jobs.get", json!({"member_id":member,"id":job_id}))
+        .unwrap();
+    let trace = stored["trace_id"]
+        .as_str()
+        .expect("任务文档携带 trace_id")
+        .to_string();
+    let queried = app
+        .execute(
+            "diagnostics.logs.query",
+            json!({"trace_id":trace,"operation":"provider.","limit":100}),
+        )
+        .unwrap();
+    let events: Vec<&Value> = queried["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["event_type"] == "provider_request")
+        .collect();
+    assert_eq!(events.len(), 1, "真实模型发送记一条事件（此前为零）：{queried}");
+    let event = events[0];
+    assert_eq!(event["operation"], "provider.request");
+    assert_eq!(event["endpoint_kind"], "chat_completions");
+    assert_eq!(event["model"], "fixture-text");
+    assert_eq!(event["outcome"], "ok");
+    assert_eq!(event["trace_id"], json!(trace), "事件落在任务文档的 trace 上");
+    assert!(event["duration_ms"].is_number());
+    let allowed = [
+        "ts",
+        "level",
+        "event_type",
+        "run_id",
+        "trace_id",
+        "operation",
+        "endpoint_kind",
+        "model",
+        "outcome",
+        "duration_ms",
+    ];
+    for key in event.as_object().unwrap().keys() {
+        assert!(
+            allowed.contains(&key.as_str()),
+            "供应商请求事件出现白名单外字段 {key}：{event}"
+        );
+    }
+}

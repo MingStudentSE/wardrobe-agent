@@ -4,12 +4,54 @@ use crate::{ApiError, Application};
 use serde_json::{json, Value};
 use std::io::Read;
 
+/// 带记录能力的文本模型请求：调用方只负责构造与提交；每次真实发送的
+/// provider_request 事件（trace、结果类别、HTTP 状态、耗时）由 `send` 统一记入，
+/// 调用点不再手工组装台账，也不再知道端点类别词汇。
+pub(crate) struct ProviderTextRequest {
+    request: reqwest::blocking::RequestBuilder,
+}
+
+impl ProviderTextRequest {
+    /// 一次真实发送：计时重置 → POST → 按结果类别（ok/http_error/outcome_unknown）
+    /// 记一条事件。网络失败按「结果未知」返回（http 状态不可知），是否重发、
+    /// 如何入账由调用方的持久任务台账处置。
+    pub(crate) fn send(
+        &self,
+        app: &Application,
+        log: &crate::diagnostics::ProviderRequestLog,
+    ) -> Result<reqwest::blocking::Response, ApiError> {
+        log.begin_send();
+        let response = match self.request.try_clone() {
+            Some(request) => request.send(),
+            None => return Err(ApiError::new("provider_error", "无法建立模型请求")),
+        };
+        match response {
+            Ok(response) => {
+                let status = response.status();
+                if status.is_success() {
+                    log.record(app, "chat_completions", "ok", None);
+                } else {
+                    log.record(app, "chat_completions", "http_error", Some(status.as_u16()));
+                }
+                Ok(response)
+            }
+            Err(_) => {
+                log.record(app, "chat_completions", "outcome_unknown", None);
+                Err(ApiError::new(
+                    "provider_network",
+                    "模型连接失败，结果未知，不盲重发",
+                ))
+            }
+        }
+    }
+}
+
 impl Application {
     pub(crate) fn provider_text_request(
         &self,
         provider: &Value,
         body: &Value,
-    ) -> Result<reqwest::blocking::RequestBuilder, ApiError> {
+    ) -> Result<ProviderTextRequest, ApiError> {
         if provider["adapter"] != "openai_compatible"
             || !provider["capabilities"]
                 .as_array()
@@ -37,7 +79,7 @@ impl Application {
                 .map_err(|_| ApiError::new("credential_missing", "文本模型凭据不可用"))?;
             request = request.bearer_auth(key);
         }
-        Ok(request)
+        Ok(ProviderTextRequest { request })
     }
 }
 
