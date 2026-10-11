@@ -31,6 +31,7 @@ mod recommendations;
 mod scenarios;
 mod schedules;
 mod stylist;
+mod submission;
 pub mod sync;
 mod tryon;
 mod wears;

@@ -134,9 +134,7 @@ impl Application {
                 .unwrap_or(""),
         );
         let request = self.provider_text_request(&job["payload"]["provider_binding"], &body)?;
-        job["submission_count"] = json!(count + 1);
-        job["submitted_at"] = json!(chrono::Utc::now().to_rfc3339());
-        job["last_outcome"] = json!("unknown");
+        crate::submission::mark_stylist_submitted(&mut job);
         job["stylist"]["turns"]
             .as_array_mut()
             .ok_or_else(|| ApiError::new("storage_error", "工具环账本损坏"))?

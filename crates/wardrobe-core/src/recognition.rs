@@ -408,8 +408,8 @@ impl Application {
         }
         let mut job = self.job_claim(&member, id, 120)?;
         let lease = job["lease_token"].as_str().unwrap().to_string();
-        if job["payload"]["submission"] != "not_submitted" {
-            return self.job_finish(&member,id,&lease,"waiting_input",Value::Null,json!({"code":"submission_unknown","message":"上次提交结果未知，请核实供应商后另建明确任务","retryable":false}));
+        if crate::submission::is_submitted(&job) {
+            return self.vision_submission_unknown(&member, id, &lease);
         }
         let mut transferred = vec![];
         let prepare = (|| -> Result<reqwest::blocking::RequestBuilder, ApiError> {
@@ -476,8 +476,7 @@ impl Application {
                 )
             }
         };
-        job["payload"]["submission"] = json!("submitted");
-        job["payload"]["transferred_images"] = json!(transferred);
+        crate::submission::mark_vision_submitted(&mut job, json!(transferred));
         let tx = self.begin_write()?;
         let current = self.job_get(json!({"member_id":member,"id":id}))?;
         if current["state"] != "running"
@@ -531,7 +530,7 @@ impl Application {
                 .and_then(|s| s.parse::<i64>().ok())
                 .unwrap_or(2)
                 .saturating_mul(1000);
-            job["payload"]["submission"] = json!("not_submitted");
+            crate::submission::reset_vision_submission(&mut job);
             let tx = self.begin_write()?;
             let current = self.job_get(json!({"member_id":member,"id":id}))?;
             if current["state"] != "running"
@@ -600,7 +599,7 @@ impl Application {
         job["progress"] = json!(100);
         job["lease_token"] = Value::Null;
         job["lease_expires"] = json!(0);
-        job["payload"]["submission"] = json!("received");
+        crate::submission::mark_vision_received(&mut job);
         job["result"] = json!({"suggestion_id":proposal["id"]});
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &job)?;

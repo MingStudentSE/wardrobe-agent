@@ -1055,9 +1055,13 @@ impl Application {
                 }
             }
         }
-        // 供应商结果未知：waiting_input 且已提交（口径与恢复守卫的已提交谓词同源，jobs.rs）
+        // 供应商结果未知：waiting_input 且已提交（「已提交」谓词由提交台账导出，
+        // 与恢复守卫同源同份）
         let provider_outcome_unknown: u64 = self.connection.query_row(
-            "SELECT count(*) FROM jobs WHERE json_extract(document,'$.state')='waiting_input' AND (json_type(document,'$.submitted_at')='text' OR (kind='recognition' AND json_extract(document,'$.payload.submission') IN ('submitted','received','unknown')))",
+            &format!(
+                "SELECT count(*) FROM jobs WHERE json_extract(document,'$.state')='waiting_input' AND {}",
+                crate::submission::submitted_sql()
+            ),
             [],
             |row| row.get::<_, i64>(0).map(|count| count as u64),
         )?;

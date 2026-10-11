@@ -52,30 +52,16 @@ impl Application {
         let id = string(&input, "id")?;
         let existing = self.job_get(input.clone())?;
         if existing["kind"] != kind {
-            return Err(ApiError::new("invalid_input", "此任务不是商品图生成"));
+            return Err(ApiError::new(
+                "invalid_input",
+                &format!(
+                    "此任务不是{}生成任务",
+                    crate::submission::image_task_label(kind)
+                ),
+            ));
         }
-        if existing["submitted_at"].is_string() {
-            if existing["state"] == "running"
-                && existing["lease_expires"].as_i64().unwrap_or(0)
-                    <= chrono::Utc::now().timestamp_millis()
-            {
-                let tx = self.begin_write()?;
-                let mut doc = self.job_get(input)?;
-                if doc["state"] != "running"
-                    || doc["lease_expires"].as_i64().unwrap_or(0)
-                        > chrono::Utc::now().timestamp_millis()
-                {
-                    return Ok(doc);
-                }
-                doc["state"] = json!("waiting_input");
-                doc["lease_token"] = Value::Null;
-                doc["error"] = json!({"code":"provider_outcome_unknown","message":"请求已提交且结果未知；供应商无查询接口，请检查供应商记录，不能重发此任务","retryable":false});
-                let pending = self.save_job(&tx, &doc)?;
-                tx.commit()?;
-                self.emit_job_event(pending);
-                return Ok(doc);
-            }
-            return Ok(existing);
+        if let Some(doc) = self.image_submission_reconcile(&member, id, &existing)? {
+            return Ok(doc);
         }
         let job = self.job_claim(&member, id, 300)?;
         let lease = job["lease_token"].as_str().unwrap();
@@ -96,7 +82,7 @@ impl Application {
                     &member,
                     id,
                     lease,
-                    if doc["submitted_at"].is_string() {
+                    if crate::submission::is_submitted(&doc) {
                         "waiting_input"
                     } else {
                         "failed"
@@ -244,7 +230,7 @@ impl Application {
             let tx = self.begin_write()?;
             let mut current = self.job_get(json!({"member_id":member,"id":id}))?;
             check_lease(&current, lease)?;
-            current["submitted_at"] = json!(chrono::Utc::now().to_rfc3339());
+            crate::submission::mark_image_submitted(&mut current);
             current["progress"] = json!(25);
             let pending = self.save_job(&tx, &current)?;
             tx.commit()?;

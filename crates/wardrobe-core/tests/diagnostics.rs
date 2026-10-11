@@ -649,6 +649,45 @@ fn diagnostics_summary_matches_persisted_job_states_and_reports_log_health() {
 }
 
 #[test]
+fn provider_outcome_unknown_projection_covers_every_vision_submission_kind() {
+    // 诊断投影的「已提交」谓词与恢复守卫同源（提交台账）：视觉提交类任务
+    // 不论 recognition 还是 purchase_recognition 都计入，台账字段在提交载荷里。
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("wardrobe.sqlite");
+    let app = Application::open(&db).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let vision = app
+        .job_enqueue(&member, "purchase_recognition", "vision-unknown", json!({}))
+        .unwrap();
+    // 直连 SQL 接缝（先例 mark_provider_outcome_unknown）：持久化「已提交、
+    // 结果未知」的视觉任务形态（无 submitted_at，台账在提交载荷里）。
+    {
+        let connection = rusqlite::Connection::open(&db).unwrap();
+        let id = vision["id"].as_str().unwrap();
+        let raw: String = connection
+            .query_row("SELECT document FROM jobs WHERE id=?1", [id], |r| r.get(0))
+            .unwrap();
+        let mut job: Value = serde_json::from_str(&raw).unwrap();
+        job["state"] = json!("waiting_input");
+        job["payload"]["submission"] = json!("submitted");
+        connection
+            .execute(
+                "UPDATE jobs SET document=?1 WHERE id=?2",
+                rusqlite::params![job.to_string(), id],
+            )
+            .unwrap();
+    }
+    let summary = app.execute("diagnostics.summary", json!({})).unwrap();
+    assert_eq!(
+        summary["provider_outcome_unknown"], 1,
+        "购买候选识别的已提交未知任务同样计入：{summary}"
+    );
+}
+
+#[test]
 fn external_clients_can_never_gain_diagnostics_scope() {
     let dir = tempfile::tempdir().unwrap();
     let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
