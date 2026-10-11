@@ -148,6 +148,69 @@ fn maintenance_commit_failure_leaves_no_job_transition_events() {
         "事件字段保持不变"
     );
 }
+/// 一次事务产生多个定格事件时（批量导入：每个入队一条，准备失败的条目再加一条
+/// failed 迁移），事件按保存顺序、在 commit 成功后一次性发出。
+#[test]
+fn multi_event_batch_emits_every_frozen_event_in_order_after_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("shirt.png");
+    image::RgbImage::from_pixel(4, 6, image::Rgb([245, 245, 245]))
+        .save(&source)
+        .unwrap();
+    let bad = dir.path().join("missing.png");
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let space = app.execute("space.default", json!({})).unwrap();
+    let member = space["member_id"].as_str().unwrap().to_string();
+    let batch = app
+        .execute(
+            "imports.create",
+            json!({"member_id":member,"operation_key":"multi","paths":[source,source,bad]}),
+        )
+        .unwrap();
+    let items = batch["items"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[2]["state"], "failed", "损坏源文件的条目入队即失败");
+    let events = job_events(&app);
+    assert_eq!(
+        events.len(),
+        4,
+        "三个入队事件加一条 failed 迁移，一条不少：{events:?}"
+    );
+    for (index, event) in events.iter().enumerate() {
+        assert_eq!(event["operation"], if index == 3 { "job.state" } else { "job.enqueue" });
+        let expected = items[if index == 3 { 2 } else { index }]["id"].clone();
+        assert_eq!(event["job_id"], expected, "事件按条目顺序对位：{event:?}");
+    }
+    assert_eq!(events[3]["state_to"], "failed");
+    assert_eq!(events[3]["state_from"], "queued");
+    assert_eq!(events[3]["trace_id"], items[0]["trace_id"], "事件字段保持不变");
+}
+
+/// 双事件路径（人物导入：入队 + 同事务内立即成功）按保存序先后发出，
+/// 两条事件都属于同一任务且字段定格。
+#[test]
+fn double_event_path_emits_enqueue_then_state_for_the_same_job() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let space = app.execute("space.default", json!({})).unwrap();
+    let member = space["member_id"].as_str().unwrap().to_string();
+    let person = app
+        .execute(
+            "tryon.person.import",
+            json!({"member_id":member,"path":std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fictional-model.png"),"person_kind":"model","rights_confirmed":true,"operation_key":"person"}),
+        )
+        .unwrap();
+    assert_eq!(person["state"], "succeeded");
+    let events = job_events(&app);
+    assert_eq!(events.len(), 2, "入队与成功迁移各一条：{events:?}");
+    assert_eq!(events[0]["operation"], "job.enqueue");
+    assert_eq!(events[0]["job_id"], person["id"]);
+    assert_eq!(events[1]["operation"], "job.state");
+    assert_eq!(events[1]["job_id"], person["id"], "两条事件同一任务");
+    assert_eq!(events[1]["state_to"], "succeeded");
+    assert_eq!(events[1]["state_from"], "queued");
+}
+
 #[test]
 fn concurrent_workers_have_one_lease_cancel_prevents_late_finish_and_expiry_recovers() {
     let dir = tempfile::tempdir().unwrap();

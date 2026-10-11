@@ -3,8 +3,9 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
 /// 已保存、等待提交成功后发出的任务事件：事件内容在保存时定格（字段与既有事件逐字
-/// 一致），由调用方在事务 commit 成功后经 `emit_job_event` 发出——commit 失败即不发出，
-/// 日志不残留未发生的事件。
+/// 一致），只能经 `commit_job_events`（事务出口）随 commit 成功发出——commit 失败即
+/// 不发出，日志不残留未发生的事件。
+#[must_use]
 #[derive(Debug)]
 pub(super) struct PendingJobEvent {
     doc: Value,
@@ -115,14 +116,28 @@ pub(super) fn save(tx: &Transaction<'_>, doc: &Value) -> Result<(), ApiError> {
     Ok(())
 }
 impl Application {
-    /// commit 成功后发出保存期间定格的任务事件；None 表示本次保存无事件。
-    pub(super) fn emit_job_event(&self, pending: Option<PendingJobEvent>) {
+    /// 任务事务出口：唯一的「提交 + 发射」入口。先提交事务，成功后才发出保存期间
+    /// 定格的事件；commit 失败（Err）则事件随回滚一起消亡。提交权随 `tx` 移入本函数，
+    /// 事件发射没有绕过它的入口——顺序由结构保证，不靠每个调用点记得。
+    pub(super) fn commit_job_events(
+        &self,
+        tx: Transaction<'_>,
+        pending: impl IntoIterator<Item = PendingJobEvent>,
+    ) -> Result<(), ApiError> {
+        tx.commit()?;
+        for event in pending {
+            self.emit_job_event(Some(event));
+        }
+        Ok(())
+    }
+    /// 仅事务出口（`commit_job_events`）可调用；其余代码没有直接发射任务事件的能力。
+    fn emit_job_event(&self, pending: Option<PendingJobEvent>) {
         if let Some(pending) = pending {
             self.log_job_transition(&pending.doc, pending.action, pending.state_from.as_deref());
         }
     }
-    /// 创建任务文档并按需返回 `job.enqueue` 事件；调用方在同一事务上 commit，
-    /// 并在 commit 成功后发出事件。
+    /// 创建任务文档并按需返回 `job.enqueue` 事件凭据；凭据经 `commit_job_events`
+    /// 随同一事务的 commit 成功发出。
     pub(super) fn insert_job(
         &self,
         tx: &Transaction<'_>,
@@ -140,7 +155,8 @@ impl Application {
         Ok((doc, pending))
     }
     /// 保存任务文档；状态发生变化时以任务文档里的 trace_id 发迁移事件（#44）。
-    /// 事件在调用方 commit 成功后发出：commit 失败不残留未发生的事件。
+    /// 事件凭据在返回时定格，经 `commit_job_events` 随 commit 成功发出：
+    /// commit 失败不残留未发生的事件。
     pub(super) fn save_job(
         &self,
         tx: &Transaction<'_>,
@@ -214,8 +230,7 @@ impl Application {
     ) -> Result<Value, ApiError> {
         let tx = self.begin_write()?;
         let (doc, pending) = self.insert_job(&tx, member, kind, key, payload)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(doc)
     }
     pub(super) fn job_get(&self, input: Value) -> Result<Value, ApiError> {
@@ -266,8 +281,7 @@ impl Application {
         doc["attempts"] = json!(doc["attempts"].as_u64().unwrap_or(0) + 1);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &doc)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(doc)
     }
     pub fn job_finish(
@@ -310,8 +324,7 @@ impl Application {
         }
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &doc)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(doc)
     }
     pub(super) fn job_action(&self, operation: &str, input: Value) -> Result<Value, ApiError> {
@@ -344,8 +357,7 @@ impl Application {
         doc["lease_expires"] = json!(0);
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &doc)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(doc)
     }
 }

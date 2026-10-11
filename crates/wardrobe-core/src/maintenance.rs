@@ -340,8 +340,7 @@ impl Application {
         }
         save(&tx, &doc)?;
         let pending = crate::jobs::PendingJobEvent::enqueue(&doc);
-        tx.commit()?;
-        self.emit_job_event(Some(pending));
+        self.commit_job_events(tx, [pending])?;
         Ok(public(doc))
     }
     pub(super) fn maintenance_raw_get(&self, id: &str) -> Result<Value, ApiError> {
@@ -512,8 +511,7 @@ impl Application {
         // 事件在 commit 成功后发出：commit 失败不残留未发生的事件。
         let pending = (state_before.as_deref() != doc["state"].as_str())
             .then(|| crate::jobs::PendingJobEvent::state(&doc, state_before.as_deref()));
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(public(doc))
     }
     fn maintenance_run(&self, id: &str) -> Result<Value, ApiError> {
@@ -551,8 +549,7 @@ impl Application {
         // 领取或租约接管（expired 时 state_from=running）都以文档 trace 留痕（#44）；
         // 事件在 commit 成功后发出：commit 失败不残留未发生的事件
         let pending = crate::jobs::PendingJobEvent::state(&doc, state_before.as_deref());
-        tx.commit()?;
-        self.emit_job_event(Some(pending));
+        self.commit_job_events(tx, [pending])?;
         let control = Control::new(self, &doc);
         let operation = doc["operation"].as_str().unwrap();
         let result = if operation == "data_directory.move" {
@@ -593,8 +590,7 @@ impl Application {
         finished["_lease"] = Value::Null;
         let pending = crate::jobs::PendingJobEvent::state(&finished, Some("running"));
         save(&tx, &finished)?;
-        tx.commit()?;
-        self.emit_job_event(Some(pending));
+        self.commit_job_events(tx, [pending])?;
         Ok(public(finished))
     }
 }

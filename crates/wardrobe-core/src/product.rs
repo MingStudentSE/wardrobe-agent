@@ -115,8 +115,7 @@ impl Application {
         doc["result"] = json!({"asset_id":asset["id"],"request_id":request_id,"verified_capabilities":["image_generation"]});
         doc["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &doc)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(doc)
     }
     pub(super) fn ark_generate(
@@ -233,8 +232,7 @@ impl Application {
             crate::submission::mark_image_submitted(&mut current);
             current["progress"] = json!(25);
             let pending = self.save_job(&tx, &current)?;
-            tx.commit()?;
-            self.emit_job_event(pending);
+            self.commit_job_events(tx, pending)?;
         }
         let mut request = client
             .post(format!("{endpoint}/images/generations"))
@@ -361,8 +359,7 @@ impl Application {
         job["state"] = json!("succeeded");
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(job)
     }
 }

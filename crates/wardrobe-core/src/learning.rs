@@ -420,8 +420,7 @@ impl Application {
                 json!({"request":input,"expected_state":self.learning_state(&member)?}),
             )?
         };
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(
             json!({"schema_version":1,"member_id":member,"job_id":job["id"],"state":job["state"],"result":job["result"]}),
         )
@@ -733,8 +732,7 @@ impl Application {
         job["lease_expires"] = json!(0);
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &job)?;
-        tx.commit()?;
-        self.emit_job_event(pending);
+        self.commit_job_events(tx, pending)?;
         Ok(doc)
     }
     pub(super) fn learning_execute(&self, op: &str, mut input: Value) -> Result<Value, ApiError> {
