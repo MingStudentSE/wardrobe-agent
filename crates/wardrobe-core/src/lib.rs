@@ -11,6 +11,7 @@ pub mod diagnostics;
 mod encryption;
 mod feedback;
 mod flatlay;
+mod http_client;
 mod image_editing;
 mod imports;
 mod insights;

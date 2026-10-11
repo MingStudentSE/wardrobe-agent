@@ -157,11 +157,10 @@ impl WebDav {
                 .push(&encode_segment(segment));
         }
         url.set_path(&format!("{}/", url.path().trim_end_matches('/')));
-        let client = reqwest::blocking::Client::builder()
-            .connect_timeout(config.timeout)
-            .timeout(config.timeout)
-            .build()
-            .map_err(|_| error("storage_error", "无法初始化 WebDAV 客户端"))?;
+        let client = crate::http_client::build(crate::http_client::OutboundProfile::WebDav {
+            timeout: config.timeout,
+        })
+        .map_err(|_| error("storage_error", "无法初始化 WebDAV 客户端"))?;
         let webdav = Self {
             base: url,
             auth: format!(

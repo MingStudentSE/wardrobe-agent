@@ -130,12 +130,8 @@ impl S3Objects {
         let target = normalize_target(target)?;
         let base = reqwest::Url::parse(&target.endpoint)
             .map_err(|_| ApiError::new("invalid_input", "对象存储端点必须是合法的 http(s) 地址"))?;
-        let http = reqwest::blocking::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(60))
-            // 重定向意味着 endpoint/region 配置不符；按显式错误返回而不是跟随。
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
+        // 重定向意味着 endpoint/region 配置不符；档案按显式错误返回而不是跟随。
+        let http = crate::http_client::build(crate::http_client::OutboundProfile::ObjectStorage)
             .map_err(|_| err("storage_transient"))?;
         let adapter = Self {
             base,

@@ -433,36 +433,16 @@ impl Application {
         }
 
         let request = self.provider_text_request(&p, &body)?;
-        // 供应商请求事件（#44）：trace 取自任务文档（claimed 已携带，不再回查任务表）；
-        // 限流重试的每次发送各记一条
+        // 供应商请求事件（#44/#68）：trace 取自任务文档（claimed 已携带，不再回查任务表）；
+        // 每次真实发送的记账在共享文本通道内完成，限流重试的每次发送各记一条。
         let provider_request = crate::diagnostics::ProviderRequestLog::from_job(
             claimed,
             p["model"].as_str().unwrap_or(""),
         );
         let response = loop {
             self.text_submitted(member, job, lease, attempt)?;
-            provider_request.begin_send();
-            let response = match request
-                .try_clone()
-                .ok_or_else(|| ApiError::new("provider_error", "无法建立模型请求"))?
-                .send()
-            {
-                Ok(response) => response,
-                Err(_) => {
-                    provider_request.record(self, "chat_completions", "outcome_unknown", None);
-                    return Err(ApiError::new(
-                        "provider_network",
-                        "模型连接失败；结果未知，不盲重发",
-                    ));
-                }
-            };
+            let response = request.send(self, &provider_request)?;
             if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                provider_request.record(
-                    self,
-                    "chat_completions",
-                    "http_error",
-                    Some(response.status().as_u16()),
-                );
                 let delay = retry_after_ms(
                     response
                         .headers()
@@ -496,18 +476,11 @@ impl Application {
                 continue;
             }
             if !response.status().is_success() {
-                provider_request.record(
-                    self,
-                    "chat_completions",
-                    "http_error",
-                    Some(response.status().as_u16()),
-                );
                 return Err(ApiError::new(
                     "provider_error",
                     "模型服务返回错误，已回退规则推荐",
                 ));
             }
-            provider_request.record(self, "chat_completions", "ok", None);
             break response;
         };
         let response = crate::providers::read_chat_response(response)?;
