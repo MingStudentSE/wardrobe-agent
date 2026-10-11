@@ -34,6 +34,17 @@ impl PendingJobEvent {
 pub(super) fn is_space_job(kind: &str) -> bool {
     kind == "sync"
 }
+/// 租约过期的单一判定（jobs 的租约语义）：running 中且租约时刻已到。
+/// `<=`：到期毫秒即视为过期，与 job_claim 的接管资格同一口径；诊断体检的
+/// stuck_jobs 计数与 worker 接管共用这一份，不再各处手抄口径。
+pub(super) fn lease_expired(doc: &Value, now: i64) -> bool {
+    doc["state"] == "running" && doc["lease_expires"].as_i64().unwrap_or(0) <= now
+}
+/// 同一判定的 SQL 投影（`?1` 绑定时刻毫秒）：与 lease_expired 同语义、同处维护。
+pub(super) fn lease_expired_sql() -> String {
+    "(json_extract(document,'$.state')='running' AND json_extract(document,'$.lease_expires') <= ?1)"
+        .to_string()
+}
 pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),kind TEXT NOT NULL,operation_key TEXT NOT NULL,document TEXT NOT NULL,UNIQUE(member_id,kind,operation_key)); CREATE INDEX IF NOT EXISTS jobs_member ON jobs(member_id,id);")?;
     Ok(())
@@ -266,8 +277,7 @@ impl Application {
         let tx = self.begin_write()?;
         let mut doc = self.job_get(json!({"member_id":member,"id":id}))?;
         let now = chrono::Utc::now().timestamp_millis();
-        let eligible = doc["state"] == "queued"
-            || (doc["state"] == "running" && doc["lease_expires"].as_i64().unwrap_or(0) <= now);
+        let eligible = doc["state"] == "queued" || lease_expired(&doc, now);
         if !eligible || doc["next_due"].as_i64().unwrap_or(0) > now {
             return Err(ApiError::new(
                 "job_unavailable",

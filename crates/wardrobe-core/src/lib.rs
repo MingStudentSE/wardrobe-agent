@@ -4,6 +4,7 @@ mod authorization;
 mod backup;
 mod care;
 mod categories;
+mod checks;
 mod clothing;
 mod cutout;
 mod data_directory;

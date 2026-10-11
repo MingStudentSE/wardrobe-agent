@@ -12,7 +12,7 @@ type Summary={
  jobs_by_state:{queued:number;running:number;waiting_input:number;succeeded:number;failed:number;cancelled:number};
  provider_outcome_unknown:number;
  recent_errors:RecentError[];
- logs:{total_bytes:number;file_count:number;retention_days:number;max_total_bytes:number;dropped_events:number};
+ logs:{directory:string;total_bytes:number;file_count:number;retention_days:number;max_total_bytes:number;dropped_events:number};
 };
 type CheckItem={id:string;status:'pass'|'warn'|'fail';message:string;setting:string|null;detail:string};
 type ChecksResult={schema_version:number;checks:CheckItem[];counts:{pass:number;warn:number;fail:number}};
@@ -38,7 +38,10 @@ export function DiagnosticsPanel({onNavigate}:{onNavigate?:(tab:string)=>void}){
  const [traces,setTraces]=useState<Record<string,TraceState>>({});
  const [scope,setScope]=useState<Scope>('recent'),[from,setFrom]=useState(''),[to,setTo]=useState('');
  const [exporting,setExporting]=useState(false),[exportError,setExportError]=useState(''),[exportResult,setExportResult]=useState<ExportResult|null>(null);
- const [logsDir,setLogsDir]=useState(''),[openNote,setOpenNote]=useState(''),[openError,setOpenError]=useState('');
+ const [openNote,setOpenNote]=useState(''),[openError,setOpenError]=useState('');
+ // 日志目录取自 diagnostics.summary 的 logs.directory（日志引擎实际写入的目录，#73），
+ // 不再由 data_directory.status 手拼路径。
+ const logsDir=summary?.logs.directory??'';
  // 记录复现（#50）：开始/停止标记 + 以窗口为界的 kind=reproduction 导出；录制状态仅存
  // 内存（recordingRef 与组件状态），刷新页面即视为放弃，不做任何持久化。
  // 面板一经访问保持挂载（main.tsx 与其他面板同约定）：录制中切换视图/分区不丢状态，
@@ -54,7 +57,7 @@ export function DiagnosticsPanel({onNavigate}:{onNavigate?:(tab:string)=>void}){
   // 基础检查与健康摘要同一操作源（diagnostics.checks），独立加载互不阻塞
   try{const result=await api<ChecksResult>('diagnostics.checks');setChecks(result);}catch(e){setChecksError(errorText(e));}finally{setChecksLoading(false);}
  }
- useEffect(()=>{let active=true;void refresh();void api<{directory:string}>('data_directory.status').then(status=>{if(active)setLogsDir(status.directory.replace(/\/+$/,'')+'/logs');}).catch(()=>{});return()=>{active=false;};},[]);
+ useEffect(()=>{void refresh();},[]);
  // 记录计时（#50）：到点自动停止并提示。stopRecording 只读写 ref，闭包取首渲染版本安全。
  useEffect(()=>{
   const current=recording;
