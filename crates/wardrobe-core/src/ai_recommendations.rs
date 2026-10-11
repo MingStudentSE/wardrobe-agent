@@ -441,10 +441,7 @@ impl Application {
         );
         let response = loop {
             self.text_submitted(member, job, lease, attempt)?;
-            let response = match request.send(self, &provider_request) {
-                Ok(response) => response,
-                Err(error) => return Err(error),
-            };
+            let response = request.send(self, &provider_request)?;
             if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                 let delay = retry_after_ms(
                     response
