@@ -116,3 +116,35 @@ fn previously_validated_operations_keep_their_acceptance_sets() {
         .unwrap();
     assert!(listed["items"].is_array(), "{listed}");
 }
+
+/// 分发表驱动后（#70 增量4）：
+/// - 旧分发器的 schema_version 注入前缀规则（backup.*/data_directory.*/schedule.*）
+///   输出保持等价；
+/// - 未注册的前缀误用统一落 unsupported_operation（旧实现落入家族分发器、
+///   文案各异；错误码不变——这是分发表收编的既有对外面收缩，记录于报告）。
+#[test]
+fn schema_version_injection_still_covers_the_legacy_families() {
+    let (_dir, app, member) = app();
+    // 注入族：分发层补注 schema_version=1（与 handler 自拼等价，输出不变）
+    let settings = app.execute("backup.settings.get", json!({})).unwrap();
+    assert_eq!(settings["schema_version"], 1, "{settings}");
+    let status = app.execute("data_directory.status", json!({})).unwrap();
+    assert_eq!(status["schema_version"], 1, "{status}");
+    let schedules = app
+        .execute("schedule.list", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(schedules["schema_version"], 1, "{schedules}");
+    let pending = app
+        .execute("schedule.pending", json!({"member_id":member}))
+        .unwrap();
+    assert_eq!(pending["schema_version"], 1, "{pending}");
+}
+
+#[test]
+fn unregistered_prefix_misuse_falls_back_to_unsupported_operation() {
+    let (_dir, app, _member) = app();
+    let error = app.execute("care.bogus", json!({})).unwrap_err();
+    assert_eq!(error.code, "unsupported_operation");
+    let error = app.execute("totally.unknown", json!({})).unwrap_err();
+    assert_eq!(error.code, "unsupported_operation");
+}

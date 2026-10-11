@@ -9,7 +9,6 @@ mod cutout;
 mod data_directory;
 pub mod diagnostics;
 mod encryption;
-mod effects;
 mod feedback;
 mod flatlay;
 mod http_client;
@@ -232,6 +231,11 @@ impl Application {
             logger: logger.clone(),
         })
     }
+    fn capabilities_result(&self) -> Result<Value, ApiError> {
+        Ok(
+            json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES,"taxonomy":clothing::taxonomy()}),
+        )
+    }
     fn check_schema(&self) -> Result<(), ApiError> {
         let version: u32 = self
             .connection
@@ -334,107 +338,21 @@ impl Application {
         if registry::rejects_unknown_fields(operation, &input) {
             return Err(ApiError::new("invalid_input", "操作包含不支持的字段"));
         }
-        match operation {
-            name if name.starts_with("sync.") => self.sync_operation(name, input),
-            "category.list" | "category.create" | "category.delete" => self.category_operation(operation,input),
-            name if matches!(name,"backup.create"|"backup.preview"|"backup.restore"|"data_directory.move") => self.maintenance_enqueue(name,input),
-            name if name.starts_with("maintenance.") => self.maintenance_operation(name,input),
-            name if name.starts_with("data_directory.") => self.directory_operation(name, input),
-            name if name.starts_with("backup.") => self.backup_operation(name, input),
-            name if name.starts_with("encryption.") => self.encryption_operation(name, input),
-            "capabilities" => Ok(
-                json!({"schema_version":1,"operations":operations(),"categories":CATEGORIES,"taxonomy":clothing::taxonomy()}),
-            ),
-            "recognition.create" => self.recognition_create(input),
-            "recognition.process" => self.recognition_process(input),
-            "recognition.get" => self.recognition_get(input),
-            "recognition.list" => self.recognition_list(input),
-            "recognition.review" => self.recognition_review(input, false),
-            "recognition.dismiss" => self.recognition_review(input, true),
-            "client.list" => self.client_list(input),
-            "client.revoke" => self.client_revoke(input),
-            "client.authorize" => self.client_authorize(input),
-            name if name.starts_with("diagnostics.") => self.diagnostics_execute(name, input),
-            "space.default" => self.default_space(),
-            "member.list" => self.member_list(),
-            "member.create" => self.member_create(input),
-            "member.update" => self.member_update(input),
-            "member.select" => self.member_select(input),
-            "provider.credential.set"
-            | "provider.credential.remove"
-            | "provider.credential.status" => self.provider_credential(operation, input),
-            "tryon.person.import" => self.tryon_person_import(input),
-            "tryon.process" => self.tryon_process(input),
-            "tryon.save" => self.tryon_save(input),
-            "tryon.preview" => self.tryon_preview(input),
-            "tryon.person.preview" => self.tryon_person_preview(input),
-            "tryon.compare" => self.tryon_compare(input),
-            "tryon.generate" => self.tryon_generate(input),
-            "flatlay.generate" => self.flatlay_generate(input),
-            "flatlay.process" => self.flatlay_process(input),
-            "flatlay.save" => self.flatlay_save(input),
-            "flatlay.preview" => self.flatlay_preview(input),
-            "product.generate" => self.product_generate(input),
-            "product.process" => self.product_process(input),
-            "product.adopt" => self.product_adopt(input),
-            "provider.validate" => self.provider_validate(input),
-            "provider.save" => self.provider_save(input),
-            "provider.list" => self.provider_list(input),
-            "clothing.create" => self.clothing_create(input),
-            "clothing.history" => self.clothing_history(input),
-            "clothing.update" => self.clothing_update(input),
-            "clothing.archive" | "clothing.activate" | "clothing.delete" | "clothing.restore" => {
-                self.clothing_lifecycle(operation, input)
-            }
-            "clothing.get" => self.clothing_get(input),
-            "clothing.list" => self.clothing_list(input),
-            op if op.starts_with("outfit.") => self.outfit_execute(op, input),
-            op if op.starts_with("wear.") => self.wear_execute(op, input),
-            op if op.starts_with("learning.") => self.learning_execute(op, input),
-            op if op.starts_with("stylist.") => self.stylist_execute(op, input),
-            op if op.starts_with("purchase.") => self.purchase_execute(op, input),
-            op if op.starts_with("feedback.") => self.feedback_execute(op, input),
-            op if op.starts_with("weather.") => self.weather_execute(op, input),
-            op if op.starts_with("schedule.") => self.schedule_execute(op, input),
-            op if op.starts_with("scenario.") => self.scenario_execute(op, input),
-            op if op.starts_with("recommendation.") => self.recommendation_execute(op, input),
-            op if op.starts_with("pairing.") => self.pairing_execute(op, input),
-            "insights.summary" => self.insights_summary(input),
-            "insights.configure" => self.insights_configure(input),
-            op if op.starts_with("care.") => self.care_execute(op, input),
-            "imports.update" => self.imports_update(input),
-            "imports.group" => self.imports_group(input),
-            "imports.commit" => self.imports_commit(input),
-            "imports.create" => self.imports_create(input),
-            "imports.get" => self.imports_get(input),
-            "imports.list" => self.imports_list(input),
-            "imports.process" => self.imports_process(input),
-            "jobs.get" => self.job_get(input),
-            "jobs.list" => self.job_list(input),
-            "jobs.cancel" | "jobs.retry" => self.job_action(operation, input),
-            "images.merge" | "images.replace" | "images.main" => self.image_links(operation, input),
-            "images.model.download" | "images.cutout" => self.cutout_enqueue(operation, input),
-            "images.worker.run" => self.cutout_run(input),
-            "images.model.status" => self.cutout_model_status(input),
-            "images.rotate" | "images.restore" => self.image_transform(operation, input),
-            "assets.import" => self.asset_import(input),
-            "assets.get" => self.asset_get(input),
-            "assets.preview" => self.asset_preview(input),
-            "assets.rebuild_thumbnail" => self.asset_rebuild_thumbnail(input),
-            "assets.adopt" => self.asset_adopt(input),
-            "assets.reorder" => self.asset_reorder(input),
-            "assets.detach" => self.asset_detach(input),
-            "assets.sync_manifest" => self.asset_sync_manifest(input),
-            _ => Err(ApiError::new("unsupported_operation", "此操作尚不可用")),
-        }.map(|mut result| {
-            if operation.starts_with("backup.")
-                || operation.starts_with("data_directory.")
-                || operation.starts_with("schedule.")
-            {
-                result["schema_version"] = json!(1);
-            }
-            result
-        })
+        // 分发表驱动（#70）：一个操作一行，注册表与描述符/effect/白名单同源。
+        // 注册表外的前缀误用（如 care.bogus）回落旧家族分发器，保留家族内拒绝语义；
+        // 两者皆不属于时落 unsupported_operation（错误码不变）。
+        let result = if let Some(handler) = registry::handler(operation) {
+            handler(self, input)?
+        } else if let Some(router) = registry::family_router(operation) {
+            router(self, operation, input)?
+        } else {
+            return Err(ApiError::new("unsupported_operation", "此操作尚不可用"));
+        };
+        let mut result = result;
+        if registry::injects_schema_version(operation) {
+            result["schema_version"] = json!(1);
+        }
+        Ok(result)
     }
 }
 // Source-derived unique index signatures for one table: every unique index
@@ -574,10 +492,10 @@ pub fn operations() -> Value {
     capabilities["outputSchema"] = json!({"type":"object","required":["schema_version","operations","categories","taxonomy"],"properties":{"schema_version":{"type":"integer","const":1},"operations":{"type":"array","items":{"type":"object","required":["name","description","inputSchema","outputSchema"]}},"categories":{"type":"array","items":{"type":"string"}},"taxonomy":{"type":"object","required":["version","sub_categories","colors"],"properties":{"version":{"type":"integer"},"sub_categories":{"type":"array"},"colors":{"type":"array"}}}}});
     capabilities["examples"] = json!([{"request":{},"prerequisites":["免授权发现全部公开操作契约（名称/描述/输入输出schema）","限定scope客户端仅见其授权范围内操作；本示例只读不执行业务"]}]);
     descriptors.push(capabilities);
-    // effect 元数据从唯一声明表（effects）渲染；模块描述符不再各自手写第二份。
+    // effect 元数据从注册条目（registry 唯一声明）渲染；模块描述符不再各自手写第二份。
     for descriptor in descriptors.iter_mut() {
         let name = descriptor["name"].as_str().unwrap();
-        if let Some(effect) = effects::effect(name) {
+        if let Some(effect) = registry::effect(name) {
             descriptor["effect"] = effect.clone();
         }
     }
