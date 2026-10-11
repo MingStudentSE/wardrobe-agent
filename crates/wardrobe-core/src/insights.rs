@@ -87,10 +87,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'insights.configure',?2)",
             params![id, doc.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![id, doc.to_string()],
-        )?;
         tx.commit()?;
         Ok(doc)
     }

@@ -360,10 +360,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,?2,?3)",
             params![id, operation, document],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![id, document],
-        )?;
         Ok(())
     }
     fn wear_history(&self, member: &str, root: &str) -> Result<Value, ApiError> {

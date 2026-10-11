@@ -354,10 +354,6 @@ impl Application {
                     params![text, clothing["id"].as_str(), doc["member_id"].as_str()],
                 )?;
                 tx.execute("INSERT INTO audit(entity_id,operation,document) VALUES(?1,'recognition.review',?2)",params![clothing["id"].as_str(),text])?;
-                tx.execute(
-                    "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-                    params![clothing["id"].as_str(), text],
-                )?;
             } else {
                 let mut merged = clothing
                     .get("facts")

@@ -4,7 +4,7 @@ impl Application {
     pub(super) fn sync_bootstrap(&self, identity: &Value) -> Result<bool, ApiError> {
         let space = string(identity, "space_id")?;
         let tx = self.begin_write()?;
-        for table in TABLES {
+        for table in SYNCED_TABLES {
             tx.execute(
                 "INSERT OR IGNORE INTO sync_bootstrap(space_id,table_name) VALUES(?1,?2)",
                 params![space, table],
@@ -16,7 +16,7 @@ impl Application {
             |r| r.get(0),
         )?;
         let mut budget = 256usize;
-        for table in TABLES {
+        for table in SYNCED_TABLES {
             let progress: Option<(i64, bool)> = tx
                 .query_row(
                     "SELECT last_row,done FROM sync_bootstrap WHERE space_id=?1 AND table_name=?2",

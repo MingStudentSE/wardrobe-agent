@@ -358,10 +358,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,?2,?3)",
             params![entity, op, result.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![entity, result.to_string()],
-        )?;
         tx.commit()?;
         Ok(result)
     }

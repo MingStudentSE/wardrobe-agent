@@ -310,10 +310,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,?2,?3)",
             params![id, op, result.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![id, result.to_string()],
-        )?;
         tx.commit()?;
         Ok(result)
     }
@@ -729,10 +725,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'learning.recompute',?2)",
             params![id, json!({"schema_version":1,"id":id,"member_id":member,"profile_id":id,"algorithm_version":ALGORITHM,"created_at":doc["created_at"]}).to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![id, serialized],
-        )?;
         job["state"] = json!("succeeded");
         job["progress"] = json!(100);
         job["result"] = json!({"profile_id":id});
@@ -924,10 +916,6 @@ impl Application {
         tx.execute(
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,?2,?3)",
             params![id, op, doc.to_string()],
-        )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![id, doc.to_string()],
         )?;
         tx.commit()?;
         Ok(doc)

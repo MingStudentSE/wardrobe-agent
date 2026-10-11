@@ -328,10 +328,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES (?1,?2,?3)",
             params![doc["id"].as_str(), operation, serialized],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES (?1,?2)",
-            params![doc["id"].as_str(), serialized],
-        )?;
         tx.commit()?;
         Ok(doc)
     }
@@ -410,10 +406,6 @@ impl Application {
         )?;
         tx.execute(
             "INSERT INTO audit(entity_id,operation,document) VALUES (?1,'clothing.create',?2)",
-            params![id, serialized],
-        )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES (?1,?2)",
             params![id, serialized],
         )?;
         tx.commit()?;

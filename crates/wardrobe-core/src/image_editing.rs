@@ -103,10 +103,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,?2,?3)",
             params![id, operation, clothing.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![id, clothing.to_string()],
-        )?;
         tx.commit()?;
         Ok(clothing)
     }

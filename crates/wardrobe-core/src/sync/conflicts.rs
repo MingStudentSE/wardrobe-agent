@@ -207,10 +207,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.resolve',?2)",
             params![id, doc.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![id, doc.to_string()],
-        )?;
         let (op_id,clock):(String,String)=tx.query_row("SELECT op_id,clock FROM sync_journal WHERE entity_type='clothing' AND entity_id=?1 ORDER BY id DESC LIMIT 1",[id],|r|Ok((r.get(0)?,r.get(1)?)))?;
         tx.execute(
             "INSERT INTO sync_reassert VALUES(?1,?2)",
