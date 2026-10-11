@@ -108,10 +108,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES (?1,'image_detach',?2)",
             params![clothing_id, clothing.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES (?1,?2)",
-            params![clothing_id, clothing.to_string()],
-        )?;
         tx.commit()?;
         Ok(clothing)
     }
@@ -150,10 +146,6 @@ impl Application {
         )?;
         tx.execute(
             "INSERT INTO audit(entity_id,operation,document) VALUES (?1,'image_reorder',?2)",
-            params![id, clothing.to_string()],
-        )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES (?1,?2)",
             params![id, clothing.to_string()],
         )?;
         tx.commit()?;
@@ -361,10 +353,6 @@ impl Application {
         )?;
         tx.execute(
             "INSERT INTO audit(entity_id,operation,document) VALUES (?1,'image_adopt',?2)",
-            params![clothing_id, clothing.to_string()],
-        )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES (?1,?2)",
             params![clothing_id, clothing.to_string()],
         )?;
         tx.commit()?;

@@ -151,10 +151,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES (?1,?2,?3)",
             params![id, operation, serialized],
         )?;
-        self.connection.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES (?1,?2)",
-            params![id, serialized],
-        )?;
         Ok(doc)
     }
     fn outfit_get(&self, member: &str, id: &str) -> Result<Value, ApiError> {

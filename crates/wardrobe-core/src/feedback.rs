@@ -383,10 +383,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,?2,?3)",
             params![doc["id"].as_str(), op, doc.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![doc["id"].as_str(), doc.to_string()],
-        )?;
         tx.commit()?;
         Ok(doc)
     }
@@ -704,10 +700,6 @@ impl Application {
         tx.execute(
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,?2,?3)",
             params![id, op, doc.to_string()],
-        )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![id, doc.to_string()],
         )?;
         tx.commit()?;
         Ok(doc)

@@ -129,9 +129,5 @@ pub(super) fn resolve(
         "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'sync.resolve',?2)",
         params![entity, input.to_string()],
     )?;
-    tx.execute(
-        "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-        params![entity, doc.to_string()],
-    )?;
     Ok(json!({"schema_version":1,"document":doc}))
 }

@@ -358,10 +358,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'product_adopt',?2)",
             rusqlite::params![clothing_id, clothing.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            rusqlite::params![clothing_id, clothing.to_string()],
-        )?;
         job["state"] = json!("succeeded");
         job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
         let pending = self.save_job(&tx, &job)?;

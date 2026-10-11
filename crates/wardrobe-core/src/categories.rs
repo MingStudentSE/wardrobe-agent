@@ -109,10 +109,6 @@ impl Application {
                 "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'category.delete',?2)",
                 params![doc["id"].as_str(), serialized],
             )?;
-            tx.execute(
-                "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-                params![doc["id"].as_str(), serialized],
-            )?;
         }
         tx.execute("INSERT INTO wardrobe_categories(member_id,id,name,deleted) VALUES(?1,?2,?2,1) ON CONFLICT(member_id,id) DO UPDATE SET deleted=1",params![member,id])?;
         tx.commit()?;

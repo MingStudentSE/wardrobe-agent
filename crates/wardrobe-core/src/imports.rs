@@ -355,10 +355,6 @@ impl Application {
             "INSERT INTO audit(entity_id,operation,document) VALUES(?1,'imports.commit',?2)",
             params![clothing_id, serialized],
         )?;
-        tx.execute(
-            "INSERT INTO outbox(entity_id,document) VALUES(?1,?2)",
-            params![clothing_id, serialized],
-        )?;
         draft["state"] = json!("committed");
         draft["clothing_id"] = clothing["id"].clone();
         draft["commit_key"] = json!(key);
