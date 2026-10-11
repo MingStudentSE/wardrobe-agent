@@ -37,23 +37,14 @@ pub(super) fn migrate(tx: &Transaction<'_>) -> Result<(), ApiError> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,member_id TEXT NOT NULL REFERENCES members(id),kind TEXT NOT NULL,operation_key TEXT NOT NULL,document TEXT NOT NULL,UNIQUE(member_id,kind,operation_key)); CREATE INDEX IF NOT EXISTS jobs_member ON jobs(member_id,id);")?;
     Ok(())
 }
-fn submission_hash(mut payload: Value, kind: &str) -> String {
-    use sha2::{Digest, Sha256};
-    if kind == "recognition" || kind == "purchase_recognition" {
-        if let Some(object) = payload.as_object_mut() {
-            object.remove("submission");
-            object.remove("transferred_images");
-        }
-    }
-    Sha256::digest(payload.to_string().as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
 /// Installation-local metadata only; never copied into portable facts.
 pub(super) fn retain_submission_guards(tx: &Transaction<'_>) -> Result<(), ApiError> {
     let space: String = tx.query_row("SELECT id FROM workspace", [], |row| row.get(0))?;
-    let mut statement=tx.prepare("SELECT document FROM jobs WHERE json_type(document,'$.submitted_at')='text' OR (kind IN ('recognition','purchase_recognition') AND json_extract(document,'$.payload.submission') IN ('submitted','received','unknown'))")?;
+    // 「已提交」谓词从提交台账导出：kind 列表不再在此手抄。
+    let mut statement = tx.prepare(&format!(
+        "SELECT document FROM jobs WHERE {}",
+        crate::submission::submitted_sql()
+    ))?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         let raw: String = row.get(0)?;
@@ -62,7 +53,7 @@ pub(super) fn retain_submission_guards(tx: &Transaction<'_>) -> Result<(), ApiEr
         let kind = doc["kind"]
             .as_str()
             .ok_or_else(|| ApiError::new("storage_error", "提交类型损坏"))?;
-        let hash = submission_hash(doc["payload"].clone(), kind);
+        let hash = crate::submission::submission_hash(doc["payload"].clone(), kind);
         let submitted = doc["submitted_at"]
             .as_str()
             .or_else(|| doc["updated_at"].as_str())
@@ -98,7 +89,7 @@ pub(super) fn insert(
     }
     let guard:Option<String>=tx.query_row("SELECT payload_hash FROM local_submission_guards WHERE space_id=(SELECT id FROM workspace) AND member_id=?1 AND kind=?2 AND operation_key=?3",params![member,kind,key],|row|row.get(0)).optional()?;
     if let Some(hash) = guard {
-        if hash != submission_hash(payload, kind) {
+        if hash != crate::submission::submission_hash(payload, kind) {
             return Err(ApiError::new(
                 "idempotency_conflict",
                 "恢复前已提交的同一意图不能改变输入；请先核实供应商并明确创建新意图",
@@ -333,21 +324,8 @@ impl Application {
             }
             doc["state"] = json!("cancelled");
         } else {
-            if ([
-                "product_display",
-                "outfit_flatlay",
-                "virtual_tryon",
-                "text_recommendation",
-                "stylist_query",
-                "scenario_plan",
-            ]
-            .contains(&doc["kind"].as_str().unwrap_or(""))
-                && doc["submitted_at"].is_string())
-                || (matches!(
-                    doc["kind"].as_str(),
-                    Some("recognition") | Some("purchase_recognition")
-                ) && doc["payload"]["submission"] != "not_submitted")
-            {
+            // 重试守卫：已提交的供应商任务拒绝盲重发（谓词从提交台账导出）。
+            if crate::submission::is_submitted(&doc) {
                 return Err(ApiError::new(
                     "submission_already_sent",
                     "此生成任务已经提交，不能盲重发；请检查供应商记录，显式创建新生成意图",

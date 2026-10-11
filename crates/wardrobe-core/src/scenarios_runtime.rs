@@ -474,7 +474,8 @@ impl Application {
     }
 
     // ------------------------------------------------------------------
-    // 提交账本：与 text_recommendation 同语义的持久化提交记录。
+    // 提交账本：与 text_recommendation 同一份提交台账（闸门与登记在
+    // submission.rs），模型尝试上限按场景计划的预算放宽。
     // ------------------------------------------------------------------
     fn scenario_submitted(
         &self,
@@ -487,30 +488,10 @@ impl Application {
         let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
         crate::ai_recommendations::text_lease(&job, lease)?;
         crate::schedules::validate_related_job(&tx, &job)?;
-        if job["submitted_at"].is_string() {
-            let invalid = job["last_outcome"] == "invalid_output"
-                && attempt == job["output_attempt"].as_u64().unwrap_or(1) + 1
-                && attempt <= MODEL_ATTEMPTS;
-            let limited = job["last_outcome"] == "rate_limited"
-                && attempt == job["output_attempt"].as_u64().unwrap_or(1)
-                && job["rate_retries"].as_u64().unwrap_or(0) < 2
-                && job["next_due"].as_i64().unwrap_or(0) <= chrono::Utc::now().timestamp_millis();
-            if !invalid && !limited {
-                return Err(ApiError::new(
-                    "submission_already_sent",
-                    "结果未知或重试预算已耗尽，不能盲重发",
-                ));
-            }
-            if limited {
-                job["rate_retries"] = json!(job["rate_retries"].as_u64().unwrap_or(0) + 1);
-            }
+        if crate::submission::text_retry_gate(&job, attempt, MODEL_ATTEMPTS)? {
+            job["rate_retries"] = json!(job["rate_retries"].as_u64().unwrap_or(0) + 1);
         }
-        job["submitted_at"] = json!(chrono::Utc::now().to_rfc3339());
-        job["submission_count"] = json!(job["submission_count"].as_u64().unwrap_or(0) + 1);
-        job["output_attempt"] = json!(attempt);
-        job["next_due"] = json!(0);
-        job["last_outcome"] = json!("unknown");
-        job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
+        crate::submission::mark_text_submitted(&mut job, attempt);
         crate::jobs::save(&tx, &job)?;
         tx.commit()?;
         Ok(())

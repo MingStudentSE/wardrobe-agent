@@ -201,6 +201,51 @@ fn actual_multireference_http_result_saves_locally_without_wear_or_outfit_change
         .contains(done["result"]["blob_hash"].as_str().unwrap()));
 }
 #[test]
+fn shared_process_dispatch_rejects_cross_kind_jobs_with_the_requested_task_label() {
+    let (_dir, app, outfit, p) = setup();
+    let job = app
+        .execute(
+            "flatlay.generate",
+            json!({"member_id":"default","outfit_id":outfit["id"],"version":1,"provider_id":p["id"],"operation_key":"label","upload_images":true}),
+        )
+        .unwrap();
+    // 共享图像分发（product/flatlay/tryon.process 同一入口）：报错必须指认调用方
+    // 请求的任务种类，不得一律声称「不是商品图」。
+    let error = app
+        .execute(
+            "tryon.process",
+            json!({"member_id":"default","id":job["id"]}),
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input");
+    assert!(
+        error.message.contains("试穿"),
+        "试穿入口的报错应指认试穿任务，got: {}",
+        error.message
+    );
+    let error = app
+        .execute(
+            "product.process",
+            json!({"member_id":"default","id":job["id"]}),
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input");
+    assert!(
+        error.message.contains("商品图"),
+        "商品图入口的报错应指认商品图任务，got: {}",
+        error.message
+    );
+    assert_eq!(
+        app.execute("jobs.list", json!({"member_id":"default"}))
+            .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "种类不符只是拒绝，不产生新任务"
+    );
+}
+#[test]
 fn all_inputs_preflight_rejects_missing_oversized_count_and_small_resolution_without_truncation() {
     let (_dir, app, outfit, p) = setup();
     let original = &outfit["items"][0];

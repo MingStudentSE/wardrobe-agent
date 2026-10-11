@@ -1,6 +1,10 @@
 use crate::{string, ApiError, Application};
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
+
+/// 文本推荐任务的模型尝试上限：初始一次 + invalid_output 后补试一次。
+const MODEL_ATTEMPTS: u64 = 2;
+
 impl Application {
     pub(super) fn recommendation_weather(
         &self,
@@ -138,10 +142,7 @@ impl Application {
         if job["state"] == "running" && job["lease_expires"].as_i64().unwrap_or(0) > now {
             return Ok(job);
         }
-        if job["submitted_at"].is_string()
-            && !["rate_limited", "invalid_output"]
-                .contains(&job["last_outcome"].as_str().unwrap_or(""))
-        {
+        if crate::submission::text_outcome_unknown(&job) {
             let tx = self.begin_write()?;
             job = self.job_get(json!({"member_id":member,"id":id}))?;
             if job["state"] == "running"
@@ -307,7 +308,7 @@ impl Application {
         let first_attempt = claimed["output_attempt"].as_u64().unwrap_or(1)
             + u64::from(claimed["last_outcome"] == "invalid_output");
         meta["attempts"] = claimed["output_attempt"].clone();
-        for attempt in first_attempt..=2 {
+        for attempt in first_attempt..=MODEL_ATTEMPTS {
             meta["attempts"] = json!(attempt);
             match self.text_recommendation_request(
                 &provider_id,
@@ -502,30 +503,11 @@ impl Application {
         let mut job = self.job_get(json!({"member_id":member,"id":id}))?;
         text_lease(&job, lease)?;
         crate::schedules::validate_related_job(&tx, &job)?;
-        if job["submitted_at"].is_string() {
-            let invalid = job["last_outcome"] == "invalid_output"
-                && attempt == job["output_attempt"].as_u64().unwrap_or(1) + 1
-                && attempt <= 2;
-            let limited = job["last_outcome"] == "rate_limited"
-                && attempt == job["output_attempt"].as_u64().unwrap_or(1)
-                && job["rate_retries"].as_u64().unwrap_or(0) < 2
-                && job["next_due"].as_i64().unwrap_or(0) <= chrono::Utc::now().timestamp_millis();
-            if !invalid && !limited {
-                return Err(ApiError::new(
-                    "submission_already_sent",
-                    "结果未知或重试预算已耗尽，不能盲重发",
-                ));
-            }
-            if limited {
-                job["rate_retries"] = json!(job["rate_retries"].as_u64().unwrap_or(0) + 1);
-            }
+        // 提交闸门与登记都在提交台账：有限重试之外一律拒绝盲重发。
+        if crate::submission::text_retry_gate(&job, attempt, MODEL_ATTEMPTS)? {
+            job["rate_retries"] = json!(job["rate_retries"].as_u64().unwrap_or(0) + 1);
         }
-        job["submitted_at"] = json!(chrono::Utc::now().to_rfc3339());
-        job["submission_count"] = json!(job["submission_count"].as_u64().unwrap_or(0) + 1);
-        job["output_attempt"] = json!(attempt);
-        job["next_due"] = json!(0);
-        job["last_outcome"] = json!("unknown");
-        job["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
+        crate::submission::mark_text_submitted(&mut job, attempt);
         let pending = self.save_job(&tx, &job)?;
         tx.commit()?;
         self.emit_job_event(pending);
