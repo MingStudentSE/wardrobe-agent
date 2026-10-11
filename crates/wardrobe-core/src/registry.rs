@@ -187,6 +187,7 @@ fn declarations() -> &'static Vec<Declaration> {
         ("category.list", Some(json!({"async":null,"kind":"query","local_files":false,"network":"none"})), Some(|app: &crate::Application, input: Value| app.category_operation("category.list", input))),
         ("category.create", Some(json!({"async":null,"kind":"mutation","local_files":false,"network":"none"})), Some(|app: &crate::Application, input: Value| app.category_operation("category.create", input))),
         ("category.delete", Some(json!({"async":null,"kind":"mutation","local_files":false,"network":"none"})), Some(|app: &crate::Application, input: Value| app.category_operation("category.delete", input))),
+        ("category.rename", Some(json!({"async":null,"kind":"mutation","local_files":false,"network":"none"})), Some(|app: &crate::Application, input: Value| app.category_operation("category.rename", input))),
         ("provider.save", Some(json!({"async":null,"kind":"mutation","local_files":false,"network":"none"})), Some(|app: &crate::Application, input: Value| app.provider_save(input))),
         ("provider.list", Some(json!({"async":null,"kind":"query","local_files":false,"network":"none"})), Some(|app: &crate::Application, input: Value| app.provider_list(input))),
         ("provider.validate", Some(json!({"async":null,"kind":"mutation","local_files":false,"network":"explicit-provider"})), Some(|app: &crate::Application, input: Value| app.provider_validate(input))),
@@ -345,7 +346,7 @@ fn declarations() -> &'static Vec<Declaration> {
 
 #[cfg(test)]
 mod schema_version_rule_tests {
-    use super::{entries, injects_schema_version};
+    use super::{declaration_index, entries, injects_schema_version};
     /// 每个注册行的注入旗标必须与旧分发器的字面前缀规则一致（#70 等价性对比）：
     /// 新增操作若需注入，须有意识地扩展这一谓词，而不是悄悄依赖旧行为。
     #[test]

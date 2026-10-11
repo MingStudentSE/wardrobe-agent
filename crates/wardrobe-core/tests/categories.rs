@@ -301,3 +301,84 @@ fn category_descriptors_declare_the_actual_public_output_schemas() {
     }
     assert_result_matches_schema(&schema_of("category.delete"), &deleted, "category.delete");
 }
+
+// ==== category.rename（issue #70 试金石：注册表单一来源下的新增操作实测）====
+#[test]
+fn category_rename_renames_custom_categories_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let created = app
+        .execute("category.create", json!({"member_id":member,"name":"户外"}))
+        .unwrap();
+    let id = created["id"].as_str().unwrap().to_string();
+    app.execute(
+        "clothing.create",
+        json!({"member_id":member,"name":"冲锋衣","category":id}),
+    )
+    .unwrap();
+
+    // 自定义分类重命名，单品计数随行
+    let renamed = app
+        .execute("category.rename", json!({"member_id":member,"id":id,"name":"山野"}))
+        .unwrap();
+    assert_eq!(
+        renamed,
+        json!({"schema_version":1,"id":id,"name":"山野","count":1})
+    );
+    let listed = app
+        .execute("category.list", json!({"member_id":member}))
+        .unwrap();
+    let entry = listed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == json!(id))
+        .unwrap();
+    assert_eq!(entry["name"], json!("山野"));
+
+    // 内置分类不可重命名
+    let error = app
+        .execute("category.rename", json!({"member_id":member,"id":"top","name":"上衣二"}))
+        .unwrap_err();
+    assert_eq!(error.code, "conflict");
+
+    // 与其他分类重名拒绝（含内置分类；同名自重命名按幂等放行）
+    app.execute("category.create", json!({"member_id":member,"name":"冬季"})).unwrap();
+    let error = app
+        .execute("category.rename", json!({"member_id":member,"id":id,"name":"冬季"}))
+        .unwrap_err();
+    assert_eq!(error.code, "conflict");
+    let error = app
+        .execute("category.rename", json!({"member_id":member,"id":id,"name":"上装"}))
+        .unwrap_err();
+    assert_eq!(error.code, "conflict");
+    app.execute("category.rename", json!({"member_id":member,"id":id,"name":"山野"})).unwrap();
+
+    // 名称长度校验
+    let error = app
+        .execute("category.rename", json!({"member_id":member,"id":id,"name":""}))
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input");
+
+    // 不存在的分类
+    let error = app
+        .execute(
+            "category.rename",
+            json!({"member_id":member,"id":"custom_not_there","name":"幽灵"}),
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "not_found");
+
+    // 未知字段拒绝：白名单从 inputSchema 自动派生（#70）
+    let error = app
+        .execute(
+            "category.rename",
+            json!({"member_id":member,"id":id,"name":"山野","zzz":1}),
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "invalid_input");
+}

@@ -7458,6 +7458,81 @@
   }
  },
  {
+  "description": "重命名自定义衣物分类；内置分类不可重命名",
+  "effect": {
+   "async": null,
+   "kind": "mutation",
+   "local_files": false,
+   "network": "none"
+  },
+  "examples": [
+   {
+    "prerequisites": [
+     "仅 custom_ 自定义分类可重命名；名称1-40字符且不与现有分类重名"
+    ],
+    "request": {
+     "id": "<category.create 返回的 custom_ 分类ID>",
+     "member_id": "<已授权成员ID>",
+     "name": "<新分类名称>"
+    }
+   }
+  ],
+  "inputSchema": {
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "member_id": {
+     "type": "string"
+    },
+    "name": {
+     "maxLength": 40,
+     "minLength": 1,
+     "type": "string"
+    }
+   },
+   "required": [
+    "member_id",
+    "id",
+    "name"
+   ],
+   "type": "object"
+  },
+  "name": "category.rename",
+  "outputSchema": {
+   "properties": {
+    "count": {
+     "type": "integer"
+    },
+    "id": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "schema_version": {
+     "const": 1,
+     "type": "integer"
+    }
+   },
+   "required": [
+    "schema_version",
+    "id",
+    "name",
+    "count"
+   ],
+   "type": "object"
+  },
+  "scope": {
+   "access": "external",
+   "member": {
+    "grant": "per-member_id"
+   },
+   "primary": "category.rename",
+   "primary_grant_required": true
+  }
+ },
+ {
   "description": "保存模型端点和能力；更换端点会移除旧凭据",
   "effect": {
    "async": null,
