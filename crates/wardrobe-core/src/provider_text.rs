@@ -62,10 +62,7 @@ impl Application {
                 "需要配置兼容聊天接口的文本模型",
             ));
         }
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
+        let client = crate::http_client::build(crate::http_client::OutboundProfile::Chat)
             .map_err(|_| ApiError::new("provider_network", "模型连接不可用"))?;
         let endpoint = provider["endpoint"]
             .as_str()

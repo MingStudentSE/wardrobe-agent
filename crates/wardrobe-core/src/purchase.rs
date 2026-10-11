@@ -312,10 +312,7 @@ impl Application {
                 transferred.push(json!({"asset_id":snap["asset_id"],"source_role":snap["role"],"source_blob_hash":snap["blob_hash"],"sha256":Sha256::digest(&encoded).iter().map(|b|format!("{b:02x}")).collect::<String>(),"mime":"image/png","width":normalized.width(),"height":normalized.height(),"bytes":encoded.len(),"transform":"orientation-aware-fit-512-png"}));
                 content.push(json!({"type":"image_url","image_url":{"url":format!("data:image/png;base64,{}",base64::engine::general_purpose::STANDARD.encode(encoded))}}));
             }
-            let client = reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(60))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
+            let client = crate::http_client::build(crate::http_client::OutboundProfile::Chat)
                 .map_err(|_| ApiError::new("connection_error", "无法创建HTTP客户端"))?;
             let mut request = client
                 .post(format!(

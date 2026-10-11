@@ -169,10 +169,7 @@ impl Application {
         )?;
         let mut retry_after_ms = None;
         let result = (|| {
-            let client = reqwest::blocking::Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .timeout(std::time::Duration::from_secs(90))
-                .build()
+            let client = crate::http_client::build(crate::http_client::OutboundProfile::ModelDownload)
                 .map_err(|_| {
                     ApiError::new(
                         "download_offline",

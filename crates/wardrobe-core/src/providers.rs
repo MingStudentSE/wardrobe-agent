@@ -71,10 +71,7 @@ impl Application {
                 "请选择已配置的文本或视觉能力",
             ));
         }
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(20))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
+        let client = crate::http_client::build(crate::http_client::OutboundProfile::Probe)
             .map_err(|_| ApiError::new("connection_error", "无法建立连接客户端"))?;
         let content = if capability == "vision" {
             use base64::Engine;

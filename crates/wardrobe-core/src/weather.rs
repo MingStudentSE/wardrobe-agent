@@ -152,10 +152,7 @@ impl Application {
         }
         let config = doc["config"].clone();
         let result = (|| -> Result<Value, ApiError> {
-            let client = reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(15))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
+            let client = crate::http_client::build(crate::http_client::OutboundProfile::Weather)
                 .map_err(|_| ApiError::new("weather_network", "无法建立天气连接"))?;
             let weather_request = crate::diagnostics::ProviderRequestLog::from_current_call("");
             let send = client

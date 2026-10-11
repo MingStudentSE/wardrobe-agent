@@ -151,10 +151,7 @@ impl Application {
                 "模型设置已更改，请明确创建新任务",
             ));
         }
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(240))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
+        let client = crate::http_client::build(crate::http_client::OutboundProfile::Image)
             .map_err(|_| ApiError::new("connection_error", "无法创建供应商连接"))?;
         let endpoint = provider["endpoint"].as_str().unwrap();
         let key = if provider["authentication"] == "bearer" {
