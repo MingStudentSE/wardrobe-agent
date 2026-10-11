@@ -726,36 +726,15 @@ pub(super) fn descriptors() -> Vec<Value> {
             "try_another"=>json!({"type":"object","required":["schema_version","member_id","feedback","recommendation"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"feedback":event,"recommendation":generate_union}}),
             _=>event.clone(),
         };
-        let (effect,examples)=match op {
-            "record"=>(
-                json!({"kind":"mutation","network":"none","local_files":false,"async":null,"conditional_effects":[{"when":{"reaction":"actual_wore"},"effect":{"kind":"mutation","wear":"wear.record"}},{"when":{"reaction":"changed"},"effect":{"kind":"mutation","wear":"wear.record"}}]}),
-                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","intent_id":"<推荐意图ID>","proposal_index":0,"reaction":"like"},"prerequisites":["显式反馈不隐式记录穿着","reaction=day_exclude须提供IANA时区；actual_wore/changed须wear.confirmed并真实产生WearEvent","幂等键防止重复提交"]}]),
-            ),
-            "get"=>(
-                json!({"kind":"query","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>","id":"<feedback.record返回的事件ID>"},"prerequisites":["按事件ID读取反馈事件及其修订与撤销状态"]}]),
-            ),
-            "list"=>(
-                json!({"kind":"query","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按事件ID倒序返回每根反馈的最新修订；默认不含已撤销","游标为最后一条事件ID字符串"]}]),
-            ),
-            "correct"=>(
-                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>","root_id":"<反馈根ID>","operation_key":"<唯一操作标识>","expected_revision":1,"reaction":"skip"},"prerequisites":["乐观并发：expected_revision不符报version_conflict","当天排除/实际穿着不能改为普通意见，请撤销后新增","不删除历史修订"]}]),
-            ),
-            "revoke"=>(
-                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>","root_id":"<反馈根ID>","operation_key":"<唯一操作标识>","expected_revision":1,"reason":"<1-2000字撤销原因>"},"prerequisites":["撤销保留全部历史修订并记录原因","已撤销反馈不能再次更正或撤销"]}]),
-            ),
-            "history"=>(
-                json!({"kind":"query","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>","root_id":"<反馈根ID>"},"prerequisites":["按修订升序返回反馈修订链","next_cursor为整数修订游标，无更多页时为null"]}]),
-            ),
-            _=>(
-                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","intent_id":"<推荐意图ID>","proposal_index":0},"prerequisites":["组合动作：先保存skip反馈再按同方案换一套（recommendation.change）","须同时具备feedback.record与recommendation.change授权；换套失败时反馈已保存并在错误信息中说明","原意图为ai策略时会重新入队并由recommendation.worker.run处理"]}]),
-            ),
+        let examples=match op {
+            "record"=>json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","intent_id":"<推荐意图ID>","proposal_index":0,"reaction":"like"},"prerequisites":["显式反馈不隐式记录穿着","reaction=day_exclude须提供IANA时区；actual_wore/changed须wear.confirmed并真实产生WearEvent","幂等键防止重复提交"]}]),
+            "get"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<feedback.record返回的事件ID>"},"prerequisites":["按事件ID读取反馈事件及其修订与撤销状态"]}]),
+            "list"=>json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按事件ID倒序返回每根反馈的最新修订；默认不含已撤销","游标为最后一条事件ID字符串"]}]),
+            "correct"=>json!([{"request":{"member_id":"<已授权成员ID>","root_id":"<反馈根ID>","operation_key":"<唯一操作标识>","expected_revision":1,"reaction":"skip"},"prerequisites":["乐观并发：expected_revision不符报version_conflict","当天排除/实际穿着不能改为普通意见，请撤销后新增","不删除历史修订"]}]),
+            "revoke"=>json!([{"request":{"member_id":"<已授权成员ID>","root_id":"<反馈根ID>","operation_key":"<唯一操作标识>","expected_revision":1,"reason":"<1-2000字撤销原因>"},"prerequisites":["撤销保留全部历史修订并记录原因","已撤销反馈不能再次更正或撤销"]}]),
+            "history"=>json!([{"request":{"member_id":"<已授权成员ID>","root_id":"<反馈根ID>"},"prerequisites":["按修订升序返回反馈修订链","next_cursor为整数修订游标，无更多页时为null"]}]),
+            _=>json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","intent_id":"<推荐意图ID>","proposal_index":0},"prerequisites":["组合动作：先保存skip反馈再按同方案换一套（recommendation.change）","须同时具备feedback.record与recommendation.change授权；换套失败时反馈已保存并在错误信息中说明","原意图为ai策略时会重新入队并由recommendation.worker.run处理"]}]),
         };
- json!({"name":format!("feedback.{op}"),"description":"显式推荐反馈，不隐式记录穿着","effect":effect,"examples":examples,"inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"outputSchema":output})
+ json!({"name":format!("feedback.{op}"),"description":"显式推荐反馈，不隐式记录穿着","examples":examples,"inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"outputSchema":output})
 }).collect()
 }

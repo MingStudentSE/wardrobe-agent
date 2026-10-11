@@ -1108,7 +1108,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "创建购买候选草稿：候选域独立身份，不计入库存/穿着/洞察，不同步",
             json!({"type":"object","required":["member_id","name","category"],"additionalProperties":false,"properties":candidate_input_properties(vec!["member_id","name","category"], true)}),
             candidate_output.clone(),
-            json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","name":"<候选商品名称>","category":"<类别ID>"},"prerequisites":["候选存放在候选域：不占衣物身份、不入库存或统计","未知事实保持 null；不自动购买"]}]),
         ),
         op(
@@ -1116,7 +1115,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "为购买候选提交商品图识别：先持久化任务收据，确认上传后才发送所选图片",
             json!({"type":"object","required":["member_id","operation_key","candidate_id","provider_id","asset_ids","upload_role","confirm_upload"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"operation_key":{"type":"string","minLength":1,"maxLength":200},"candidate_id":{"type":"string"},"provider_id":{"type":"string"},"asset_ids":{"type":"array","minItems":1,"maxItems":20,"uniqueItems":true,"items":{"type":"string"}},"upload_role":{"enum":["original","product_display"]},"confirm_upload":{"const":true}}}),
             job_output.clone(),
-            json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"job_state":"after_real_submission"},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),
             json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","candidate_id":"<候选ID>","provider_id":"<已配置视觉供应商ID>","asset_ids":["<资产ID>"],"upload_role":"product_display","confirm_upload":true},"prerequisites":["仅上传明确确认的图片；视觉调用真实消耗供应商额度","建议写入候选provenance，不自动覆盖人工事实","本示例不自动执行"]}]),
         ),
         op(
@@ -1124,7 +1122,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "推进已入队候选识别任务；提交未知不盲重发，失败如实反馈",
             json!({"type":"object","required":["member_id","id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}}),
             job_output.clone(),
-            json!({"kind":"mutation","network":"none","local_files":true,"async":null,"conditional_effects":[{"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}}]}),
             json!([{"request":{"member_id":"<已授权成员ID>","id":"<识别任务ID>"},"prerequisites":["首次执行真实提交时消耗供应商额度","提交结果未知时持久化 waiting_input，不自动重发","失败时候选保持原样并如实说明不确定性"]}]),
         ),
         op(
@@ -1132,7 +1129,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "读取购买候选：候选事实、识别建议、不确定性与来源",
             json!({"type":"object","required":["member_id","id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}}),
             candidate_output.clone(),
-            json!({"kind":"query","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","id":"<候选ID>"},"prerequisites":["候选属于候选域；建议值未经核实需人工纠错"]}]),
         ),
         op(
@@ -1140,7 +1136,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "按成员列出购买候选（可按状态筛选，按ID倒序）",
             json!({"type":"object","required":["member_id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"state":{"enum":["draft","dismissed"]}}}),
             json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":candidate_output.clone()}}}),
-            json!({"kind":"query","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["仅返回当前成员的候选；不包含库存单品"]}]),
         ),
         op(
@@ -1148,7 +1143,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "人工纠错候选事实：人工值优先，识别建议保留在 provenance 对照",
             json!({"type":"object","required":["member_id","id","facts","confirm_correction"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"},"facts":{"type":"object","minProperties":1},"confirm_correction":{"const":true}}}),
             candidate_output.clone(),
-            json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","id":"<候选ID>","facts":{"category":"top"},"confirm_correction":true},"prerequisites":["人工纠错显式发生；类别须在分类字典内","未知尺码/价格保持未知，不编造"]}]),
         ),
         op(
@@ -1156,7 +1150,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "弃置候选草稿：保留记录，不再分析",
             json!({"type":"object","required":["member_id","id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}}),
             candidate_output,
-            json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","id":"<候选ID>"},"prerequisites":["弃置不删除记录；已弃置候选不可纠错或分析"]}]),
         ),
         op(
@@ -1164,7 +1157,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "运行购买适配分析：搭配潜力/重复购买/缺口，全部来自当前可用真实库存的确定性计算；结果版本化保留",
             json!({"type":"object","required":["member_id","candidate_id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"candidate_id":{"type":"string"}}}),
             analysis_schema(),
-            json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","candidate_id":"<候选ID>"},"prerequisites":["数字来自确定性查询；候选不计入库存或穿着","每次运行生成新版本并保留历史；缺失事实如实列为不确定性","不自动购买"]}]),
         ),
         op(
@@ -1172,7 +1164,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "读取一次购买适配分析结果",
             json!({"type":"object","required":["member_id","id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}}),
             analysis_schema(),
-            json!({"kind":"query","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>","id":"<分析ID>"},"prerequisites":["读取版本化分析；引用的库存ID可交叉核对"]}]),
         ),
         op(
@@ -1180,7 +1171,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "列出购买适配分析历史（可按候选筛选，按ID倒序）",
             json!({"type":"object","required":["member_id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"candidate_id":{"type":"string"}}}),
             json!({"type":"object","required":["schema_version","items"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":analysis_schema()}}}),
-            json!({"kind":"query","network":"none","local_files":false,"async":null}),
             json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["返回版本化历史；候选与真实库存严格区分"]}]),
         ),
     ];
@@ -1287,7 +1277,6 @@ fn op(
     description: &str,
     input: Value,
     output: Value,
-    effect: Value,
     examples: Value,
 ) -> Value {
     json!({
@@ -1295,7 +1284,7 @@ fn op(
         "description":description,
         "inputSchema":input,
         "outputSchema":output,
-        "effect":effect,
+        
         "examples":examples,
     })
 }

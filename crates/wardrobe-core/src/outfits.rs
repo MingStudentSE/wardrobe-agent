@@ -327,11 +327,7 @@ if *operation=="favorite"{properties["favorite"]=json!({"type":"boolean"});requi
 if *operation=="list"{properties["status"]=json!({"enum":["active","deleted","all"]});properties["favorite"]=json!({"type":"boolean"});properties["limit"]=json!({"type":"integer","minimum":1,"maximum":100});properties["cursor"]=json!({"type":"string"});}let output=match *operation{ "list"=>json!({"type":"object","required":["schema_version","items","next_cursor"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":{"type":"object","required":["id","member_id","name","items","version","status","favorite"]}},"next_cursor":{"type":["string","null"]}}}), "render_local"=>json!({"type":"object","required":["schema_version","outfit_id","version","role","sync_scope","width","height","missing_images","data_url"],"properties":{"role":{"const":"outfit"},"sync_scope":{"const":"local_only"},"data_url":{"type":"string"}}}),_=>json!({"type":"object","required":["schema_version","id","member_id","name","items","version","status","favorite","created_at","updated_at"],"properties":{"schema_version":{"const":1},"version":{"type":"integer","minimum":1},"items":{"type":"array","minItems":1,"items":{"type":"object","required":["clothing_id","role","layer","snapshot"]}}}})};
 let name=format!("outfit.{operation}");
 let mut descriptor=json!({"name":name,"description":format!("本地Lookbook {operation}"),"inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties},"outputSchema":output});
-descriptor["effect"]=match *operation {
- "create"|"update"|"favorite"|"clone"|"delete"|"restore"=>json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
- "render_local"=>json!({"kind":"query","network":"none","local_files":true,"async":null}),
- _=>json!({"kind":"query","network":"none","local_files":false,"async":null}),
-};
+
 descriptor["examples"]=match *operation {
  "create"=>json!([{"request":{"member_id":"<已授权成员ID>","name":"<搭配名称>","items":[{"clothing_id":"<单品ID>","role":"outer","layer":2}]},"prerequisites":["单品须已存在；创建版本为1"]}]),
  "get"=>json!([{"request":{"member_id":"<已授权成员ID>","id":"<outfit.create 返回的ID>"},"prerequisites":["读取当前版本"]}]),

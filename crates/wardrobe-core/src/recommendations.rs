@@ -1114,37 +1114,16 @@ pub(super) fn descriptors() -> Vec<Value> {
             // worker.run 返回完整持久化任务文档，不是收据别名
             _ => json!({"type":"object","required":["schema_version","id","member_id","kind","operation_key","state","progress","attempts","next_due","lease_token","lease_expires","payload","result","error","created_at","updated_at"],"properties":{"schema_version":{"const":1},"id":{"type":"string"},"member_id":{"type":"string"},"kind":{"const":"text_recommendation"},"operation_key":{"type":"string"},"state":{"type":"string"},"progress":{"type":"integer"},"attempts":{"type":"integer"},"next_due":{"type":"integer"},"lease_token":{"type":["string","null"]},"lease_expires":{"type":"integer"},"payload":{"type":"object"},"result":{"type":["object","null"]},"error":{"type":["object","null"]},"created_at":{"type":"string"},"updated_at":{"type":"string"},"trace_id":{"type":["string","null"],"description":"创建该任务的操作链路标识（可回查全链路日志）"},"submitted_at":{"type":["string","null"]},"last_outcome":{"type":["string","null"]}}}),
         };
-        let (effect,examples)=match op {
-            "generate" => (
-                json!({"kind":"mutation","network":"none","local_files":false,"async":null,"conditional_effects":[{"when":{"strategy":"ai"},"effect":{"kind":"mutation","network":"none","async":{"job_kind":"text_recommendation","process":"recommendation.worker.run","terminal_states":["succeeded","failed","cancelled","waiting_input"]}}},{"when":{"weather.mode":"automatic"},"effect":{"kind":"query","network":"web-weather"}}]}),
-                json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","timezone":"Asia/Shanghai","strategy":"rules","limit":3,"occasion":"daily"},"prerequisites":["strategy=rules纯本地规则生成，不调用模型不耗额度","strategy=ai时先持久化任务收据，由recommendation.worker.run真实调用供应商，可能消耗额度","weather.mode=automatic时可能为刷新过期缓存联网；天气失败不阻断离线推荐","生成与保存均不记录穿着"]}]),
-            ),
-            "get" => (
-                json!({"kind":"query","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>","id":"<recommendation.generate返回的意图ID>"},"prerequisites":["读取已持久化推荐意图完整文档；不读穿着事实"]}]),
-            ),
-            "list" => (
-                json!({"kind":"query","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按意图ID倒序返回最近100条意图完整文档；当前仅接受member_id，不支持分页参数"]}]),
-            ),
-            "save" => (
-                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>","id":"<意图ID>","operation_key":"<唯一保存标识>","proposal_index":0,"name":"<搭配名称>"},"prerequisites":["将选定方案持久化为真实搭配；幂等键防止重复保存","单品须当前可用（含洗护状态）；不产生穿着事实"]}]),
-            ),
-            "change" => (
-                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>","id":"<意图ID>","operation_key":"<唯一操作标识>","proposal_index":0},"prerequisites":["以指定方案为基准换一套，沿用原意图约束（含策略与天气设置）；仅使用同成员真实可用衣物","原意图为ai策略时会重新入队并由recommendation.worker.run处理；不记录穿着"]}]),
-            ),
-            "replace" => (
-                json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>","id":"<意图ID>","operation_key":"<唯一操作标识>","proposal_index":0,"clothing_id":"<方案内单品ID>"},"prerequisites":["clothing_id须属于所选方案；替换后按原约束重新生成，固定单品不能被替换","不记录穿着"]}]),
-            ),
-            _ => (
-                json!({"kind":"mutation","network":"explicit-provider","local_files":false,"async":null}),
-                json!([{"request":{"member_id":"<已授权成员ID>","id":"<text_recommendation任务ID>"},"prerequisites":["同步处理已入队AI推荐任务；真实调用供应商可能消耗额度，任务收据先行持久化","任务已达终态succeeded/failed/cancelled/waiting_input或结果未知时幂等返回当前任务文档，不盲重发","本示例不自动执行"]}]),
-            ),
+        let examples=match op {
+            "generate" =>json!([{"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","timezone":"Asia/Shanghai","strategy":"rules","limit":3,"occasion":"daily"},"prerequisites":["strategy=rules纯本地规则生成，不调用模型不耗额度","strategy=ai时先持久化任务收据，由recommendation.worker.run真实调用供应商，可能消耗额度","weather.mode=automatic时可能为刷新过期缓存联网；天气失败不阻断离线推荐","生成与保存均不记录穿着"]}]),
+            "get" =>json!([{"request":{"member_id":"<已授权成员ID>","id":"<recommendation.generate返回的意图ID>"},"prerequisites":["读取已持久化推荐意图完整文档；不读穿着事实"]}]),
+            "list" =>json!([{"request":{"member_id":"<已授权成员ID>"},"prerequisites":["按意图ID倒序返回最近100条意图完整文档；当前仅接受member_id，不支持分页参数"]}]),
+            "save" =>json!([{"request":{"member_id":"<已授权成员ID>","id":"<意图ID>","operation_key":"<唯一保存标识>","proposal_index":0,"name":"<搭配名称>"},"prerequisites":["将选定方案持久化为真实搭配；幂等键防止重复保存","单品须当前可用（含洗护状态）；不产生穿着事实"]}]),
+            "change" =>json!([{"request":{"member_id":"<已授权成员ID>","id":"<意图ID>","operation_key":"<唯一操作标识>","proposal_index":0},"prerequisites":["以指定方案为基准换一套，沿用原意图约束（含策略与天气设置）；仅使用同成员真实可用衣物","原意图为ai策略时会重新入队并由recommendation.worker.run处理；不记录穿着"]}]),
+            "replace" =>json!([{"request":{"member_id":"<已授权成员ID>","id":"<意图ID>","operation_key":"<唯一操作标识>","proposal_index":0,"clothing_id":"<方案内单品ID>"},"prerequisites":["clothing_id须属于所选方案；替换后按原约束重新生成，固定单品不能被替换","不记录穿着"]}]),
+            _ =>json!([{"request":{"member_id":"<已授权成员ID>","id":"<text_recommendation任务ID>"},"prerequisites":["同步处理已入队AI推荐任务；真实调用供应商可能消耗额度，任务收据先行持久化","任务已达终态succeeded/failed/cancelled/waiting_input或结果未知时幂等返回当前任务文档，不盲重发","本示例不自动执行"]}]),
         };
-        json!({"name":format!("recommendation.{op}"),"description":format!("本地离线搭配 {op}；仅使用同成员真实可用衣物，生成与保存均不记录穿着"),"effect":effect,"examples":examples,"inputSchema":{"type":"object","required":required,"properties":properties,"additionalProperties":false},"outputSchema":output})
+        json!({"name":format!("recommendation.{op}"),"description":format!("本地离线搭配 {op}；仅使用同成员真实可用衣物，生成与保存均不记录穿着"),"examples":examples,"inputSchema":{"type":"object","required":required,"properties":properties,"additionalProperties":false},"outputSchema":output})
     }).collect()
 }
 

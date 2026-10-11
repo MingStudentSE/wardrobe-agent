@@ -132,13 +132,6 @@ pub(super) fn descriptors() -> Vec<Value> {
         "member.update": [{"request":{"member_id":"<成员ID>","name":"<新名称>"},"prerequisites":["成员ID来自 member.list 或 space.default"]}],
         "member.select": [{"request":{"member_id":"<成员ID>"},"prerequisites":["切换工作空间选中成员"]}],
     });
-    let effects = json!({
-        "space.default": {"kind":"query","network":"none","local_files":false,"async":null},
-        "member.list": {"kind":"query","network":"none","local_files":false,"async":null},
-        "member.create": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "member.update": {"kind":"mutation","network":"none","local_files":false,"async":null},
-        "member.select": {"kind":"mutation","network":"none","local_files":false,"async":null},
-    });
     let mut result = vec![];
     for (operation, description, required, properties, output) in [
         (
@@ -181,7 +174,6 @@ pub(super) fn descriptors() -> Vec<Value> {
     }
     let mut collected = result;
     for descriptor in collected.iter_mut() {
-        descriptor["effect"] = effects[descriptor["name"].as_str().unwrap()].clone();
         descriptor["examples"] = examples[descriptor["name"].as_str().unwrap()].clone();
     }
     collected

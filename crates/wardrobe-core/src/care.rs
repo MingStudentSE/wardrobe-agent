@@ -550,10 +550,7 @@ req.push("id");
 if op=="list"{props["include_revoked"]=json!({"type":"boolean"});
 };let mut descriptor=json!({"name":format!("care.{op}"),"description":format!("洗护 {op}"),"inputSchema":{"type":"object","additionalProperties":false,"required":req,"properties":props},"outputSchema":{"type":"object","required":["schema_version","member_id"],"properties":{"schema_version":{"const":1}}}});
         let op=descriptor["name"].as_str().unwrap().strip_prefix("care.").unwrap().to_string();
-        descriptor["effect"]=match op.as_str() {
-            "configure"|"mark_dirty"|"record"|"correct"|"revoke"=>json!({"kind":"mutation","network":"none","local_files":false,"async":null}),
-            _=>json!({"kind":"query","network":"none","local_files":false,"async":null}),
-        };
+
         let mid=json!("<已授权成员ID>");
         let cid=json!("<单品ID>");
         descriptor["examples"]=match op.as_str() {

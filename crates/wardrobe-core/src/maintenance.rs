@@ -605,10 +605,10 @@ pub(super) fn descriptors() -> Vec<Value> {
     ["get","list","cancel","retry","worker.run"].into_iter().map(|action|{
         let list=action=="list";
         let properties=if list{json!({"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"string"}})}else{json!({"id":{"type":"string"}})};
-        let (effect,examples)=match action {
-            "get"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{"id":"<维护任务ID>"},"prerequisites":["读取全空间维护任务文档"]}])),"list"=>(json!({"kind":"query","network":"none","local_files":false,"async":null}),json!([{"request":{},"prerequisites":["分页列出维护任务；游标字符串"]}])),"cancel"=>(json!({"kind":"mutation","network":"none","local_files":false,"async":null}),json!([{"request":{"id":"<维护任务ID>"},"prerequisites":["取消排队或失败任务；已完成任务不能取消"]}])),_=>(json!({"kind":"mutation","network":"none","local_files":true,"async":null}),json!([{"request":{"id":"<维护任务ID>"},"prerequisites":["retry回到队列；worker.run同步执行备份/恢复等维护任务并写本地文件","本示例不自动执行"]}]))
+        let examples=match action {
+            "get"=>json!([{"request":{"id":"<维护任务ID>"},"prerequisites":["读取全空间维护任务文档"]}]),"list"=>json!([{"request":{},"prerequisites":["分页列出维护任务；游标字符串"]}]),"cancel"=>json!([{"request":{"id":"<维护任务ID>"},"prerequisites":["取消排队或失败任务；已完成任务不能取消"]}]),_=>json!([{"request":{"id":"<维护任务ID>"},"prerequisites":["retry回到队列；worker.run同步执行备份/恢复等维护任务并写本地文件","本示例不自动执行"]}])
         };
-        json!({"name":format!("maintenance.{action}"),"effect":effect,"examples":examples,"description":"全空间本机维护任务状态与明确执行控制","inputSchema":{"type":"object","additionalProperties":false,"required":if list{vec![]}else{vec!["id"]},"properties":properties},"outputSchema":if list{json!({"type":"object","required":["schema_version","items","next_cursor"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":job_schema()},"next_cursor":{"type":["string","null"]}}})}else{job_schema()}})
+        json!({"name":format!("maintenance.{action}"),"examples":examples,"description":"全空间本机维护任务状态与明确执行控制","inputSchema":{"type":"object","additionalProperties":false,"required":if list{vec![]}else{vec!["id"]},"properties":properties},"outputSchema":if list{json!({"type":"object","required":["schema_version","items","next_cursor"],"properties":{"schema_version":{"const":1},"items":{"type":"array","items":job_schema()},"next_cursor":{"type":["string","null"]}}})}else{job_schema()}})
     }).collect()
 }
 

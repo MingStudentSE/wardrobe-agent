@@ -1014,15 +1014,11 @@ pub(super) fn descriptors() -> Vec<Value> {
             "notes":{"type":"string","maxLength":1000},
         },
     });
-    let plan_async = json!({"job_kind":"scenario_plan","process":"scenario.worker.run","terminal_states":["succeeded","failed","cancelled","waiting_input"]});
     vec![
         json!({
             "name":"scenario.plan",
             "description":"婚礼/面试单事件与多日旅行场景计划：基于真实可用库存逐天搭配并生成去重打包清单；固定/排除/天气参考/手工说明可用，缺库存给明确原因；计划是领域工件，结构性不记录实际穿着；strategy=ai 时先持久化任务并立即返回回执，模型失败有限重试后按本地规则降级并如实反馈",
-            "effect":{"kind":"mutation","network":"none","local_files":false,"async":null,"conditional_effects":[
-                {"when":{"strategy":"ai"},"effect":{"kind":"mutation","network":"none","async":plan_async}},
-                {"when":{"weather.mode":"automatic"},"effect":{"kind":"query","network":"web-weather"}},
-            ]},
+            
             "examples":[json!({"request":{"member_id":"<已授权成员ID>","operation_key":"<唯一操作标识>","timezone":"Asia/Shanghai","kind":"travel","days":3,"start_date":"2026-10-10","weather":{"mode":"manual","temperature_c":8}},"prerequisites":["仅使用同成员真实可用衣物（归属、生命周期与洗护状态服务端校验）","计划与打包清单结构性不产生穿着（creates_wear恒为false）","strategy=ai先入队回执，再由scenario.worker.run真实调用模型并可能消耗额度","缺库存给短缺原因，不虚构库存或重复计入打包清单"]})],
             "inputSchema":plan_input,
             "outputSchema":{"type":"object","required":["schema_version"],"properties":{
@@ -1037,7 +1033,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"scenario.get",
             "description":"读取已保存场景计划完整文档（逐天方案、去重打包清单、短缺原因与生成来源）",
-            "effect":{"kind":"query","network":"none","local_files":false,"async":null},
+            
             "examples":[json!({"request":{"member_id":"<已授权成员ID>","id":"<scenario.plan返回的计划ID>"},"prerequisites":["读取已保存计划；不产生穿着事实"]})],
             "inputSchema":{"type":"object","required":["member_id","id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}},
             "outputSchema":plan_schema,
@@ -1045,7 +1041,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"scenario.list",
             "description":"按计划ID倒序列出当前成员最多50个未删除场景计划",
-            "effect":{"kind":"query","network":"none","local_files":false,"async":null},
+            
             "examples":[json!({"request":{"member_id":"<已授权成员ID>"},"prerequisites":["只读查询；已删除计划不出现在默认列表"]})],
             "inputSchema":{"type":"object","required":["member_id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"}}},
             "outputSchema":{"type":"object","required":["schema_version","member_id","items"],"properties":{"schema_version":{"const":1},"member_id":{"type":"string"},"items":{"type":"array","items":plan_schema}},"additionalProperties":false},
@@ -1053,9 +1049,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"scenario.update",
             "description":"修改已保存场景计划（标题/手工说明/固定/排除/天气）并按本地规则整体重算保存；expected_version乐观锁；修改不产生穿着",
-            "effect":{"kind":"mutation","network":"none","local_files":false,"async":null,"conditional_effects":[
-                {"when":{"weather.mode":"automatic"},"effect":{"kind":"query","network":"web-weather"}},
-            ]},
+            
             "examples":[json!({"request":{"member_id":"<已授权成员ID>","id":"<计划ID>","expected_version":1,"excluded_ids":["<单品ID>"]},"prerequisites":["expected_version须为当前版本，冲突时version_conflict拒绝","重算始终使用本地规则与当时真实可用库存","不产生穿着事实"]})],
             "inputSchema":{"type":"object","required":["member_id","id","expected_version"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"},"expected_version":{"type":"integer","minimum":1},"title":{"type":"string","minLength":1,"maxLength":120},"notes":{"type":"string","maxLength":1000},"fixed_ids":ids_property,"excluded_ids":ids_property,"weather":weather_property}},
             "outputSchema":plan_schema,
@@ -1063,7 +1057,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"scenario.delete",
             "description":"软删除场景计划入回收站（默认列表不再显示）",
-            "effect":{"kind":"mutation","network":"none","local_files":false,"async":null},
+            
             "examples":[json!({"request":{"member_id":"<已授权成员ID>","id":"<计划ID>"},"prerequisites":["软删除不产生穿着事实；重复删除幂等返回"]})],
             "inputSchema":{"type":"object","required":["member_id","id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}},
             "outputSchema":plan_schema,
@@ -1071,9 +1065,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name":"scenario.worker.run",
             "description":"本机驱动一次已排队的AI场景计划任务：先本地规则生成候选，再真实调用已配置文本模型；模型输出经服务端逐天校验（真实ID、归属可用性、固定/排除、逐天轮换、基础覆盖），失败有限重试后按本地规则降级并如实反馈；提交结果未知进入等待核对，不盲重发",
-            "effect":{"kind":"mutation","network":"none","local_files":false,"async":null,"conditional_effects":[
-                {"when":{"submission_pending":true},"effect":{"kind":"mutation","network":"explicit-provider"}},
-            ]},
+            
             "examples":[json!({"request":{"member_id":"<已授权成员ID>","id":"<scenario_plan任务ID>"},"prerequisites":["首次真实提交调用已配置文本模型并可能消耗额度","模型失败最多三次尝试后按本地规则降级并写入失败反馈","任务已达终态或提交结果未知时幂等返回任务文档","本示例不自动执行"]})],
             "inputSchema":{"type":"object","required":["member_id","id"],"additionalProperties":false,"properties":{"member_id":{"type":"string"},"id":{"type":"string"}}},
             "outputSchema":crate::jobs::output_schema(),

@@ -9,6 +9,7 @@ mod cutout;
 mod data_directory;
 pub mod diagnostics;
 mod encryption;
+mod effects;
 mod feedback;
 mod flatlay;
 mod http_client;
@@ -573,6 +574,13 @@ pub fn operations() -> Value {
     capabilities["outputSchema"] = json!({"type":"object","required":["schema_version","operations","categories","taxonomy"],"properties":{"schema_version":{"type":"integer","const":1},"operations":{"type":"array","items":{"type":"object","required":["name","description","inputSchema","outputSchema"]}},"categories":{"type":"array","items":{"type":"string"}},"taxonomy":{"type":"object","required":["version","sub_categories","colors"],"properties":{"version":{"type":"integer"},"sub_categories":{"type":"array"},"colors":{"type":"array"}}}}});
     capabilities["examples"] = json!([{"request":{},"prerequisites":["免授权发现全部公开操作契约（名称/描述/输入输出schema）","限定scope客户端仅见其授权范围内操作；本示例只读不执行业务"]}]);
     descriptors.push(capabilities);
+    // effect 元数据从唯一声明表（effects）渲染；模块描述符不再各自手写第二份。
+    for descriptor in descriptors.iter_mut() {
+        let name = descriptor["name"].as_str().unwrap();
+        if let Some(effect) = effects::effect(name) {
+            descriptor["effect"] = effect.clone();
+        }
+    }
     // scope 元数据由授权规则同源派生（authorization::scope_metadata），不是第二套命令表
     for descriptor in descriptors.iter_mut() {
         descriptor["scope"] = authorization::scope_metadata(
