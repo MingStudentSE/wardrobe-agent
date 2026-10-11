@@ -17,11 +17,68 @@ fn privileged(operation: &str) -> bool {
         // 诊断查询含日志原文与底层原因：仅本机可信入口，外部客户端永远无法获得
         || operation.starts_with("diagnostics.")
 }
+/// 空间级操作：受限成员授权无须 member_id 也可执行——
+/// scope_metadata 与 execute_with_grant 从这里取用，不再各写一份清单（#70）。
+pub(crate) fn space_level_operation(operation: &str) -> bool {
+    ["capabilities", "provider.list", "provider.validate"].contains(&operation)
+}
+/// 组合 scope 规则：scope_metadata 渲染与 execute_with_grant 执行的单一数据源。
+/// 分支位置与错误文案保持既有执行语义；只收编第二份手写拷贝（#70）。
+/// （schedule 族按原业务操作的条件 scope 是执行分支特有，未在元数据声明，保持原状。）
+pub(crate) enum CompositeScope {
+    /// 输入字段取特定值时 requires 其他操作 scope
+    FieldValue { field: &'static str, values: &'static [&'static str], requires: &'static [&'static str], message: &'static str },
+    /// 无条件 requires
+    Plain { requires: &'static [&'static str], message: &'static str },
+    /// 按持久任务 kind 条件 requires（id_field 决定任务 ID 取自哪个输入字段）
+    JobKind { kind: &'static str, id_field: JobIdField, requires: &'static [&'static str], message: &'static str },
+    /// 维护控制需要原任务的业务操作 scope（按 id 字段取任务）
+    OriginalJobScope,
+}
+pub(crate) enum JobIdField {
+    /// learning.worker.run 的 job_id
+    JobId,
+    /// jobs.retry / jobs.cancel 的 id
+    Id,
+}
+pub(crate) fn composite_scope(operation: &str) -> &'static [CompositeScope] {
+    const FEEDBACK_RECORD: &[CompositeScope] = &[CompositeScope::FieldValue {
+        field: "reaction",
+        values: &["actual_wore", "changed"],
+        requires: &["wear.record"],
+        message: "实际穿着反馈还需要wear.record授权",
+    }];
+    const FEEDBACK_TRY_ANOTHER: &[CompositeScope] = &[CompositeScope::Plain {
+        requires: &["feedback.record", "recommendation.change"],
+        message: "Try Another还需要feedback.record与recommendation.change授权",
+    }];
+    const LEARNING_WORKER: &[CompositeScope] = &[CompositeScope::JobKind {
+        kind: "learning_recompute",
+        id_field: JobIdField::JobId,
+        requires: &["learning.recompute"],
+        message: "管理学习重算任务还需要learning.recompute授权",
+    }];
+    const LEARNING_JOB_ACTION: &[CompositeScope] = &[CompositeScope::JobKind {
+        kind: "learning_recompute",
+        id_field: JobIdField::Id,
+        requires: &["learning.recompute"],
+        message: "管理学习重算任务还需要learning.recompute授权",
+    }];
+    const MAINTENANCE: &[CompositeScope] = &[CompositeScope::OriginalJobScope];
+    match operation {
+        "feedback.record" => FEEDBACK_RECORD,
+        "feedback.try_another" => FEEDBACK_TRY_ANOTHER,
+        "learning.worker.run" => LEARNING_WORKER,
+        "jobs.retry" | "jobs.cancel" => LEARNING_JOB_ACTION,
+        op if op.starts_with("maintenance.") && op != "maintenance.list" => MAINTENANCE,
+        _ => &[],
+    }
+}
 /// 描述符 scope 元数据：与上方 privileged()、maintenance::is_global_operation()
 /// 及 execute_as_client 中的精确授权条件同源派生；只描述既有执行语义，不改变授权。
 /// 成员约束在 member_ids 为数组时生效（含 full 模式）；有效输入不含 member_id 的
 /// 操作（除显式空间级豁免）受限成员授权无法执行，按 all-members 标注。
-/// 组合条件与 execute_as_client 中对应分支一一对应，公开契约测试钉住二者一致。
+/// 组合条件由 composite_scope 渲染，与 execute_with_grant 执行同一份数据。
 pub(crate) fn scope_metadata(operation: &str, input_schema: &Value) -> Value {
     let access = if privileged(operation) {
         "trusted-local-only"
@@ -34,7 +91,7 @@ pub(crate) fn scope_metadata(operation: &str, input_schema: &Value) -> Value {
     let member_grant = if crate::maintenance::is_global_operation(operation) {
         // 受限成员授权直接 member_denied，须授权全部成员
         "all-members"
-    } else if ["capabilities", "provider.list", "provider.validate"].contains(&operation) {
+    } else if space_level_operation(operation) {
         "space-level"
     } else if operation == "member.list" {
         "filtered"
@@ -51,26 +108,23 @@ pub(crate) fn scope_metadata(operation: &str, input_schema: &Value) -> Value {
         "primary_grant_required": primary_grant_required,
         "member": {"grant": member_grant},
     });
-    let additional = match operation {
-        "feedback.record" => json!([{
-            "when": {"reaction": ["actual_wore", "changed"]},
-            "requires": ["wear.record"],
-        }]),
-        "feedback.try_another" => json!([{
-            "requires": ["feedback.record", "recommendation.change"],
-        }]),
-        "learning.worker.run" | "jobs.retry" | "jobs.cancel" => json!([{
-            "when_job_kind": "learning_recompute",
-            "requires": ["learning.recompute"],
-        }]),
-        other if other.starts_with("maintenance.") && other != "maintenance.list" => json!([{
-            "requires_original_job_scope": true,
-            "job_field": "id",
-        }]),
-        _ => Value::Null,
-    };
-    if !additional.is_null() {
-        scope["additional"] = additional;
+    let additional: Vec<Value> = composite_scope(operation)
+        .iter()
+        .map(|rule| match rule {
+            CompositeScope::FieldValue { field, values, requires, .. } => {
+                json!({"when": {*field: values}, "requires": requires})
+            }
+            CompositeScope::Plain { requires, .. } => json!({"requires": requires}),
+            CompositeScope::JobKind { kind, requires, .. } => {
+                json!({"when_job_kind": kind, "requires": requires})
+            }
+            CompositeScope::OriginalJobScope => {
+                json!({"requires_original_job_scope": true, "job_field": "id"})
+            }
+        })
+        .collect();
+    if !additional.is_empty() {
+        scope["additional"] = Value::Array(additional);
     }
     scope
 }
@@ -292,29 +346,27 @@ impl Application {
         input: Value,
     ) -> Result<Value, ApiError> {
         check_grant_operation(&grant, operation)?;
-        if operation == "feedback.record"
-            && matches!(input["reaction"].as_str(), Some("actual_wore" | "changed"))
-            && grant["mode"] != "full"
-            && !grant["operations"]
-                .as_array()
-                .unwrap()
-                .contains(&json!("wear.record"))
-        {
-            return Err(ApiError::new(
-                "scope_denied",
-                "实际穿着反馈还需要wear.record授权",
-            ));
-        }
-        if operation == "feedback.try_another"
-            && grant["mode"] != "full"
-            && ["feedback.record", "recommendation.change"]
-                .iter()
-                .any(|op| !grant["operations"].as_array().unwrap().contains(&json!(op)))
-        {
-            return Err(ApiError::new(
-                "scope_denied",
-                "Try Another还需要feedback.record与recommendation.change授权",
-            ));
+        // 输入字段条件组合 scope（composite_scope 单一来源；分支位置与文案保持既有语义）
+        for rule in composite_scope(operation) {
+            if let CompositeScope::FieldValue { field, values, requires, message } = rule {
+                if matches!(input[field].as_str(), Some(value) if values.contains(&value))
+                    && grant["mode"] != "full"
+                    && !requires
+                        .iter()
+                        .all(|op| grant["operations"].as_array().unwrap().contains(&json!(op)))
+                {
+                    return Err(ApiError::new("scope_denied", message));
+                }
+            }
+            if let CompositeScope::Plain { requires, message } = rule {
+                if grant["mode"] != "full"
+                    && !requires
+                        .iter()
+                        .all(|op| grant["operations"].as_array().unwrap().contains(&json!(op)))
+                {
+                    return Err(ApiError::new("scope_denied", message));
+                }
+            }
         }
         if !crate::operations()
             .as_array()
@@ -327,7 +379,10 @@ impl Application {
         if grant["member_ids"].is_array() && crate::maintenance::is_global_operation(operation) {
             return Err(ApiError::new("member_denied", "全空间维护需要授权全部成员"));
         }
-        if operation.starts_with("maintenance.") && operation != "maintenance.list" {
+        if composite_scope(operation)
+            .iter()
+            .any(|rule| matches!(rule, CompositeScope::OriginalJobScope))
+        {
             let job = self.maintenance_raw_get(string(&input, "id")?)?;
             if grant["mode"] != "full"
                 && !grant["operations"]
@@ -383,7 +438,7 @@ impl Application {
                     result["selected_member_id"] = Value::Null;
                 }
                 return Ok(result);
-            } else if !["capabilities", "provider.list", "provider.validate"].contains(&operation) {
+            } else if !space_level_operation(operation) {
                 return Err(ApiError::new(
                     "member_denied",
                     "此操作需要明确授权的member_id，空间级操作须授权全部成员",
@@ -412,28 +467,23 @@ impl Application {
                 self.check_deferred_grant(string(&grant, "id")?, "stylist.ask", &member)?;
             }
         }
-        if grant["mode"] != "full"
-            && matches!(
-                operation,
-                "learning.worker.run" | "jobs.retry" | "jobs.cancel"
-            )
-        {
-            let id = if operation == "learning.worker.run" {
-                input["job_id"].clone()
-            } else {
-                input["id"].clone()
-            };
-            let job = self.job_get(json!({"member_id":self.member(&input)?,"id":id}))?;
-            if job["kind"] == "learning_recompute"
-                && !grant["operations"]
-                    .as_array()
-                    .unwrap()
-                    .contains(&json!("learning.recompute"))
-            {
-                return Err(ApiError::new(
-                    "scope_denied",
-                    "管理学习重算任务还需要learning.recompute授权",
-                ));
+        if grant["mode"] != "full" {
+            // 按任务 kind 条件组合 scope（composite_scope 单一来源）
+            for rule in composite_scope(operation) {
+                if let CompositeScope::JobKind { kind, id_field, requires, message } = rule {
+                    let id = match id_field {
+                        JobIdField::JobId => input["job_id"].clone(),
+                        JobIdField::Id => input["id"].clone(),
+                    };
+                    let job = self.job_get(json!({"member_id":self.member(&input)?,"id":id}))?;
+                    if job["kind"] == json!(kind)
+                        && !requires
+                            .iter()
+                            .all(|op| grant["operations"].as_array().unwrap().contains(&json!(op)))
+                    {
+                        return Err(ApiError::new("scope_denied", message));
+                    }
+                }
             }
         }
         if operation == "stylist.ask" {
