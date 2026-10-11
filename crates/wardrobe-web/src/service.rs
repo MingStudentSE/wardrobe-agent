@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use wardrobe_core::Application;
+use wardrobe_core::{ApiError, Application};
 
 const SESSION_COOKIE: &str = "wardrobe_session";
 const MAX_JSON_BODY: usize = 1024 * 1024;
@@ -91,6 +91,19 @@ impl Resp {
     }
     fn error(status: u16, code: &str, message: &str) -> Self {
         Self::json(status, json!({"error":{"code":code,"message":message}}))
+    }
+    /// 业务错误的统一出口（#74）：直接序列化完整 ApiError（code/message 与核心
+    /// 附着的 trace_id；reason 由 serde 跳过，绝不外泄），缝合线不再手拼丢字段。
+    /// HTTP 状态与外壳由调用方决定：业务错误 200 + schema_version 信封（与 CLI
+    /// 一致），auth 端点保持既有 401/409 与无版本外壳。
+    fn from_api_error(status: u16, with_schema_version: bool, error: ApiError) -> Self {
+        let error = serde_json::to_value(&error).expect("ApiError 应能序列化");
+        let payload = if with_schema_version {
+            json!({"schema_version":1,"error":error})
+        } else {
+            json!({"error":error})
+        };
+        Self::json(status, payload)
     }
     fn with_cookie(mut self, cookie: String) -> Self {
         self.set_cookie = Some(cookie);
@@ -550,10 +563,7 @@ fn auth_bootstrap(state: &AppState, request: &mut tiny_http::Request) -> Resp {
                 )
                 .with_cookie(session_cookie_value(&session_id))
             }
-            Err(error) => Resp::json(
-                409,
-                json!({"error":{"code":error.code,"message":error.message}}),
-            ),
+            Err(error) => Resp::from_api_error(409, false, error),
         }
     }
 }
@@ -589,10 +599,7 @@ fn auth_login(state: &AppState, request: &mut tiny_http::Request) -> Resp {
             )
             .with_cookie(session_cookie_value(&session_id))
         }
-        Err(error) => Resp::json(
-            401,
-            json!({"error":{"code":error.code,"message":error.message}}),
-        ),
+        Err(error) => Resp::from_api_error(401, false, error),
     }
 }
 
@@ -661,10 +668,7 @@ fn api_bridge(state: &AppState, request: &mut tiny_http::Request) -> Resp {
     let app = state.app.lock().unwrap();
     match app.execute_as_client(&grant, operation, input) {
         Ok(result) => Resp::json(200, json!({"schema_version":1,"result":result})),
-        Err(error) => Resp::json(
-            200,
-            json!({"schema_version":1,"error":{"code":error.code,"message":error.message}}),
-        ),
+        Err(error) => Resp::from_api_error(200, true, error),
     }
 }
 
@@ -743,10 +747,7 @@ fn api_upload(state: &AppState, request: &mut tiny_http::Request, url: &str) -> 
     let _ = std::fs::remove_file(&temp_path);
     match outcome {
         Ok(result) => Resp::json(200, json!({"schema_version":1,"result":result})),
-        Err(error) => Resp::json(
-            200,
-            json!({"schema_version":1,"error":{"code":error.code,"message":error.message}}),
-        ),
+        Err(error) => Resp::from_api_error(200, true, error),
     }
 }
 
@@ -880,10 +881,7 @@ fn api_batch_upload(state: &AppState, request: &mut tiny_http::Request) -> Resp 
             json!({"member_id":member,"operation_key":operation_key,"paths":paths}),
         ) {
             Ok(result) => Ok(Resp::json(200, json!({"schema_version":1,"result":result}))),
-            Err(error) => Ok(Resp::json(
-                200,
-                json!({"schema_version":1,"error":{"code":error.code,"message":error.message}}),
-            )),
+            Err(error) => Ok(Resp::from_api_error(200, true, error)),
         }
     };
     let _ = std::fs::remove_dir_all(&batch_directory);

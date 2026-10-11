@@ -23,6 +23,7 @@ mod members;
 mod outfits;
 mod pair_search;
 mod pairing;
+mod pagination;
 mod product;
 pub mod profiles;
 mod providers;

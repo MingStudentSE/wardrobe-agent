@@ -4,7 +4,7 @@ import {ImagePreview} from '../ImagePreview';
 import {Clothing} from '../ItemEditor';
 import './outfit-studio.css';
 import React,{useEffect,useRef,useState} from 'react';
-import {api} from '../api';import {message} from '../ItemEditor';import './Recommendations.css';
+import {api} from '../api';import {fetchAll} from '../pagination';import {message} from '../ItemEditor';import './Recommendations.css';
 type Job={id:string;state:string;progress:number;lease_expires?:number;next_due?:number;result?:{intent_id?:string}|null;kind?:string;error?:{message?:string;code?:string}|null};
 type Receipt={job_id:string;state:string;progress:number;intent_id?:string|null;next_due:number;error?:{message?:string;code?:string}|null};
 type Item={clothing_id:string;name:string;role:string;layer:number};
@@ -23,7 +23,7 @@ export function Recommendations({member,disabled,canMutate,onBusy,learningRevisi
  useEffect(()=>{alter();},[learningRevision]);
  useEffect(()=>{if(aiEntry){setStrategy('ai');try{const manual=JSON.parse(localStorage.getItem('wardrobe-manual-weather:'+member)||'null');if(manual){setWeather('manual');setLocation(manual.location);setTemperature(String(manual.temperature_c));}}catch{}alter();}},[aiEntry,member]);
  function toggle(ids:string[],id:string,set:(ids:string[])=>void){set(ids.includes(id)?ids.filter(value=>value!==id):[...ids,id]);alter();}
- async function loadGarments(){let cursor:string|null=null;const items:Clothing[]=[];do{const page:{items:Clothing[];next_cursor:string|null}=await api('clothing.list',{member_id:member,limit:100,...(cursor?{cursor}:{})});items.push(...page.items);cursor=page.next_cursor;}while(cursor);return {items};}
+ async function loadGarments(){return {items:await fetchAll<Clothing>('clothing.list',{member_id:member,limit:100})};}
  async function load(){const e=epoch.current;setLoading(true);try{const[s,h,p,j,c]=await Promise.all([api<{items:Stock[]}>('care.availability',{member_id:member}),api<{items:Intent[]}>('recommendation.list',{member_id:member}),api<{items:{id:string;name:string;capabilities:string[]}[]}>('provider.list',{}),api<{items:Job[]}>('jobs.list',{member_id:member}),loadGarments()]);if(e===epoch.current){setStock(s.items);setGarments(c.items);setHistory(h.items);setProviders(p.items.filter(v=>v.capabilities.includes('text')));const recent=j.items.filter(v=>v.kind==='text_recommendation').slice(0,20);setTasks(recent);if(!pending.current)setJob(recent[0]??null);}}catch(err){if(e===epoch.current)setError(message(err));}finally{if(e===epoch.current)setLoading(false);}}
  useEffect(()=>{epoch.current++;void load();return()=>{epoch.current++;};},[member]);
  async function run(f:()=>Promise<void>){if(disabled||pending.current||!canMutate())return;pending.current=true;setBusy(true);onBusy(true);setError('');setSuccess('');try{await f();}catch(err){setError(message(err));}finally{pending.current=false;setBusy(false);onBusy(false);}}

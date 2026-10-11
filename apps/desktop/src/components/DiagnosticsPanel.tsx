@@ -1,5 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {api} from '../api';
+import {errorMessage} from '../errorMessage';
 import {settingsEntries} from './SettingsHub';
 import {exportDiagnostics,formatBytes,isTauri,revealExportedFile,type ExportResult} from './diagnostics-export';
 import {ExportResultNotice} from './diagnostics-export-result';
@@ -21,7 +22,7 @@ type Scope='session'|'recent'|'all'|'window';
 type TraceState={loading:boolean;items:LogEvent[];error?:string};
 function formatTime(ts:string){const date=new Date(ts);return isNaN(date.getTime())?ts:date.toLocaleString('zh-CN',{hour12:false,month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
 function shortId(id:string){return id?id.slice(0,8):'—';}
-function errorText(e:unknown){return typeof e==='object'&&e&&'message'in e?String((e as {message?:unknown}).message):'操作失败，请重试。';}
+const errorText=(e:unknown)=>errorMessage(e,'操作失败，请重试。');
 function formatClock(ms:number){const total=Math.max(0,Math.floor(ms/1000));const minutes=Math.floor(total/60),seconds=total%60;return `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;}
 function formatLimit(seconds:number){const minutes=Math.floor(seconds/60);return minutes>0?`${minutes} 分钟`:`${seconds} 秒`;}
 type Metric={label:string;value:string;note:string};
