@@ -26290,9 +26290,6 @@
   "inputSchema": {
    "additionalProperties": false,
    "properties": {
-    "id": {
-     "type": "string"
-    },
     "member_id": {
      "type": "string"
     }

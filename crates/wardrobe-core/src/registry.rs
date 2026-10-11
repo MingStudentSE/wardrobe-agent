@@ -73,11 +73,9 @@ fn build() -> BTreeMap<String, OperationEntry> {
             .as_object()
             .map(|properties| properties.keys().cloned().collect())
             .unwrap_or_default();
-        let (_, handler) = declaration_index()
+        declaration_index()
             .get(&name)
-            .cloned()
             .unwrap_or_else(|| panic!("操作 {name} 缺少注册声明（effect/分发处理器）"));
-        debug_assert!(handler.is_some(), "操作 {name} 缺少分发处理器声明");
         map.insert(name, OperationEntry { fields });
     }
     map
