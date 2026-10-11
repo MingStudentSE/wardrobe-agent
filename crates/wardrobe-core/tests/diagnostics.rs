@@ -648,6 +648,29 @@ fn diagnostics_summary_matches_persisted_job_states_and_reports_log_health() {
     assert_eq!(logs["dropped_events"], 0, "可写目录下无丢弃");
 }
 
+/// logs.directory（#73）：摘要直接报告日志引擎实际写入的 logs/ 目录，
+/// 前端不再由 data_directory.status 手拼路径；目录真实存在且有事件落盘。
+#[test]
+fn diagnostics_summary_reports_the_logs_directory_events_are_written_to() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("wardrobe.sqlite")).unwrap();
+    app.execute("space.default", json!({})).unwrap();
+    let summary = app.execute("diagnostics.summary", json!({})).unwrap();
+    let directory = summary["logs"]["directory"].as_str().expect("{summary}");
+    assert_eq!(
+        std::path::Path::new(directory),
+        &dir.path().join("logs"),
+        "日志目录与数据目录同源（resolved 数据目录 + logs）：{summary}"
+    );
+    // run_start 是进程级一次（首个日志汇）；这里断言本应用自己写的事件落在报告的目录里
+    assert!(
+        log_events(dir.path()).iter().any(|event| {
+            event["event_type"] == "operation" && event["operation"] == "diagnostics.summary"
+        }),
+        "报告的目录正是事件写入的目录：{directory}"
+    );
+}
+
 #[test]
 fn provider_outcome_unknown_projection_covers_every_vision_submission_kind() {
     // 诊断投影的「已提交」谓词与恢复守卫同源（提交台账）：视觉提交类任务

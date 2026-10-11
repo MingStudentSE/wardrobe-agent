@@ -30443,6 +30443,10 @@
     "logs": {
      "additionalProperties": false,
      "properties": {
+      "directory": {
+       "type": "string",
+       "description": "日志目录实际路径（事件文件所在，与数据目录同源）"
+      },
       "dropped_events": {
        "description": "写入失败静默丢弃的事件计数",
        "type": "integer"
@@ -30464,6 +30468,7 @@
       }
      },
      "required": [
+      "directory",
       "total_bytes",
       "file_count",
       "retention_days",
