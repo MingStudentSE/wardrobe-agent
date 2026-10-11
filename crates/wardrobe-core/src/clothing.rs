@@ -84,15 +84,7 @@ impl Application {
     }
     pub(super) fn clothing_list(&self, input: Value) -> Result<Value, ApiError> {
         let member = self.member(&input)?;
-        let limit = match input.get("limit") {
-            None => 50,
-            Some(value) => value
-                .as_u64()
-                .ok_or_else(|| ApiError::new("invalid_input", "每页数量必须为整数"))?,
-        };
-        if !(1..=100).contains(&limit) {
-            return Err(ApiError::new("invalid_input", "每页数量必须为 1–100"));
-        }
+        let limit = crate::pagination::parse_limit(&input, 50, "每页数量必须为整数", "每页数量必须为 1–100")?;
         let cursor = match input.get("cursor") {
             None => "",
             Some(value) => value
@@ -213,15 +205,7 @@ impl Application {
     }
     pub(super) fn clothing_history(&self, input: Value) -> Result<Value, ApiError> {
         let doc = self.clothing_get(input.clone())?;
-        let limit = input
-            .get("limit")
-            .map(|v| {
-                v.as_u64()
-                    .filter(|v| (1..=100).contains(v))
-                    .ok_or_else(|| ApiError::new("invalid_input", "每页数量必须为 1–100"))
-            })
-            .transpose()?
-            .unwrap_or(50);
+        let limit = crate::pagination::parse_limit(&input, 50, "每页数量必须为 1–100", "每页数量必须为 1–100")?;
         let cursor = input
             .get("cursor")
             .map(|v| {

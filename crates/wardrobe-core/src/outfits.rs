@@ -209,15 +209,7 @@ impl Application {
             Some(v) => Some(v.as_bool().ok_or_else(|| invalid("收藏须为布尔值"))?),
             None => None,
         };
-        let limit = input
-            .get("limit")
-            .map(|v| {
-                v.as_u64()
-                    .filter(|v| (1..=100).contains(v))
-                    .ok_or_else(|| invalid("每页数量须为1–100"))
-            })
-            .transpose()?
-            .unwrap_or(24);
+        let limit = crate::pagination::parse_limit(&input, 24, "每页数量须为1–100", "每页数量须为1–100")?;
         let cursor = input
             .get("cursor")
             .map(|v| v.as_str().ok_or_else(|| invalid("游标须为字符串")))

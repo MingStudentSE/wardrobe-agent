@@ -714,15 +714,7 @@ impl Application {
                 Some(text.to_lowercase())
             }
         };
-        let limit = match input.get("limit") {
-            None => 50,
-            Some(value) => value
-                .as_u64()
-                .ok_or_else(|| ApiError::new("invalid_input", "每页数量必须为整数"))?,
-        };
-        if !(1..=100).contains(&limit) {
-            return Err(ApiError::new("invalid_input", "每页数量必须为 1–100"));
-        }
+        let limit = crate::pagination::parse_limit(&input, 50, "每页数量必须为整数", "每页数量必须为 1–100")?;
         let (cursor_millis, cursor_skip) = match input.get("cursor") {
             None | Some(Value::Null) => (None, 0u64),
             Some(value) => {

@@ -386,15 +386,7 @@ impl Application {
             .get("clothing_id")
             .map(|v| v.as_str().ok_or_else(|| invalid("单品筛选须为字符串")))
             .transpose()?;
-        let limit = input
-            .get("limit")
-            .map(|v| {
-                v.as_u64()
-                    .filter(|n| (1..=100).contains(n))
-                    .ok_or_else(|| invalid("每页数量须为1–100"))
-            })
-            .transpose()?
-            .unwrap_or(24) as usize;
+        let limit = crate::pagination::parse_limit(&input, 24, "每页数量须为1–100", "每页数量须为1–100")? as usize;
         let cursor = input
             .get("cursor")
             .map(|v| v.as_str().ok_or_else(|| invalid("游标须为字符串")))

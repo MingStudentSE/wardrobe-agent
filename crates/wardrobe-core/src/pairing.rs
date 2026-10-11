@@ -72,15 +72,7 @@ impl Application {
                     .ok_or_else(|| invalid("配对锚点须为非空文字"))
             })
             .transpose()?;
-        let limit = input
-            .get("limit")
-            .map(|v| {
-                v.as_u64()
-                    .filter(|n| (1..=100).contains(n))
-                    .ok_or_else(|| invalid("每页数量须为1–100"))
-            })
-            .transpose()?
-            .unwrap_or(24);
+        let limit = crate::pagination::parse_limit(&input, 24, "每页数量须为1–100", "每页数量须为1–100")?;
         let cursor = input
             .get("cursor")
             .map(|v| {
