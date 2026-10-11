@@ -1,5 +1,5 @@
-use serde_json::json;
-use wardrobe_core::Application;
+use serde_json::{json, Value};
+use wardrobe_core::{operations, Application};
 #[test]
 fn rotation_preserves_original_and_facts_and_restores_after_restart() {
     let dir = tempfile::tempdir().unwrap();
@@ -425,4 +425,135 @@ fn twenty_image_limit_and_member_scope_reject_merge_atomically() {
         )
         .unwrap_err();
     assert_eq!(error.code, "invalid_input");
+}
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+fn assert_result_matches_schema(schema: &Value, result: &Value, context: &str) {
+    assert_eq!(
+        schema["type"].as_str(),
+        Some("object"),
+        "{context}: outputSchema 须为 object"
+    );
+    let props = schema["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("{context}: outputSchema 须声明 properties"));
+    let required: Vec<&str> = schema["required"]
+        .as_array()
+        .map(|r| r.iter().map(|v| v.as_str().unwrap()).collect())
+        .unwrap_or_default();
+    let actual = result
+        .as_object()
+        .unwrap_or_else(|| panic!("{context} 结果须为对象"));
+    for (key, value) in actual {
+        let prop = props
+            .get(key)
+            .unwrap_or_else(|| panic!("{context}: 实际结果字段 {key} 未在 outputSchema 声明"));
+        if let Some(const_value) = prop.get("const") {
+            assert_eq!(value, const_value, "{context}: 字段 {key} 须等于 const");
+        }
+        if let Some(allowed) = prop["enum"].as_array() {
+            assert!(allowed.contains(value), "{context}: 字段 {key} 须为枚举值");
+        }
+        let declared_types: Vec<String> = match prop.get("type") {
+            Some(Value::String(t)) => vec![t.clone()],
+            Some(Value::Array(ts)) => ts.iter().map(|v| v.as_str().unwrap().to_string()).collect(),
+            _ => vec![],
+        };
+        let actual_type = match value {
+            Value::String(_) => "string",
+            Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
+            Value::Number(_) => "number",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+            Value::Bool(_) => "boolean",
+            Value::Null => "null",
+        };
+        assert!(
+            declared_types.is_empty()
+                || declared_types.iter().any(|t| {
+                    t == actual_type
+                        || (t == "number" && value.is_number())
+                        || (t == "integer" && value.as_f64().is_some_and(|n| n.fract() == 0.0))
+                }),
+            "{context}: 字段 {key} 声明类型不符"
+        );
+    }
+    for key in required {
+        assert!(
+            actual.contains_key(key),
+            "{context}: 缺少 required 字段 {key}"
+        );
+    }
+}
+
+
+#[test]
+fn images_family_effects_examples_and_runtime_output_contract() {
+    // 真实本地图片：rotate/main/restore与model.status运行时输出对照声明schema
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("shirt.png");
+    image::RgbImage::from_pixel(48, 24, image::Rgb([247, 246, 242]))
+        .save(&source)
+        .unwrap();
+    let app = Application::open(&dir.path().join("db")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let asset = app
+        .execute("assets.import", json!({"member_id":member,"path":source}))
+        .unwrap();
+    let clothing = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"白衬衣","category":"top"}),
+        )
+        .unwrap();
+    app.execute(
+        "assets.adopt",
+        json!({"member_id":member,"asset_id":asset["id"],"clothing_id":clothing["id"]}),
+    )
+    .unwrap();
+
+    let descriptors = operations().as_array().unwrap().clone();
+    let schema_of = |name: &str| -> Value {
+        let d = descriptors
+            .iter()
+            .find(|d| d["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} 必须已注册"));
+        Value::Object(
+            d["outputSchema"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} 必须声明 outputSchema"))
+                .clone(),
+        )
+    };
+
+    let status = app
+        .execute("images.model.status", json!({"member_id":member}))
+        .unwrap();
+    assert_result_matches_schema(&schema_of("images.model.status"), &status, "model.status");
+    let rotated = app
+        .execute(
+            "images.rotate",
+            json!({"member_id":member,"asset_id":asset["id"],"degrees":90}),
+        )
+        .unwrap();
+    assert_eq!(rotated["lineage"][0]["action"], json!("rotate"));
+    assert_result_matches_schema(&schema_of("images.rotate"), &rotated, "rotate");
+    let main = app
+        .execute(
+            "images.main",
+            json!({"member_id":member,"clothing_id":clothing["id"],"asset_id":asset["id"]}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("images.main"), &main, "main");
+    let restored = app
+        .execute(
+            "images.restore",
+            json!({"member_id":member,"asset_id":asset["id"]}),
+        )
+        .unwrap();
+    assert_result_matches_schema(&schema_of("images.restore"), &restored, "restore");
 }

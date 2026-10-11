@@ -27,8 +27,6 @@ pub(crate) fn injects_schema_version(name: &str) -> bool {
 pub(crate) struct OperationEntry {
     /// 「拒绝未知输入」的唯一依据：与公开 inputSchema.properties 逐字一致。
     pub(crate) fields: BTreeSet<String>,
-    /// 分发处理器（同一注册条目分发）。测试读它做结构抽检。
-    pub(crate) handler: Option<Handler>,
 }
 
 /// 声明索引：仅由静态声明构建，绝不回调 operations()——
@@ -79,7 +77,8 @@ fn build() -> BTreeMap<String, OperationEntry> {
             .get(&name)
             .cloned()
             .unwrap_or_else(|| panic!("操作 {name} 缺少注册声明（effect/分发处理器）"));
-        map.insert(name, OperationEntry { fields, handler });
+        debug_assert!(handler.is_some(), "操作 {name} 缺少分发处理器声明");
+        map.insert(name, OperationEntry { fields });
     }
     map
 }
@@ -367,11 +366,8 @@ mod schema_version_rule_tests {
     /// 每个注册行都必须声明分发处理器（公开操作不允许无 handler）。
     #[test]
     fn every_registered_operation_has_a_handler() {
-        for (name, entry) in entries() {
-            assert!(
-                entry.handler.is_some(),
-                "{name} 缺少分发处理器声明"
-            );
+        for (name, (_, handler)) in declaration_index() {
+            assert!(handler.is_some(), "{name} 缺少分发处理器声明");
         }
     }
 }

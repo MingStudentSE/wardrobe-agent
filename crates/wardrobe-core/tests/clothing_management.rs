@@ -236,3 +236,69 @@ fn unknown_patch_fields_cannot_silently_override_identity_assets_or_lifecycle() 
         "invalid_input"
     );
 }
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+#[test]
+fn clothing_effects_and_examples_match_actual_lifecycle() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("l.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // 真实生命周期：软删除可恢复；历史保留不可变快照
+    let created = app
+        .execute(
+            "clothing.create",
+            json!({"member_id":member,"name":"羊毛外套","category":"outerwear"}),
+        )
+        .unwrap();
+    let id = created["id"].as_str().unwrap().to_string();
+    app.execute("clothing.archive", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(
+        app.execute("clothing.get", json!({"member_id":member,"id":id}))
+            .unwrap()["status"],
+        json!("archived")
+    );
+    app.execute("clothing.activate", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(
+        app.execute("clothing.get", json!({"member_id":member,"id":id}))
+            .unwrap()["status"],
+        json!("active")
+    );
+    app.execute("clothing.delete", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(
+        app.execute("clothing.get", json!({"member_id":member,"id":id}))
+            .unwrap()["status"],
+        json!("deleted")
+    );
+    app.execute("clothing.restore", json!({"member_id":member,"id":id}))
+        .unwrap();
+    assert_eq!(
+        app.execute("clothing.get", json!({"member_id":member,"id":id}))
+            .unwrap()["status"],
+        json!("active")
+    );
+    app.execute(
+        "clothing.update",
+        json!({"member_id":member,"id":id,"favorite":true}),
+    )
+    .unwrap();
+    let history = app
+        .execute("clothing.history", json!({"member_id":member,"id":id}))
+        .unwrap();
+    let entries = history["items"].as_array().unwrap();
+    assert!(entries.len() >= 2, "更新后历史含快照: {history}");
+    assert_eq!(entries[0]["operation"], json!("clothing.create"));
+    assert_eq!(
+        entries[0]["snapshot"]["favorite"],
+        json!(false),
+        "历史首条快照不可变"
+    );
+    assert_eq!(entries.last().unwrap()["snapshot"]["favorite"], json!(true));
+
+}

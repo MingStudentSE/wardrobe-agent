@@ -384,3 +384,30 @@ fn highest_version_repairs_both_care_and_insight_preferences_without_erasing_act
         wardrobe_core::DATABASE_SCHEMA_VERSION
     );
 }
+
+// ==== 自 registry_contracts.rs 迁入的运行时/内容契约（issue #70 增量5）====
+
+#[test]
+fn insights_effects_and_examples_match_actual_statistics_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::open(&dir.path().join("i.sqlite")).unwrap();
+    let member = app.execute("space.default", json!({})).unwrap()["member_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let configured = app
+        .execute(
+            "insights.configure",
+            json!({"member_id":member,"stale_days":91,"expected_revision":0}),
+        )
+        .unwrap();
+    assert_eq!(configured["stale_days"], json!(91));
+    let summary = app
+        .execute(
+            "insights.summary",
+            json!({"member_id":member,"as_of_date":"2020-04-01","timezone":"Asia/Shanghai"}),
+        )
+        .unwrap();
+    assert_eq!(summary["stale_days"], json!(91), "统计读取持久化配置");
+
+}
